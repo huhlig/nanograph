@@ -1,0 +1,50 @@
+[package]
+name = "nanograph-lsm"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+keywords.workspace = true
+readme.workspace = true
+license.workspace = true
+description.workspace = true
+authors.workspace = true
+documentation.workspace = true
+homepage.workspace = true
+repository.workspace = true
+categories.workspace = true
+
+[dependencies]
+# Internal Dependencies
+nanograph-kvt.workspace = true
+nanograph-vfs.workspace = true
+nanograph-wal.workspace = true
+nanograph-util.workspace = true
+
+# Random number generation
+rand.workspace = true
+
+# Error Handling
+thiserror.workspace = true
+
+# Async
+async-trait.workspace = true
+futures-core.workspace = true
+tokio = { workspace = true, features = ["full"] }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+# Logging
+metrics.workspace = true
+tracing.workspace = true
+tracing-timing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["full", "test-util"] }
+futures.workspace = true
+
+[[bench]]
+name = "lsm_benchmarks"
+harness = false

@@ -1,0 +1,81 @@
+[workspace]
+resolver = "3"
+members = [
+    "nanograph-art",
+    "nanograph-btree",
+    "nanograph-kvt",
+    "nanograph-lsm",
+    "nanograph-raft",
+    "nanograph-util",
+    "nanograph-vfs",
+    "nanograph-wal",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+keywords = ["graph", "vector"]
+readme = "README.md"
+license = "APACHE2 or MIT"
+description = "An Embeddedable AI Database"
+authors = ["Hans W. Uhlig <huhlig@gmail.com>"]
+documentation = "https://huhlig.github.io/nanograph"
+homepage = "https://huhlig.github.io/nanograph"
+repository = "https://github.com/huhlig/nanograph"
+categories = ["database"]
+
+
+[workspace.dependencies]
+# Internal Crates
+nanograph-art = { path = "nanograph-art" }
+nanograph-btree = { path = "nanograph-btree" }
+nanograph-kvt = { path = "nanograph-kvt" }
+nanograph-lsm = { path = "nanograph-lsm" }
+nanograph-raft = { path = "nanograph-raft" }
+nanograph-util = { path = "nanograph-util" }
+nanograph-vfs = { path = "nanograph-vfs" }
+nanograph-wal = { path = "nanograph-wal" }
+
+# Async
+async-trait = { version = "0.1" }
+futures = { version = "0.3" }
+futures-core = { version = "0.3", features = ["default"] }
+tokio = { version = "1", features = ["full"] }
+
+# Integrity
+crc32c = { version = "0.6" }
+xxhash-rust = { version = "0.8", features = ["xxh32"] }
+
+# Compression
+lz4 = { version = "1.28" }
+zstd = { version = "0.13" }
+snap = { version = "1.1" }
+
+# Encryption
+aes-gcm = { version = "0.10" }
+chacha20poly1305 = { version = "0.10" }
+rand = { version = "0.9", features = ["small_rng"] }
+
+# Error handling
+thiserror = "2.0"
+
+# Consensus
+openraft = { version = "0.9" }
+
+# Serialization
+bincode = { version = "3" }
+byteorder = { version = "1.5", features = ["default"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["default"] }
+
+# Logging
+metrics = { version = "0.24" }
+tracing = { version = "0.1", features = ["default"] }
+tracing-timing = { version = "0.7", features = ["default"] }
+tracing-subscriber = { version = "0.3", features = ["default"] }
+
+# Testing & Benchmarking
+criterion = { version = "0.8", features = ["html_reports", "csv_output", "plotters"] }
+tracing-test = { version = "0.2" }
+tempfile = { version = "3.24" }

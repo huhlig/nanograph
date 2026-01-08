@@ -1,0 +1,53 @@
+[package]
+name = "nanograph-btree"
+description = "B+Tree implementation for Nanograph"
+categories = ["algorithms", "database-implementations", "data-structures"]
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+keywords.workspace = true
+readme.workspace = true
+license.workspace = true
+authors.workspace = true
+documentation.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Internal Dependencies
+nanograph-kvt.workspace = true
+nanograph-vfs.workspace = true
+nanograph-wal.workspace = true
+nanograph-util.workspace = true
+
+# Random number generation
+rand.workspace = true
+
+# Error Handling
+thiserror.workspace = true
+
+# Async
+async-trait.workspace = true
+futures-core.workspace = true
+futures = "0.3"
+tokio = { workspace = true, features = ["full"] }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1.0"
+
+# Logging and Tracing
+metrics.workspace = true
+tracing.workspace = true
+tracing-timing.workspace = true
+
+[dev-dependencies]
+tempfile = "3.8"
+tokio = { workspace = true, features = ["full", "test-util"] }
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+proptest = "1.4"
+rand_chacha = "0.3"
+
+[[bench]]
+name = "btree_benchmarks"
+harness = false

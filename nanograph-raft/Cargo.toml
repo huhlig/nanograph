@@ -1,0 +1,33 @@
+[package]
+name = "nanograph-raft"
+description = "Raft Based Consensus Model for Nanograph"
+categories = ["concurrency", "network-programming"]
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+keywords.workspace = true
+readme.workspace = true
+license.workspace = true
+authors.workspace = true
+documentation.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Internal Crates
+nanograph-kvt.workspace = true
+nanograph-wal.workspace = true
+
+# Async
+async-trait.workspace = true
+
+# Consensus
+openraft.workspace = true
+
+# Serialization
+bincode.workspace = true
+
+# Logging
+metrics.workspace = true
+tracing.workspace = true
+tracing-timing.workspace = true

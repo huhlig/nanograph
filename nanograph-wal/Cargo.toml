@@ -1,0 +1,26 @@
+[package]
+name = "nanograph-wal"
+description = "Write Ahead Log Service for Nanograph"
+categories = ["data-structures", "database-implementations"]
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+keywords.workspace = true
+readme.workspace = true
+license.workspace = true
+authors.workspace = true
+documentation.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+byteorder.workspace = true
+metrics.workspace = true
+nanograph-util.workspace = true
+nanograph-vfs.workspace = true
+tracing.workspace = true
+tracing-timing.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+tracing-test.workspace = true
