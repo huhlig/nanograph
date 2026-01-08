@@ -446,5 +446,3 @@ mod tests {
         assert_eq!(IntegrityAlgorithm::XXHash32.hash_size(), 4);
     }
 }
-
-// Made with Bob

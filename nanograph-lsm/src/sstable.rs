@@ -368,7 +368,8 @@ impl BloomFilter {
         let delta = (hash >> 17) | (hash << 15);
 
         for i in 0..self.num_hash_functions {
-            let bit_pos = hash.wrapping_add((i as u64).wrapping_mul(delta)) % (self.bits.len() as u64 * 8);
+            let bit_pos =
+                hash.wrapping_add((i as u64).wrapping_mul(delta)) % (self.bits.len() as u64 * 8);
             self.bits[bit_pos as usize / 8] |= 1 << (bit_pos % 8);
         }
     }
@@ -378,7 +379,8 @@ impl BloomFilter {
         let delta = (hash >> 17) | (hash << 15);
 
         for i in 0..self.num_hash_functions {
-            let bit_pos = hash.wrapping_add((i as u64).wrapping_mul(delta)) % (self.bits.len() as u64 * 8);
+            let bit_pos =
+                hash.wrapping_add((i as u64).wrapping_mul(delta)) % (self.bits.len() as u64 * 8);
             if (self.bits[bit_pos as usize / 8] & (1 << (bit_pos % 8))) == 0 {
                 return false;
             }
@@ -566,13 +568,13 @@ impl SSTable {
         if integrity != IntegrityAlgorithm::None && footer.checksum != 0 {
             // Calculate file size without footer
             let file_size = reader.seek(SeekFrom::End(0))? - Footer::SIZE as u64;
-            
+
             // Read and hash all data before footer
             reader.seek(SeekFrom::Start(0))?;
             let mut hasher = integrity.hasher();
             let mut buffer = vec![0u8; 8192];
             let mut remaining = file_size;
-            
+
             while remaining > 0 {
                 let to_read = std::cmp::min(remaining as usize, buffer.len());
                 let bytes_read = reader.read(&mut buffer[..to_read])?;
@@ -582,12 +584,12 @@ impl SSTable {
                 hasher.update(&buffer[..bytes_read]);
                 remaining -= bytes_read as u64;
             }
-            
+
             let calculated_checksum = match hasher.finalize() {
                 IntegrityHash::Hash32(v) => v,
                 IntegrityHash::None => 0,
             };
-            
+
             if calculated_checksum != footer.checksum {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -681,7 +683,7 @@ impl<R: Read + Seek> SSTableIterator<R> {
         }
 
         let block_handle = &self.index.entries[self.current_block_idx].1;
-        
+
         // Read block data
         self.reader.seek(SeekFrom::Start(block_handle.offset))?;
         let mut block_data = vec![0u8; block_handle.size as usize];
@@ -714,9 +716,9 @@ impl<R: Read + Seek> Iterator for SSTableIterator<R> {
 
             // Need to load next block
             match self.load_next_block() {
-                Ok(true) => continue,  // Successfully loaded next block
-                Ok(false) => return None,  // No more blocks
-                Err(e) => return Some(Err(e)),  // Error loading block
+                Ok(true) => continue,          // Successfully loaded next block
+                Ok(false) => return None,      // No more blocks
+                Err(e) => return Some(Err(e)), // Error loading block
             }
         }
     }
@@ -870,5 +872,3 @@ mod tests {
         assert!(entry.is_none());
     }
 }
-
-// Made with Bob

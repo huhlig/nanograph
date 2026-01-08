@@ -18,78 +18,255 @@ use crate::iterator::BPlusTreeIterator;
 use crate::metrics::BTreeMetrics;
 use crate::transaction::TransactionManager;
 use crate::tree::{BPlusTree, BPlusTreeConfig};
+use crate::wal_record::{
+    WalRecordKind, decode_delete, decode_put, encode_checkpoint, encode_delete, encode_put,
+};
 use async_trait::async_trait;
 use nanograph_kvt::{
-    BTreeStats as KvBTreeStats, EngineStats, KeyRange, KeyValueError, KeyValueIterator,
-    KeyValueResult, KeyValueStore, KeyValueTableId, TableStats, Transaction,
+    KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId,
+    ShardIndex, ShardStats, StatValue, TableId, Transaction,
+};
+use nanograph_vfs::{MemoryFileSystem, Path};
+use nanograph_wal::{
+    LogSequenceNumber, WriteAheadLogConfig, WriteAheadLogManager, WriteAheadLogRecord,
 };
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
+
+/// Shard data including tree and WAL
+struct ShardData {
+    tree: Arc<BPlusTree>,
+    wal: Option<Arc<WriteAheadLogManager>>,
+    wal_writer: Option<Arc<Mutex<nanograph_wal::WriteAheadLogWriter>>>,
+    flushed_lsn: Arc<RwLock<Option<LogSequenceNumber>>>,
+}
 
 /// B+Tree implementation of KeyValueStore
+///
+/// This is a low-level storage engine that manages physical shards.
+/// It does NOT manage table names or allocate IDs - that's the responsibility
+/// of KeyValueDatabaseManager at a higher level.
 pub struct BTreeKeyValueStore {
-    /// B+Trees for each table
-    trees: Arc<RwLock<HashMap<KeyValueTableId, Arc<BPlusTree>>>>,
-
-    /// Table names
-    table_names: Arc<RwLock<HashMap<KeyValueTableId, String>>>,
-
-    /// Next table ID
-    next_table_id: Arc<RwLock<u128>>,
+    /// Shard data (trees + WAL) for each shard
+    shards: Arc<RwLock<HashMap<ShardId, Arc<ShardData>>>>,
 
     /// Transaction manager
     tx_manager: Arc<TransactionManager>,
 
-    /// Metrics for each table
-    metrics: Arc<RwLock<HashMap<KeyValueTableId, Arc<BTreeMetrics>>>>,
+    /// Metrics for each shard
+    metrics: Arc<RwLock<HashMap<ShardId, Arc<BTreeMetrics>>>>,
 
     /// Default B+Tree configuration
     config: BPlusTreeConfig,
+
+    /// Enable WAL for durability
+    wal_enabled: bool,
 }
 
 impl BTreeKeyValueStore {
-    /// Create a new B+Tree key-value store
+    /// Create a new B+Tree key-value store without WAL
     pub fn new(config: BPlusTreeConfig) -> Self {
         Self {
-            trees: Arc::new(RwLock::new(HashMap::new())),
-            table_names: Arc::new(RwLock::new(HashMap::new())),
-            next_table_id: Arc::new(RwLock::new(1)),
+            shards: Arc::new(RwLock::new(HashMap::new())),
             tx_manager: Arc::new(TransactionManager::new()),
             metrics: Arc::new(RwLock::new(HashMap::new())),
             config,
+            wal_enabled: false,
         }
     }
 
-    /// Get the tree for a table
-    fn get_tree(&self, table: KeyValueTableId) -> KeyValueResult<Arc<BPlusTree>> {
-        let trees = self.trees.read().unwrap();
-        trees
-            .get(&table)
-            .cloned()
-            .ok_or(nanograph_kvt::KeyValueError::KeyNotFound)
+    /// Create a new B+Tree key-value store with WAL enabled
+    pub fn with_wal(config: BPlusTreeConfig) -> Self {
+        Self {
+            shards: Arc::new(RwLock::new(HashMap::new())),
+            tx_manager: Arc::new(TransactionManager::new()),
+            metrics: Arc::new(RwLock::new(HashMap::new())),
+            config,
+            wal_enabled: true,
+        }
     }
 
-    /// Get the metrics for a table
-    fn get_metrics(&self, table: KeyValueTableId) -> Arc<BTreeMetrics> {
+    /// Get the shard data
+    fn get_shard(&self, shard: ShardId) -> KeyValueResult<Arc<ShardData>> {
+        let shards = self.shards.read().unwrap();
+        shards
+            .get(&shard)
+            .cloned()
+            .ok_or(KeyValueError::KeyNotFound)
+    }
+
+    /// Get the tree for a shard
+    fn get_tree(&self, shard: ShardId) -> KeyValueResult<Arc<BPlusTree>> {
+        let shard_data = self.get_shard(shard)?;
+        Ok(shard_data.tree.clone())
+    }
+
+    /// Get the metrics for a shard
+    fn get_metrics(&self, shard: ShardId) -> Arc<BTreeMetrics> {
         let mut metrics = self.metrics.write().unwrap();
         metrics
-            .entry(table)
+            .entry(shard)
             .or_insert_with(|| Arc::new(BTreeMetrics::new()))
             .clone()
     }
-}
 
-impl Default for BTreeKeyValueStore {
-    fn default() -> Self {
-        Self::new(BPlusTreeConfig::default())
+    /// Write a WAL record for a put operation
+    fn wal_write_put(&self, shard: ShardId, key: &[u8], value: &[u8]) -> KeyValueResult<()> {
+        if !self.wal_enabled {
+            return Ok(());
+        }
+
+        let shard_data = self.get_shard(shard)?;
+        if let Some(wal_writer) = &shard_data.wal_writer {
+            let record_data = encode_put(key, value);
+            let record = WriteAheadLogRecord {
+                kind: WalRecordKind::Put as u16,
+                payload: &record_data,
+            };
+
+            let mut writer = wal_writer.lock().unwrap();
+            writer
+                .append(record, nanograph_wal::Durability::Sync)
+                .map_err(|e| {
+                    KeyValueError::StorageCorruption(format!("WAL write failed: {}", e))
+                })?;
+        }
+
+        Ok(())
+    }
+
+    /// Write a WAL record for a delete operation
+    fn wal_write_delete(&self, shard: ShardId, key: &[u8]) -> KeyValueResult<()> {
+        if !self.wal_enabled {
+            return Ok(());
+        }
+
+        let shard_data = self.get_shard(shard)?;
+        if let Some(wal_writer) = &shard_data.wal_writer {
+            let record_data = encode_delete(key);
+            let record = WriteAheadLogRecord {
+                kind: WalRecordKind::Delete as u16,
+                payload: &record_data,
+            };
+
+            let mut writer = wal_writer.lock().unwrap();
+            writer
+                .append(record, nanograph_wal::Durability::Sync)
+                .map_err(|e| {
+                    KeyValueError::StorageCorruption(format!("WAL write failed: {}", e))
+                })?;
+        }
+
+        Ok(())
+    }
+
+    /// Recover a shard from WAL by replaying all records
+    fn recover_from_wal(&self, shard: ShardId, tree: &Arc<BPlusTree>) -> KeyValueResult<()> {
+        if !self.wal_enabled {
+            return Ok(());
+        }
+
+        let shard_data = self.get_shard(shard)?;
+        if let Some(wal) = &shard_data.wal {
+            // Get WAL reader starting from the beginning
+            let mut reader = wal.reader_from(LogSequenceNumber::ZERO).map_err(|e| {
+                KeyValueError::StorageCorruption(format!("Failed to create WAL reader: {}", e))
+            })?;
+
+            let mut recovered_count = 0;
+
+            // Replay all WAL records
+            while let Some(entry) = reader
+                .next()
+                .map_err(|e| KeyValueError::StorageCorruption(format!("WAL read error: {}", e)))?
+            {
+                match WalRecordKind::from_u16(entry.kind) {
+                    Some(WalRecordKind::Put) => {
+                        let (key, value) = decode_put(&entry.payload).map_err(|e| {
+                            KeyValueError::StorageCorruption(format!("Failed to decode put: {}", e))
+                        })?;
+                        tree.insert(key, value)
+                            .map_err(|e| KeyValueError::StorageCorruption(e.to_string()))?;
+                        recovered_count += 1;
+                    }
+                    Some(WalRecordKind::Delete) => {
+                        let key = decode_delete(&entry.payload).map_err(|e| {
+                            KeyValueError::StorageCorruption(format!(
+                                "Failed to decode delete: {}",
+                                e
+                            ))
+                        })?;
+                        let _ = tree.delete(&key);
+                        recovered_count += 1;
+                    }
+                    Some(WalRecordKind::Checkpoint) => {
+                        // Checkpoint marker - we can stop here if we want
+                        // For now, continue replaying
+                    }
+                    None => {
+                        // Unknown record type - skip it
+                        continue;
+                    }
+                }
+            }
+
+            if recovered_count > 0 {
+                // Log recovery success
+                eprintln!(
+                    "INFO: Recovered {} operations from WAL for shard {:?}",
+                    recovered_count, shard
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Create a checkpoint for a shard
+    /// This saves the current tree state and writes a checkpoint marker to the WAL
+    pub async fn checkpoint_shard(&self, shard: ShardId) -> KeyValueResult<()> {
+        let shard_data = self.get_shard(shard)?;
+
+        // Write checkpoint marker to WAL
+        if self.wal_enabled {
+            if let Some(wal_writer) = &shard_data.wal_writer {
+                let checkpoint_data = encode_checkpoint();
+                let record = WriteAheadLogRecord {
+                    kind: WalRecordKind::Checkpoint as u16,
+                    payload: &checkpoint_data,
+                };
+                let mut writer = wal_writer.lock().unwrap();
+                writer
+                    .append(record, nanograph_wal::Durability::Sync)
+                    .map_err(|e| {
+                        KeyValueError::StorageCorruption(format!("Checkpoint write failed: {}", e))
+                    })?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Create checkpoints for all shards
+    pub async fn checkpoint_all(&self) -> KeyValueResult<()> {
+        let shard_ids: Vec<ShardId> = {
+            let shards = self.shards.read().unwrap();
+            shards.keys().copied().collect()
+        };
+
+        for shard_id in shard_ids {
+            self.checkpoint_shard(shard_id).await?;
+        }
+
+        Ok(())
     }
 }
 
 #[async_trait]
-impl KeyValueStore for BTreeKeyValueStore {
+impl KeyValueShardStore for BTreeKeyValueStore {
     // ===== Basic Operations =====
 
-    async fn get(&self, table: KeyValueTableId, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
+    async fn get(&self, table: ShardId, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
         let tree = self.get_tree(table)?;
         let metrics = self.get_metrics(table);
 
@@ -99,7 +276,10 @@ impl KeyValueStore for BTreeKeyValueStore {
         Ok(result)
     }
 
-    async fn put(&self, table: KeyValueTableId, key: &[u8], value: &[u8]) -> KeyValueResult<()> {
+    async fn put(&self, table: ShardId, key: &[u8], value: &[u8]) -> KeyValueResult<()> {
+        // Write to WAL first
+        self.wal_write_put(table, key, value)?;
+
         let tree = self.get_tree(table)?;
         let metrics = self.get_metrics(table);
 
@@ -117,7 +297,10 @@ impl KeyValueStore for BTreeKeyValueStore {
         Ok(())
     }
 
-    async fn delete(&self, table: KeyValueTableId, key: &[u8]) -> KeyValueResult<bool> {
+    async fn delete(&self, table: ShardId, key: &[u8]) -> KeyValueResult<bool> {
+        // Write to WAL first
+        self.wal_write_delete(table, key)?;
+
         let tree = self.get_tree(table)?;
         let metrics = self.get_metrics(table);
 
@@ -130,7 +313,7 @@ impl KeyValueStore for BTreeKeyValueStore {
         Ok(deleted)
     }
 
-    async fn exists(&self, table: KeyValueTableId, key: &[u8]) -> KeyValueResult<bool> {
+    async fn exists(&self, table: ShardId, key: &[u8]) -> KeyValueResult<bool> {
         let tree = self.get_tree(table)?;
         let result = tree.get(key).map_err(Into::<KeyValueError>::into)?;
         Ok(result.is_some())
@@ -140,7 +323,7 @@ impl KeyValueStore for BTreeKeyValueStore {
 
     async fn batch_get(
         &self,
-        table: KeyValueTableId,
+        table: ShardId,
         keys: &[&[u8]],
     ) -> KeyValueResult<Vec<Option<Vec<u8>>>> {
         let tree = self.get_tree(table)?;
@@ -156,11 +339,12 @@ impl KeyValueStore for BTreeKeyValueStore {
         Ok(results)
     }
 
-    async fn batch_put(
-        &self,
-        table: KeyValueTableId,
-        pairs: &[(&[u8], &[u8])],
-    ) -> KeyValueResult<()> {
+    async fn batch_put(&self, table: ShardId, pairs: &[(&[u8], &[u8])]) -> KeyValueResult<()> {
+        // Write all operations to WAL first
+        for (key, value) in pairs {
+            self.wal_write_put(table, key, value)?;
+        }
+
         let tree = self.get_tree(table)?;
         let metrics = self.get_metrics(table);
 
@@ -177,7 +361,12 @@ impl KeyValueStore for BTreeKeyValueStore {
         Ok(())
     }
 
-    async fn batch_delete(&self, table: KeyValueTableId, keys: &[&[u8]]) -> KeyValueResult<usize> {
+    async fn batch_delete(&self, table: ShardId, keys: &[&[u8]]) -> KeyValueResult<usize> {
+        // Write all operations to WAL first
+        for key in keys {
+            self.wal_write_delete(table, key)?;
+        }
+
         let tree = self.get_tree(table)?;
         let metrics = self.get_metrics(table);
 
@@ -196,7 +385,7 @@ impl KeyValueStore for BTreeKeyValueStore {
 
     async fn scan(
         &self,
-        table: KeyValueTableId,
+        table: ShardId,
         range: KeyRange,
     ) -> KeyValueResult<Box<dyn KeyValueIterator + Send>> {
         let tree = self.get_tree(table)?;
@@ -214,13 +403,13 @@ impl KeyValueStore for BTreeKeyValueStore {
 
     // ===== Statistics & Metadata =====
 
-    async fn key_count(&self, table: KeyValueTableId) -> KeyValueResult<u64> {
+    async fn key_count(&self, table: ShardId) -> KeyValueResult<u64> {
         let tree = self.get_tree(table)?;
         let stats = tree.stats();
         Ok(stats.num_keys as u64)
     }
 
-    async fn table_stats(&self, table: KeyValueTableId) -> KeyValueResult<TableStats> {
+    async fn shard_stats(&self, table: ShardId) -> KeyValueResult<ShardStats> {
         let tree = self.get_tree(table)?;
         let tree_stats = tree.stats();
         let metrics = self.get_metrics(table);
@@ -234,107 +423,151 @@ impl KeyValueStore for BTreeKeyValueStore {
         // Estimate index overhead (internal nodes)
         let index_bytes = (tree_stats.num_internal_nodes as u64) * 1024; // Rough estimate
 
-        let btree_stats = KvBTreeStats {
-            tree_height: tree_stats.height,
-            total_nodes: (tree_stats.num_internal_nodes + tree_stats.num_leaf_nodes) as u64,
-            leaf_nodes: tree_stats.num_leaf_nodes as u64,
-            internal_nodes: tree_stats.num_internal_nodes as u64,
-            avg_node_utilization: if tree_stats.num_leaf_nodes > 0 {
-                tree_stats.num_keys as f64 / tree_stats.num_leaf_nodes as f64
-            } else {
-                0.0
-            },
-            total_splits: metrics_snapshot.node_splits,
-            total_merges: metrics_snapshot.node_merges,
-            page_size: self.config.max_keys * 64, // Rough estimate: max_keys * avg_entry_size
-        };
-
-        Ok(TableStats {
+        let mut shard_stats = ShardStats {
             key_count: tree_stats.num_keys as u64,
             total_bytes: data_bytes + index_bytes,
             data_bytes,
             index_bytes,
             last_modified: None,
-            engine_stats: EngineStats::BTree(btree_stats),
-        })
+            engine_stats: Default::default(),
+        };
+
+        // Build B+Tree specific stats
+        shard_stats
+            .engine_stats
+            .insert("tree_height", StatValue::from_usize(tree_stats.height));
+        shard_stats.engine_stats.insert(
+            "total_nodes",
+            StatValue::from_usize(tree_stats.num_internal_nodes + tree_stats.num_leaf_nodes),
+        );
+        shard_stats.engine_stats.insert(
+            "internal_nodes",
+            StatValue::from_usize(tree_stats.num_internal_nodes),
+        );
+        shard_stats.engine_stats.insert(
+            "leaf_nodes",
+            StatValue::from_usize(tree_stats.num_leaf_nodes),
+        );
+        shard_stats.engine_stats.insert(
+            "avg_node_utilization",
+            StatValue::from_f64(if tree_stats.num_leaf_nodes > 0 {
+                tree_stats.num_keys as f64 / tree_stats.num_leaf_nodes as f64
+            } else {
+                0.0
+            }),
+        );
+        shard_stats.engine_stats.insert(
+            "total_splits",
+            StatValue::from_u64(metrics_snapshot.node_splits),
+        );
+        shard_stats.engine_stats.insert(
+            "total_merges",
+            StatValue::from_u64(metrics_snapshot.node_merges),
+        );
+        shard_stats.engine_stats.insert(
+            "total_merges",
+            StatValue::from_usize(self.config.max_keys * 64),
+        );
+
+        Ok(shard_stats)
     }
 
     // ===== Transaction Support =====
 
     async fn begin_transaction(&self) -> KeyValueResult<Arc<dyn Transaction>> {
-        // For now, create a transaction on the first table
-        // In a real implementation, transactions should span multiple tables
-        let tables = self.table_names.read().unwrap();
-        let (table_id, tree) = if let Some((id, _)) = tables.iter().next() {
-            let trees = self.trees.read().unwrap();
-            let tree = trees.get(id).ok_or(KeyValueError::KeyNotFound)?;
-            (*id, tree.clone())
+        // For now, create a transaction on the first shard
+        // In a real implementation, transactions should span multiple shards
+        let shards = self.shards.read().unwrap();
+        let (shard_id, shard_data) = if let Some((id, data)) = shards.iter().next() {
+            (*id, data.clone())
         } else {
             return Err(KeyValueError::StorageCorruption(
-                "No tables available for transaction".to_string(),
+                "No shards available for transaction".to_string(),
             ));
         };
 
-        let tx = self.tx_manager.begin(table_id, tree);
+        let tx = self.tx_manager.begin(shard_id, shard_data.tree.clone());
         Ok(tx as Arc<dyn Transaction>)
     }
 
     // ===== Table Management =====
 
-    async fn create_table(&self, name: &str) -> KeyValueResult<KeyValueTableId> {
-        // Check if table name already exists
-        {
-            let table_names = self.table_names.read().unwrap();
-            if table_names.values().any(|n| n == name) {
-                return Err(KeyValueError::StorageCorruption(format!(
-                    "Table '{}' already exists",
-                    name
-                )));
-            }
-        }
+    async fn create_shard(&self, table: TableId, index: ShardIndex) -> KeyValueResult<ShardId> {
+        // Compute deterministic ShardId from TableId and ShardIndex
+        let shard_id = ShardId::from_parts(table, index);
 
-        let mut next_id = self.next_table_id.write().unwrap();
-        let table_id = KeyValueTableId::new(*next_id);
-        *next_id += 1;
-
-        // Create a new B+Tree for this table
+        // Create a new B+Tree for this shard
         let tree = Arc::new(BPlusTree::new(self.config.clone()));
 
-        // Store table
-        let mut trees = self.trees.write().unwrap();
-        trees.insert(table_id, tree);
+        // Create WAL if enabled
+        let (wal, wal_writer) = if self.wal_enabled {
+            // Create memory filesystem for WAL
+            let wal_fs = MemoryFileSystem::new();
+            let wal_path_str = format!("/wal_{}", shard_id.0);
+            let wal_path = Path::from(wal_path_str.as_str());
 
-        // Store table name
-        let mut table_names = self.table_names.write().unwrap();
-        table_names.insert(table_id, name.to_string());
+            // Create WAL manager with config
+            let wal_config = WriteAheadLogConfig::new(shard_id.0);
+            let wal_mgr = WriteAheadLogManager::new(wal_fs, wal_path, wal_config).map_err(|e| {
+                KeyValueError::StorageCorruption(format!("Failed to create WAL: {}", e))
+            })?;
 
-        Ok(table_id)
+            // Create WAL writer
+            let wal_writer = wal_mgr.writer().map_err(|e| {
+                KeyValueError::StorageCorruption(format!("Failed to create WAL writer: {}", e))
+            })?;
+
+            (
+                Some(Arc::new(wal_mgr)),
+                Some(Arc::new(Mutex::new(wal_writer))),
+            )
+        } else {
+            (None, None)
+        };
+
+        let shard_data = Arc::new(ShardData {
+            tree: tree.clone(),
+            wal,
+            wal_writer,
+            flushed_lsn: Arc::new(RwLock::new(None)),
+        });
+
+        // Store shard data
+        {
+            let mut shards = self.shards.write().unwrap();
+            shards.insert(shard_id, shard_data);
+        }
+
+        // Initialize metrics for this shard
+        {
+            let mut metrics = self.metrics.write().unwrap();
+            metrics.insert(shard_id, Arc::new(BTreeMetrics::new()));
+        }
+
+        // Recover from WAL if it exists
+        self.recover_from_wal(shard_id, &tree)?;
+
+        Ok(shard_id)
     }
 
-    async fn drop_table(&self, table: KeyValueTableId) -> KeyValueResult<()> {
-        let mut trees = self.trees.write().unwrap();
-        trees.remove(&table);
-
-        let mut table_names = self.table_names.write().unwrap();
-        table_names.remove(&table);
+    async fn drop_shard(&self, shard: ShardId) -> KeyValueResult<()> {
+        let mut shards = self.shards.write().unwrap();
+        shards.remove(&shard);
 
         let mut metrics = self.metrics.write().unwrap();
-        metrics.remove(&table);
+        metrics.remove(&shard);
 
         Ok(())
     }
 
-    async fn list_tables(&self) -> KeyValueResult<Vec<(KeyValueTableId, String)>> {
-        let table_names = self.table_names.read().unwrap();
-        Ok(table_names
-            .iter()
-            .map(|(id, name)| (*id, name.clone()))
-            .collect())
+    async fn list_shards(&self) -> KeyValueResult<Vec<ShardId>> {
+        let shards = self.shards.read().unwrap();
+        Ok(shards.keys().copied().collect())
     }
 
-    async fn table_exists(&self, table: KeyValueTableId) -> KeyValueResult<bool> {
-        let table_names = self.table_names.read().unwrap();
-        Ok(table_names.contains_key(&table))
+    async fn shard_exists(&self, shard: ShardId) -> KeyValueResult<bool> {
+        let shards = self.shards.read().unwrap();
+        Ok(shards.contains_key(&shard))
     }
 
     // ===== Maintenance Operations =====
@@ -345,7 +578,7 @@ impl KeyValueStore for BTreeKeyValueStore {
         Ok(())
     }
 
-    async fn compact(&self, _table: Option<KeyValueTableId>) -> KeyValueResult<()> {
+    async fn compact(&self, _table: Option<ShardId>) -> KeyValueResult<()> {
         // B+Tree doesn't need compaction like LSM trees
         // This is a no-op
         Ok(())
@@ -361,53 +594,61 @@ mod tests {
         let store = BTreeKeyValueStore::default();
 
         // Create table
-        let table_id = store.create_table("test_table").await.unwrap();
-        assert!(store.table_exists(table_id).await.unwrap());
+        let table_id = TableId::new(0);
+        let shard_index = ShardIndex::new(0);
+        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+
+        assert!(store.shard_exists(shard).await.unwrap());
 
         // List tables
-        let tables = store.list_tables().await.unwrap();
-        assert_eq!(tables.len(), 1);
-        assert_eq!(tables[0].1, "test_table");
+        let shards = store.list_shards().await.unwrap();
+        assert_eq!(shards.len(), 1);
 
         // Drop table
-        store.drop_table(table_id).await.unwrap();
-        assert!(!store.table_exists(table_id).await.unwrap());
+        store.drop_shard(shard).await.unwrap();
+        assert!(!store.shard_exists(shard).await.unwrap());
     }
 
     #[tokio::test]
     async fn test_basic_operations() {
         let store = BTreeKeyValueStore::default();
-        let table_id = store.create_table("test").await.unwrap();
+
+        let table_id = TableId::new(0);
+        let shard_index = ShardIndex::new(0);
+        let shard = store.create_shard(table_id, shard_index).await.unwrap();
 
         // Put
-        store.put(table_id, b"key1", b"value1").await.unwrap();
-        store.put(table_id, b"key2", b"value2").await.unwrap();
+        store.put(shard, b"key1", b"value1").await.unwrap();
+        store.put(shard, b"key2", b"value2").await.unwrap();
 
         // Get
         assert_eq!(
-            store.get(table_id, b"key1").await.unwrap(),
+            store.get(shard, b"key1").await.unwrap(),
             Some(b"value1".to_vec())
         );
         assert_eq!(
-            store.get(table_id, b"key2").await.unwrap(),
+            store.get(shard, b"key2").await.unwrap(),
             Some(b"value2".to_vec())
         );
-        assert_eq!(store.get(table_id, b"key3").await.unwrap(), None);
+        assert_eq!(store.get(shard, b"key3").await.unwrap(), None);
 
         // Exists
-        assert!(store.exists(table_id, b"key1").await.unwrap());
-        assert!(!store.exists(table_id, b"key3").await.unwrap());
+        assert!(store.exists(shard, b"key1").await.unwrap());
+        assert!(!store.exists(shard, b"key3").await.unwrap());
 
         // Delete
-        assert!(store.delete(table_id, b"key1").await.unwrap());
-        assert!(!store.delete(table_id, b"key3").await.unwrap());
-        assert_eq!(store.get(table_id, b"key1").await.unwrap(), None);
+        assert!(store.delete(shard, b"key1").await.unwrap());
+        assert!(!store.delete(shard, b"key3").await.unwrap());
+        assert_eq!(store.get(shard, b"key1").await.unwrap(), None);
     }
 
     #[tokio::test]
     async fn test_batch_operations() {
         let store = BTreeKeyValueStore::default();
-        let table_id = store.create_table("test").await.unwrap();
+
+        let table_id = TableId::new(0);
+        let shard_index = ShardIndex::new(0);
+        let shard = store.create_shard(table_id, shard_index).await.unwrap();
 
         // Batch put
         let pairs = vec![
@@ -415,11 +656,11 @@ mod tests {
             (&b"key2"[..], &b"value2"[..]),
             (&b"key3"[..], &b"value3"[..]),
         ];
-        store.batch_put(table_id, &pairs).await.unwrap();
+        store.batch_put(shard, &pairs).await.unwrap();
 
         // Batch get
         let keys = vec![&b"key1"[..], &b"key2"[..], &b"key3"[..], &b"key4"[..]];
-        let results = store.batch_get(table_id, &keys).await.unwrap();
+        let results = store.batch_get(shard, &keys).await.unwrap();
         assert_eq!(results[0], Some(b"value1".to_vec()));
         assert_eq!(results[1], Some(b"value2".to_vec()));
         assert_eq!(results[2], Some(b"value3".to_vec()));
@@ -427,30 +668,32 @@ mod tests {
 
         // Batch delete
         let delete_keys = vec![&b"key1"[..], &b"key2"[..], &b"key4"[..]];
-        let deleted = store.batch_delete(table_id, &delete_keys).await.unwrap();
+        let deleted = store.batch_delete(shard, &delete_keys).await.unwrap();
         assert_eq!(deleted, 2);
     }
 
     #[tokio::test]
     async fn test_statistics() {
         let store = BTreeKeyValueStore::default();
-        let table_id = store.create_table("test").await.unwrap();
+        let table_id = TableId::new(0);
+        let shard_index = ShardIndex::new(0);
+        let shard = store.create_shard(table_id, shard_index).await.unwrap();
 
         // Insert data
         for i in 0..100 {
             let key = format!("key{:03}", i);
             let value = format!("value{}", i);
             store
-                .put(table_id, key.as_bytes(), value.as_bytes())
+                .put(shard, key.as_bytes(), value.as_bytes())
                 .await
                 .unwrap();
         }
 
         // Check stats
-        let count = store.key_count(table_id).await.unwrap();
+        let count = store.key_count(shard).await.unwrap();
         assert_eq!(count, 100);
 
-        let stats = store.table_stats(table_id).await.unwrap();
+        let stats = store.shard_stats(shard).await.unwrap();
         assert_eq!(stats.key_count, 100);
         assert!(stats.total_bytes > 0);
     }
@@ -458,7 +701,10 @@ mod tests {
     #[tokio::test]
     async fn test_transactions() {
         let store = BTreeKeyValueStore::default();
-        let _table_id = store.create_table("test").await.unwrap();
+
+        let table_id = TableId::new(0);
+        let shard_index = ShardIndex::new(0);
+        let _shard = store.create_shard(table_id, shard_index).await.unwrap();
 
         // Begin transaction
         let tx = store.begin_transaction().await.unwrap();
@@ -477,4 +723,8 @@ mod tests {
     }
 }
 
-// Made with Bob
+impl Default for BTreeKeyValueStore {
+    fn default() -> Self {
+        Self::new(BPlusTreeConfig::default())
+    }
+}

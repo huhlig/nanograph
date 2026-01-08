@@ -275,5 +275,3 @@ mod tests {
         assert_eq!(metadata.node_count, loaded.node_count);
     }
 }
-
-// Made with Bob

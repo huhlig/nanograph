@@ -150,7 +150,7 @@ impl BlockCache {
         }
 
         let current_time = lru_list.iter().map(|e| e.last_access).max().unwrap_or(0);
-        
+
         // Find entry with lowest score (oldest and least frequently accessed)
         let mut min_score = f64::MAX;
         let mut victim_idx = 0;
@@ -160,10 +160,10 @@ impl BlockCache {
             // Lower score = better candidate for eviction
             let recency = (current_time - entry.last_access) as f64;
             let frequency = entry.access_count as f64;
-            
+
             // Weight recency more heavily than frequency
             let score = frequency / (1.0 + recency);
-            
+
             if score < min_score {
                 min_score = score;
                 victim_idx = idx;
@@ -453,5 +453,3 @@ mod tests {
         assert_eq!(cache.size(), 0);
     }
 }
-
-// Made with Bob

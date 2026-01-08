@@ -258,5 +258,3 @@ fn main() {
 
     println!("\n");
 }
-
-// Made with Bob

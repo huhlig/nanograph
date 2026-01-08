@@ -122,7 +122,7 @@ impl KeyValueStore for LSMTreeEngine {
 - [ ] Create iterators for range scans
 - [ ] Add batch operations
 
-### 4. WAL Integration
+### 4. WAL Integration ✅ COMPLETE
 
 **Priority: HIGH**
 
@@ -156,9 +156,10 @@ pub fn recover(&mut self) -> KeyValueResult<()> {
 ```
 
 **Tasks:**
-- [ ] Integrate WriteAheadLogManager
-- [ ] Add WAL entries for all operations
-- [ ] Implement recovery on startup
+- [x] Integrate WriteAheadLogManager
+- [x] Add WAL entries for all operations
+- [x] Implement recovery on startup (recover_from_wal)
+- [x] Add checkpointing support
 - [ ] Add WAL rotation and cleanup
 - [ ] Optimize WAL sync strategy
 - [ ] Add WAL corruption detection
@@ -308,11 +309,12 @@ mod integration_tests {
 1. ✅ Error handling enhancement
 2. ✅ Metrics integration
 3. ✅ KeyValueStore trait implementation
+4. ✅ WAL integration (recovery and checkpointing)
 
 ### Short Term (Next Session)
-4. WAL integration
-5. Block cache implementation
+5. Block cache implementation (✅ COMPLETE)
 6. Full compaction implementation
+7. WAL rotation and cleanup
 
 ### Medium Term
 7. Performance optimizations

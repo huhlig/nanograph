@@ -92,7 +92,7 @@ fn test_sstable_iterator_large_dataset() {
     let read_entries: Vec<_> = iter.collect::<Result<Vec<_>, _>>().unwrap();
 
     assert_eq!(read_entries.len(), 1000);
-    
+
     // Spot check some entries
     assert_eq!(read_entries[0].key, b"key0000");
     assert_eq!(read_entries[500].key, b"key0500");
@@ -163,5 +163,3 @@ fn test_sstable_iterator_with_tombstones() {
     assert!(read_entries[2].value.is_some());
     assert!(read_entries[3].value.is_none()); // Tombstone
 }
-
-// Made with Bob

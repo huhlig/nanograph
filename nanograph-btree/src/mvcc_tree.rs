@@ -373,5 +373,3 @@ mod tests {
         assert_eq!(tree.get(b"key1", 6).unwrap(), None);
     }
 }
-
-// Made with Bob

@@ -479,5 +479,3 @@ fn test_wal_reader_at_end() {
     // Should be at end
     assert!(reader.next().unwrap().is_none());
 }
-
-

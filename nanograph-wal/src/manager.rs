@@ -21,7 +21,7 @@ use crate::reader::WriteAheadLogReader;
 use crate::result::{WriteAheadLogError, WriteAheadLogResult};
 use crate::walfile::WriteAheadLogFile;
 use crate::writer::WriteAheadLogWriter;
-use nanograph_vfs::{DynamicFileSystem, FileSystem, Path};
+use nanograph_vfs::{DynamicFileSystem, Path};
 use std::sync::{Arc, Mutex};
 
 /// Write Ahead Log Manager.
@@ -52,7 +52,7 @@ pub struct WriteAheadLogManager {
 impl WriteAheadLogManager {
     /// Initialize the WAL manager.
     /// Opens or creates the specified directory and initializes the active segment.
-    pub fn new<FS: FileSystem + 'static>(
+    pub fn new<FS: DynamicFileSystem + 'static>(
         file_system: FS,
         directory: impl Into<Path>,
         config: WriteAheadLogConfig,
@@ -172,25 +172,27 @@ impl WriteAheadLogManager {
     pub fn truncate_before(&self, lsn: LogSequenceNumber) -> WriteAheadLogResult<()> {
         let mut archived = self.archived_segments.lock().unwrap();
         let before_count = archived.len();
-        
+
         // Collect segment IDs to delete before modifying the vector
         let segments_to_delete: Vec<u64> = archived
             .iter()
             .filter(|s| s.segment_id() < lsn.segment_id)
             .map(|s| s.segment_id())
             .collect();
-        
+
         // Remove segments from the archived list
         archived.retain(|s| s.segment_id() >= lsn.segment_id);
         let after_count = archived.len();
-        
+
         // Drop the lock before doing file I/O
         drop(archived);
 
         // Delete the actual segment files from the filesystem
         let mut delete_errors: Vec<(u64, nanograph_vfs::FileSystemError)> = Vec::new();
         for segment_id in segments_to_delete {
-            let segment_path = self.root_folder.join(&Path::parse(&format!("segment_{}.wal", segment_id)));
+            let segment_path = self
+                .root_folder
+                .join(&Path::parse(&format!("segment_{}.wal", segment_id)));
             if let Err(e) = self.file_system.remove_file(&segment_path.to_string()) {
                 tracing::warn!(
                     shard_id = self.shard_id,
@@ -213,7 +215,7 @@ impl WriteAheadLogManager {
 
         let success = delete_errors.is_empty();
         metrics::record_operation("truncate", self.shard_id, success);
-        
+
         if !delete_errors.is_empty() {
             tracing::error!(
                 shard_id = self.shard_id,
@@ -223,10 +225,13 @@ impl WriteAheadLogManager {
             // Return error for the first failed deletion
             return Err(WriteAheadLogError::wrap_error(std::io::Error::new(
                 std::io::ErrorKind::Other,
-                format!("Failed to delete WAL segment {}: {:?}", delete_errors[0].0, delete_errors[0].1)
+                format!(
+                    "Failed to delete WAL segment {}: {:?}",
+                    delete_errors[0].0, delete_errors[0].1
+                ),
             )));
         }
-        
+
         tracing::debug!(
             shard_id = self.shard_id,
             removed_segments = before_count - after_count,

@@ -188,5 +188,3 @@ mod tests {
         record_layer_access(0, "read");
     }
 }
-
-// Made with Bob

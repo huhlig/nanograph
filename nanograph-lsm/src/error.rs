@@ -293,5 +293,3 @@ mod tests {
         assert!(matches!(kv_err, nanograph_kvt::KeyValueError::OutOfMemory));
     }
 }
-
-// Made with Bob

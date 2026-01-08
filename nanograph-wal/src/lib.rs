@@ -28,7 +28,8 @@
 //!
 //! ## Examples
 //!
-//! ### Write Example
+//! ### Basic Write and Read
+//!
 //! ```rust
 //! # use nanograph_wal::{WriteAheadLogManager, WriteAheadLogConfig, WriteAheadLogRecord, Durability};
 //! # use nanograph_vfs::MemoryFileSystem;
@@ -37,12 +38,16 @@
 //! # let config = WriteAheadLogConfig::new(0);
 //! let wal = WriteAheadLogManager::new(fs, path, config)?;
 //! let mut writer = wal.writer()?;
+//!
+//! // Write a record
 //! let record = WriteAheadLogRecord { kind: 1, payload: b"hello" };
 //! let lsn = writer.append(record, Durability::Flush)?;
+//! println!("Written at LSN: {:?}", lsn);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
-//! ### Read Example
+//! ### Reading from a Specific LSN
+//!
 //! ```rust
 //! # use nanograph_wal::{WriteAheadLogManager, WriteAheadLogConfig, WriteAheadLogRecord, Durability, LogSequenceNumber};
 //! # use nanograph_vfs::MemoryFileSystem;
@@ -51,16 +56,120 @@
 //! # let config = WriteAheadLogConfig::new(0);
 //! let wal = WriteAheadLogManager::new(fs, path, config)?;
 //!
-//! // Load snapshot at LSN S
+//! // Write some records
 //! # let mut writer = wal.writer()?;
 //! # let record = WriteAheadLogRecord { kind: 1, payload: b"hello" };
 //! # let snapshot_lsn = writer.append(record, Durability::Flush)?;
 //!
-//! // Replay WAL
+//! // Replay WAL from a specific LSN
 //! let mut reader = wal.reader_from(snapshot_lsn)?;
 //! while let Some(entry) = reader.next()? {
 //!     println!("Record: kind={}, payload={:?}", entry.kind, entry.payload);
 //! }
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! ### Durability Levels
+//!
+//! ```rust
+//! # use nanograph_wal::{WriteAheadLogManager, WriteAheadLogConfig, WriteAheadLogRecord, Durability};
+//! # use nanograph_vfs::MemoryFileSystem;
+//! # let fs = MemoryFileSystem::new();
+//! # let path = "/wal";
+//! # let config = WriteAheadLogConfig::new(0);
+//! # let wal = WriteAheadLogManager::new(fs, path, config)?;
+//! # let mut writer = wal.writer()?;
+//! // Memory only - fastest, least durable
+//! let record1 = WriteAheadLogRecord { kind: 1, payload: b"data" };
+//! writer.append(record1, Durability::Memory)?;
+//!
+//! // Flush to OS buffer - balanced
+//! let record2 = WriteAheadLogRecord { kind: 1, payload: b"data" };
+//! writer.append(record2, Durability::Flush)?;
+//!
+//! // Sync to disk - slowest, most durable
+//! let record3 = WriteAheadLogRecord { kind: 1, payload: b"data" };
+//! writer.append(record3, Durability::Sync)?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! ### Configuring WAL with Compression
+//!
+//! ```rust
+//! use nanograph_wal::{WriteAheadLogConfig, CompressionAlgorithm};
+//!
+//! let mut config = WriteAheadLogConfig::new(0);
+//! config.compression = CompressionAlgorithm::Zstd;
+//! config.max_segment_size = 64 * 1024 * 1024; // 64MB segments
+//!
+//! println!("Compression: {:?}", config.compression);
+//! ```
+//!
+//! ### Configuring WAL with Encryption
+//!
+//! ```rust
+//! use nanograph_wal::{WriteAheadLogConfig, EncryptionAlgorithm};
+//!
+//! let mut config = WriteAheadLogConfig::new(0);
+//! config.encryption = EncryptionAlgorithm::Aes256Gcm;
+//!
+//! println!("Encryption: {:?}", config.encryption);
+//! ```
+//!
+//! ### Configuring WAL with Integrity Checking
+//!
+//! ```rust
+//! use nanograph_wal::{WriteAheadLogConfig, IntegrityAlgorithm};
+//!
+//! let mut config = WriteAheadLogConfig::new(0);
+//! config.checksum = IntegrityAlgorithm::Crc32c;
+//!
+//! println!("Integrity algorithm: {:?}", config.checksum);
+//! ```
+//!
+//! ### Complete Configuration Example
+//!
+//! ```rust
+//! use nanograph_wal::{
+//!     WriteAheadLogConfig, CompressionAlgorithm,
+//!     EncryptionAlgorithm, IntegrityAlgorithm
+//! };
+//!
+//! let mut config = WriteAheadLogConfig::new(0);
+//! config.max_segment_size = 128 * 1024 * 1024; // 128MB
+//! config.compression = CompressionAlgorithm::Zstd;
+//! config.encryption = EncryptionAlgorithm::ChaCha20Poly1305;
+//! config.checksum = IntegrityAlgorithm::XXHash32;
+//!
+//! println!("WAL configured with:");
+//! println!("  Segment size: {} bytes", config.max_segment_size);
+//! println!("  Compression: {:?}", config.compression);
+//! println!("  Encryption: {:?}", config.encryption);
+//! println!("  Integrity: {:?}", config.checksum);
+//! ```
+//!
+//! ### Batch Writing
+//!
+//! ```rust
+//! # use nanograph_wal::{WriteAheadLogManager, WriteAheadLogConfig, WriteAheadLogRecord, Durability};
+//! # use nanograph_vfs::MemoryFileSystem;
+//! # let fs = MemoryFileSystem::new();
+//! # let path = "/wal";
+//! # let config = WriteAheadLogConfig::new(0);
+//! # let wal = WriteAheadLogManager::new(fs, path, config)?;
+//! # let mut writer = wal.writer()?;
+//! // Write multiple records efficiently
+//! for i in 0..100 {
+//!     let payload = format!("record_{}", i);
+//!     let record = WriteAheadLogRecord {
+//!         kind: 1,
+//!         payload: payload.as_bytes(),
+//!     };
+//!     writer.append(record, Durability::Memory)?;
+//! }
+//!
+//! // Flush all at once
+//! writer.flush()?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!

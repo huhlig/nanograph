@@ -40,7 +40,7 @@
 //!
 //! ```rust,no_run
 //! use nanograph_kvt::metrics::EngineMetrics;
-//! use nanograph_kvt::KeyValueTableId;
+//! use nanograph_kvt::ShardId;
 //!
 //! # struct LsmEngine;
 //! # impl LsmEngine {
@@ -49,7 +49,7 @@
 //! #     fn calculate_write_amplification(&self) -> f64 { 1.0 }
 //! # }
 //! impl EngineMetrics for LsmEngine {
-//!     fn register_metrics(&self, table_id: KeyValueTableId, table_name: &str) {
+//!     fn register_metrics(&self, table_id: ShardId, table_name: &str) {
 //!         let labels = [
 //!             ("table_id", table_id.0.to_string()),
 //!             ("table_name", table_name.to_string()),
@@ -73,7 +73,7 @@
 //!         );
 //!     }
 //!
-//!     fn update_metrics(&self, table_id: KeyValueTableId) {
+//!     fn update_metrics(&self, table_id: ShardId) {
 //!         let labels = [
 //!             ("table_id", table_id.0.to_string()),
 //!             ("engine", "lsm".to_string()),
@@ -106,11 +106,11 @@
 //!
 //! ```rust,no_run
 //! use nanograph_kvt::metrics::EngineMetrics;
-//! use nanograph_kvt::KeyValueTableId;
+//! use nanograph_kvt::ShardId;
 //!
 //! # struct MyCustomEngine;
 //! impl EngineMetrics for MyCustomEngine {
-//!     fn register_metrics(&self, table_id: KeyValueTableId, table_name: &str) {
+//!     fn register_metrics(&self, table_id: ShardId, table_name: &str) {
 //!         let labels = [
 //!             ("table_id", table_id.0.to_string()),
 //!             ("engine", "my-custom-engine".to_string()),
@@ -128,7 +128,7 @@
 //!         );
 //!     }
 //!
-//!     fn update_metrics(&self, table_id: KeyValueTableId) {
+//!     fn update_metrics(&self, table_id: ShardId) {
 //!         // Update custom metrics
 //!         // ...
 //!     }
@@ -142,7 +142,7 @@
 //! }
 //! ```
 
-use crate::kvstore::KeyValueTableId;
+use crate::types::ShardId;
 
 /// Helper trait for storage engines to register their metrics
 ///
@@ -159,7 +159,7 @@ pub trait EngineMetrics: Send + Sync {
     ///
     /// * `table_id` - The table identifier
     /// * `table_name` - Human-readable table name
-    fn register_metrics(&self, table_id: KeyValueTableId, table_name: &str);
+    fn register_metrics(&self, table_id: ShardId, table_name: &str);
 
     /// Update metrics for this table
     ///
@@ -169,7 +169,7 @@ pub trait EngineMetrics: Send + Sync {
     /// # Arguments
     ///
     /// * `table_id` - The table identifier
-    fn update_metrics(&self, table_id: KeyValueTableId);
+    fn update_metrics(&self, table_id: ShardId);
 
     /// Get engine-specific metric names
     ///
@@ -210,77 +210,3 @@ pub mod common {
     /// Put operation latency (histogram, milliseconds)
     pub const PUT_LATENCY_MS: &str = "nanograph.storage.common.put_latency_ms";
 }
-
-/// Example LSM-specific metric names
-pub mod lsm {
-    /// Number of LSM levels (gauge)
-    pub const LEVELS: &str = "nanograph.storage.lsm.levels";
-
-    /// Number of SSTables (gauge, with level label)
-    pub const SSTABLES: &str = "nanograph.storage.lsm.sstables";
-
-    /// Memtable size in bytes (gauge)
-    pub const MEMTABLE_BYTES: &str = "nanograph.storage.lsm.memtable_bytes";
-
-    /// Total compactions performed (counter)
-    pub const COMPACTIONS_TOTAL: &str = "nanograph.storage.lsm.compactions_total";
-
-    /// Write amplification factor (gauge)
-    pub const WRITE_AMPLIFICATION: &str = "nanograph.storage.lsm.write_amplification";
-
-    /// Read amplification factor (gauge)
-    pub const READ_AMPLIFICATION: &str = "nanograph.storage.lsm.read_amplification";
-
-    /// Bloom filter false positive rate (gauge)
-    pub const BLOOM_FP_RATE: &str = "nanograph.storage.lsm.bloom_false_positive_rate";
-}
-
-/// Example B+Tree-specific metric names
-pub mod btree {
-    /// Tree height (gauge)
-    pub const HEIGHT: &str = "nanograph.storage.btree.height";
-
-    /// Total number of nodes (gauge)
-    pub const TOTAL_NODES: &str = "nanograph.storage.btree.total_nodes";
-
-    /// Number of leaf nodes (gauge)
-    pub const LEAF_NODES: &str = "nanograph.storage.btree.leaf_nodes";
-
-    /// Average node utilization (gauge, 0.0-1.0)
-    pub const NODE_UTILIZATION: &str = "nanograph.storage.btree.node_utilization";
-
-    /// Total node splits (counter)
-    pub const SPLITS_TOTAL: &str = "nanograph.storage.btree.splits_total";
-
-    /// Total node merges (counter)
-    pub const MERGES_TOTAL: &str = "nanograph.storage.btree.merges_total";
-}
-
-/// Example ART-specific metric names
-pub mod art {
-    /// Maximum trie depth (gauge)
-    pub const MAX_DEPTH: &str = "nanograph.storage.art.max_depth";
-
-    /// Average trie depth (gauge)
-    pub const AVG_DEPTH: &str = "nanograph.storage.art.avg_depth";
-
-    /// Number of Node4 nodes (gauge)
-    pub const NODE4_COUNT: &str = "nanograph.storage.art.node4_count";
-
-    /// Number of Node16 nodes (gauge)
-    pub const NODE16_COUNT: &str = "nanograph.storage.art.node16_count";
-
-    /// Number of Node48 nodes (gauge)
-    pub const NODE48_COUNT: &str = "nanograph.storage.art.node48_count";
-
-    /// Number of Node256 nodes (gauge)
-    pub const NODE256_COUNT: &str = "nanograph.storage.art.node256_count";
-
-    /// Memory usage in bytes (gauge)
-    pub const MEMORY_BYTES: &str = "nanograph.storage.art.memory_bytes";
-
-    /// Path compressions performed (counter)
-    pub const PATH_COMPRESSIONS: &str = "nanograph.storage.art.path_compressions_total";
-}
-
-// Made with Bob

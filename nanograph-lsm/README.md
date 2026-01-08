@@ -11,6 +11,10 @@ The LSM Tree is a write-optimized data structure that provides:
 - **Range Scans**: Sorted data structure enables efficient range queries
 - **Compaction**: Background compaction reduces space amplification
 - **MVCC Support**: Sequence numbers for multi-version concurrency control
+- **Write-Ahead Logging (WAL)**: Active WAL writes for durability and crash recovery
+  - Automatic WAL recovery on engine startup
+  - Checkpointing for optimized recovery performance
+  - Full durability guarantees for committed operations
 
 ## Architecture
 
@@ -241,14 +245,16 @@ LSMTreeOptions::default()  // 64MB memtable, 4KB blocks
 - [x] Leveled compaction strategy
 - [x] Prefix compression in data blocks
 - [x] Varint encoding for space efficiency
+- [x] WAL recovery on startup
+- [x] Checkpointing support
 
 ### 🚧 In Progress
 
 - [ ] Full compaction implementation
-- [ ] Block cache for hot data
-- [ ] WAL integration for durability
-- [ ] Metrics and monitoring
-- [ ] KeyValueStore trait implementation
+- [x] Block cache for hot data
+- [x] WAL integration for durability
+- [x] Metrics and monitoring
+- [x] KeyValueStore trait implementation
 
 ### 📋 Planned
 

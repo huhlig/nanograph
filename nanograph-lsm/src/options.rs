@@ -25,16 +25,24 @@ pub struct LSMTreeOptions {
     /// Shard identifier for this LSM tree instance
     /// Used to identify WAL segments and coordinate distributed operations
     pub shard_id: u64,
+    /// Integrity algorithm for data blocks
     pub integrity: IntegrityAlgorithm,
+    /// Compression algorithm for data blocks
     pub compression: CompressionAlgorithm,
+    /// Encryption algorithm for data blocks
     pub encryption: EncryptionAlgorithm,
+    /// Optional encryption key
     pub encryption_key: Option<EncryptionKey>,
+    /// Maximum size of the memtable in bytes before flushing
     pub memtable_size: usize,
+    /// Size of data blocks in bytes
     pub block_size: usize,
+    /// Durability level for write operations
     pub durability: Durability,
 }
 
 impl Default for LSMTreeOptions {
+    /// Create default LSM tree options
     fn default() -> Self {
         Self {
             shard_id: 0, // Default to shard 0 for single-node deployments

@@ -551,5 +551,3 @@ mod tests {
         assert_eq!(middle_key, b"key05".to_vec());
     }
 }
-
-// Made with Bob

@@ -29,48 +29,163 @@
 //! - **Batch Operations**: Efficient batch get/put/delete operations
 //! - **Table Management**: Multi-table support with metadata
 //!
-//! # Example
+//! # Examples
+//!
+//! ## Basic Store Operations
 //!
 //! ```rust,no_run
-//! use nanograph_kvt::{KeyValueStore, KeyValueTableId, KeyRange};
+//! use nanograph_kvt::{KeyValueShardStore, ShardId, KeyRange, TableId, ShardIndex};
 //!
-//! async fn example(store: impl KeyValueStore) -> Result<(), Box<dyn std::error::Error>> {
-//!     let table = store.create_table("my_table").await?;
+//! async fn example(store: impl KeyValueShardStore) -> Result<(), Box<dyn std::error::Error>> {
+//!     // Create a shard (table ID 1, shard index 0)
+//!     let table_id = TableId::from(1u64);
+//!     let shard = store.create_shard(table_id, ShardIndex::from(0u32)).await?;
 //!
 //!     // Simple put/get
-//!     store.put(table, b"key1", b"value1").await?;
-//!     let value = store.get(table, b"key1").await?;
+//!     store.put(shard, b"key1", b"value1").await?;
+//!     let value = store.get(shard, b"key1").await?;
+//!     assert_eq!(value, Some(b"value1".to_vec()));
 //!
-//!     // Range scan
-//!     let range = KeyRange::prefix(b"prefix_".to_vec());
-//!     let mut iter = store.scan(table, range).await?;
+//!     // Delete operation
+//!     store.delete(shard, b"key1").await?;
+//!     assert_eq!(store.get(shard, b"key1").await?, None);
 //!
-//!     // Transaction
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## Range Scans
+//!
+//! ```rust,no_run
+//! use nanograph_kvt::{KeyValueShardStore, KeyRange, TableId, ShardIndex};
+//! use futures::StreamExt;
+//!
+//! async fn range_example(store: impl KeyValueShardStore) -> Result<(), Box<dyn std::error::Error>> {
+//!     let table_id = TableId::from(1u64);
+//!     let shard = store.create_shard(table_id, ShardIndex::from(0u32)).await?;
+//!
+//!     // Insert data with common prefix
+//!     store.put(shard, b"product:001", b"Widget A").await?;
+//!     store.put(shard, b"product:002", b"Widget B").await?;
+//!     store.put(shard, b"product:003", b"Widget C").await?;
+//!
+//!     // Scan with prefix
+//!     let range = KeyRange::prefix(b"product:".to_vec());
+//!     let mut iter = store.scan(shard, range).await?;
+//!
+//!     while let Some(result) = iter.next().await {
+//!         let (key, value) = result?;
+//!         println!("{:?} => {:?}", key, value);
+//!     }
+//!
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## Transactions
+//!
+//! ```rust,no_run
+//! use nanograph_kvt::{KeyValueShardStore, TableId, ShardIndex};
+//!
+//! async fn transaction_example(store: impl KeyValueShardStore) -> Result<(), Box<dyn std::error::Error>> {
+//!     let table_id = TableId::from(1u64);
+//!     let shard = store.create_shard(table_id, ShardIndex::from(0u32)).await?;
+//!
+//!     // Start a transaction
 //!     let txn = store.begin_transaction().await?;
-//!     txn.put(table, b"key2", b"value2").await?;
+//!
+//!     // Perform multiple operations atomically
+//!     txn.put(shard, b"account:alice", b"1000").await?;
+//!     txn.put(shard, b"account:bob", b"500").await?;
+//!
+//!     // Read within transaction
+//!     let balance = txn.get(shard, b"account:alice").await?;
+//!     assert_eq!(balance, Some(b"1000".to_vec()));
+//!
+//!     // Commit all changes atomically
 //!     txn.commit().await?;
 //!
 //!     Ok(())
 //! }
 //! ```
+//!
+//! ## Batch Operations
+//!
+//! ```rust,no_run
+//! use nanograph_kvt::{KeyValueShardStore, TableId, ShardIndex};
+//!
+//! async fn batch_example(store: impl KeyValueShardStore) -> Result<(), Box<dyn std::error::Error>> {
+//!     let table_id = TableId::from(1u64);
+//!     let shard = store.create_shard(table_id, ShardIndex::from(0u32)).await?;
+//!
+//!     // Batch put - need to convert to slice references
+//!     let entries: &[(&[u8], &[u8])] = &[
+//!         (b"key1", b"value1"),
+//!         (b"key2", b"value2"),
+//!         (b"key3", b"value3"),
+//!     ];
+//!     store.batch_put(shard, entries).await?;
+//!
+//!     // Batch get - need to convert to slice references
+//!     let keys: &[&[u8]] = &[b"key1", b"key2", b"key3"];
+//!     let values = store.batch_get(shard, keys).await?;
+//!     assert_eq!(values.len(), 3);
+//!
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## Using KeyRange
+//!
+//! ```rust
+//! use nanograph_kvt::KeyRange;
+//! use std::collections::Bound;
+//!
+//! // Create a range with explicit bounds
+//! let range = KeyRange::new(
+//!     Bound::Included(b"a".to_vec()),
+//!     Bound::Included(b"z".to_vec())
+//! );
+//!
+//! // Create a range from start to end (more convenient)
+//! let range2 = KeyRange::from_to(b"a".to_vec(), b"z".to_vec());
+//!
+//! // Create a prefix range
+//! let prefix_range = KeyRange::prefix(b"user:".to_vec());
+//!
+//! // Create an unbounded range (all keys)
+//! let all_range = KeyRange::all();
+//! ```
 
+mod config;
+mod database;
 mod iterator;
 mod kvstore;
 mod manager;
+mod metacache;
+mod metadata;
 pub mod metrics;
 mod result;
 mod transaction;
 mod types;
 
 // Re-export all public types
+pub use self::config::{
+    ClusterConfig, NamespaceConfig, RegionConfig, ServerConfig, ShardConfig, TableConfig,
+};
 pub use self::iterator::KeyValueIterator;
-pub use self::kvstore::KeyValueStore;
-pub use self::kvstore::KeyValueTableId;
-pub use self::manager::{KeyValueTableManager, StorageEngineType, TableConfig, TableMetadata};
+pub use self::kvstore::KeyValueShardStore;
+pub use self::manager::{KeyValueShardManager, StorageEngineType};
+pub use self::metacache::MetadataCache;
+pub use self::metadata::{
+    ClusterMetadata, NamespaceMetadata, RegionMetadata, ServerMetadata, ShardMetadata, ShardStatus,
+    TableMetadata,
+};
 pub use self::metrics::EngineMetrics;
 pub use self::result::{KeyValueError, KeyValueResult};
 pub use self::transaction::Transaction;
 pub use self::transaction::{Timestamp, TransactionId};
 pub use self::types::{
-    ArtStats, BTreeStats, EngineStats, KeyRange, LsmStats, ShardId, StatValue, TableStats,
+    ClusterId, EngineStats, HashFunction, KeyRange, NamespaceId, NodeId, ObjectId, Partitioner,
+    RegionId, ServerId, ShardId, ShardIndex, ShardStats, StatValue, TableId,
 };

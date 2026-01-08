@@ -68,14 +68,12 @@ impl From<BTreeError> for nanograph_kvt::KeyValueError {
     fn from(err: BTreeError) -> Self {
         match err {
             BTreeError::KeyNotFound => nanograph_kvt::KeyValueError::KeyNotFound,
-            BTreeError::Io(e) => nanograph_kvt::KeyValueError::IoError(
-                nanograph_vfs::FileSystemError::IOError(e)
-            ),
+            BTreeError::Io(e) => {
+                nanograph_kvt::KeyValueError::IoError(nanograph_vfs::FileSystemError::IOError(e))
+            }
             BTreeError::Vfs(e) => nanograph_kvt::KeyValueError::IoError(e),
             BTreeError::WriteConflict => nanograph_kvt::KeyValueError::WriteConflict,
             other => nanograph_kvt::KeyValueError::StorageCorruption(other.to_string()),
         }
     }
 }
-
-// Made with Bob

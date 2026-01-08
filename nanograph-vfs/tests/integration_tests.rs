@@ -273,5 +273,3 @@ fn test_file_lock_operations() {
     let lock_status = file.get_lock_status().unwrap();
     assert_eq!(lock_status, FileLockMode::Unlocked);
 }
-
-// Made with Bob

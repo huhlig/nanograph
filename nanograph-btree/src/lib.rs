@@ -40,27 +40,134 @@
 //! - **Transactions**: MVCC-based transaction support
 //! - **Metrics**: Performance monitoring and statistics
 //!
-//! ## Example
+//! ## Examples
+//!
+//! ### Basic KeyValueStore Usage
 //!
 //! ```rust
-//! use nanograph_btree::{BTreeKeyValueStore, tree::BPlusTreeConfig};
-//! use nanograph_kvt::KeyValueStore;
+//! use nanograph_btree::BTreeKeyValueStore;
+//! use nanograph_kvt::{KeyValueShardStore, TableId, ShardIndex};
 //!
-//! #[tokio::main]
-//! async fn main() {
-//!     // Create store with default configuration
-//!     let store = BTreeKeyValueStore::default();
-//!     
-//!     // Create a table
-//!     let table = store.create_table("my_table").await.unwrap();
-//!     
-//!     // Insert data
-//!     store.put(table, b"key1", b"value1").await.unwrap();
-//!     
-//!     // Retrieve data
-//!     let value = store.get(table, b"key1").await.unwrap();
-//!     assert_eq!(value, Some(b"value1".to_vec()));
+//! # #[tokio::main]
+//! # async fn main() {
+//! // Create store with default configuration
+//! let store = BTreeKeyValueStore::default();
+//!
+//! // Create a shard
+//! let table_id = TableId::new(1);
+//! let shard_index = ShardIndex::new(0);
+//! let shard = store.create_shard(table_id, shard_index).await.unwrap();
+//!
+//! // Insert data
+//! store.put(shard, b"key1", b"value1").await.unwrap();
+//! store.put(shard, b"key2", b"value2").await.unwrap();
+//!
+//! // Retrieve data
+//! let value = store.get(shard, b"key1").await.unwrap();
+//! assert_eq!(value, Some(b"value1".to_vec()));
+//!
+//! // Delete data
+//! store.delete(shard, b"key1").await.unwrap();
+//! assert_eq!(store.get(shard, b"key1").await.unwrap(), None);
+//! # }
+//! ```
+//!
+//! ### Direct B+Tree Usage
+//!
+//! ```rust
+//! use nanograph_btree::{BPlusTree, BPlusTreeConfig};
+//!
+//! // Create tree with custom configuration
+//! let config = BPlusTreeConfig {
+//!     max_keys: 4,
+//!     min_keys: 2,
+//! };
+//! let tree = BPlusTree::new(config);
+//!
+//! // Insert key-value pairs
+//! tree.insert(b"apple".to_vec(), b"red fruit".to_vec()).unwrap();
+//! tree.insert(b"banana".to_vec(), b"yellow fruit".to_vec()).unwrap();
+//! tree.insert(b"cherry".to_vec(), b"red fruit".to_vec()).unwrap();
+//!
+//! // Search for values
+//! let value = tree.get(b"banana").unwrap();
+//! assert_eq!(value, Some(b"yellow fruit".to_vec()));
+//!
+//! // Get tree statistics
+//! let stats = tree.stats();
+//! println!("Tree height: {}", stats.height);
+//! println!("Total keys: {}", stats.num_keys);
+//! ```
+//!
+//! ### Range Scans
+//!
+//! ```rust
+//! use nanograph_btree::BTreeKeyValueStore;
+//! use nanograph_kvt::{KeyValueShardStore, KeyRange, TableId, ShardIndex};
+//! use std::collections::Bound;
+//! use futures::StreamExt;
+//!
+//! # #[tokio::main]
+//! # async fn main() {
+//! let store = BTreeKeyValueStore::default();
+//! let table_id = TableId::new(1);
+//! let shard_index = ShardIndex::new(0);
+//! let shard = store.create_shard(table_id, shard_index).await.unwrap();
+//!
+//! // Insert sorted data
+//! store.put(shard, b"apple", b"1").await.unwrap();
+//! store.put(shard, b"banana", b"2").await.unwrap();
+//! store.put(shard, b"cherry", b"3").await.unwrap();
+//! store.put(shard, b"date", b"4").await.unwrap();
+//!
+//! // Scan a range
+//! let range = KeyRange::new(
+//!     Bound::Included(b"banana".to_vec()),
+//!     Bound::Included(b"date".to_vec())
+//! );
+//! let mut iter = store.scan(shard, range).await.unwrap();
+//!
+//! let mut results = Vec::new();
+//! while let Some(result) = iter.next().await {
+//!     let (key, value) = result.unwrap();
+//!     results.push((key, value));
 //! }
+//!
+//! assert_eq!(results.len(), 3); // banana, cherry, date
+//! # }
+//! ```
+//!
+//! ### Transactions with MVCC
+//!
+//! ```rust
+//! use nanograph_btree::BTreeKeyValueStore;
+//! use nanograph_kvt::{KeyValueShardStore, TableId, ShardIndex};
+//!
+//! # #[tokio::main]
+//! # async fn main() {
+//! let store = BTreeKeyValueStore::default();
+//! let table_id = TableId::new(1);
+//! let shard_index = ShardIndex::new(0);
+//! let shard = store.create_shard(table_id, shard_index).await.unwrap();
+//!
+//! // Start a transaction
+//! let txn = store.begin_transaction().await.unwrap();
+//!
+//! // Perform operations within transaction
+//! txn.put(shard, b"account1", b"100").await.unwrap();
+//! txn.put(shard, b"account2", b"200").await.unwrap();
+//!
+//! // Read within transaction
+//! let balance = txn.get(shard, b"account1").await.unwrap();
+//! assert_eq!(balance, Some(b"100".to_vec()));
+//!
+//! // Commit transaction
+//! txn.commit().await.unwrap();
+//!
+//! // Verify committed data
+//! let value = store.get(shard, b"account1").await.unwrap();
+//! assert_eq!(value, Some(b"100".to_vec()));
+//! # }
 //! ```
 
 pub mod error;
@@ -75,6 +182,7 @@ pub mod node;
 pub mod persistence;
 pub mod transaction;
 pub mod tree;
+pub mod wal_record;
 
 // Re-export main types
 pub use error::{BTreeError, BTreeResult};
@@ -84,5 +192,3 @@ pub use node::{BPlusTreeNode, InternalNode, LeafNode, NodeId};
 pub use persistence::{BTreePersistence, TreeMetadata};
 pub use transaction::{BTreeTransaction, TransactionManager};
 pub use tree::{BPlusTree, BPlusTreeConfig, BTreeStats};
-
-// Made with Bob

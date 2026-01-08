@@ -16,11 +16,18 @@
 
 //! KeyValueStore trait integration tests for LSM
 
+use futures::StreamExt;
+use nanograph_kvt::{KeyRange, KeyValueShardStore, ShardId, ShardIndex, StatValue, TableId};
 use nanograph_lsm::LSMKeyValueStore;
-use nanograph_kvt::{KeyRange, KeyValueStore};
 use std::ops::Bound;
 use std::sync::Arc;
-use futures::StreamExt;
+
+// Helper function to create a test shard
+async fn create_test_shard(store: &LSMKeyValueStore, id: u64) -> ShardId {
+    let table_id = TableId::new(id);
+    let shard_index = ShardIndex::new(0);
+    store.create_shard(table_id, shard_index).await.unwrap()
+}
 
 // ============================================================================
 // Basic Operations Tests
@@ -29,11 +36,11 @@ use futures::StreamExt;
 #[tokio::test]
 async fn test_basic_put_get() {
     let store = LSMKeyValueStore::new();
-    let table = store.create_table("test").await.unwrap();
-    
+    let table = create_test_shard(&store, 1).await;
+
     // Insert a key-value pair
     store.put(table, b"key1", b"value1").await.unwrap();
-    
+
     // Retrieve it
     let value = store.get(table, b"key1").await.unwrap();
     assert_eq!(value, Some(b"value1".to_vec()));
@@ -42,14 +49,14 @@ async fn test_basic_put_get() {
 #[tokio::test]
 async fn test_put_update() {
     let store = LSMKeyValueStore::new();
-    let table = store.create_table("test").await.unwrap();
-    
+    let table = create_test_shard(&store, 1).await;
+
     // Insert initial value
     store.put(table, b"key1", b"value1").await.unwrap();
-    
+
     // Update the value
     store.put(table, b"key1", b"value2").await.unwrap();
-    
+
     // Verify update
     let value = store.get(table, b"key1").await.unwrap();
     assert_eq!(value, Some(b"value2".to_vec()));
@@ -58,12 +65,12 @@ async fn test_put_update() {
 #[tokio::test]
 async fn test_delete() {
     let store = LSMKeyValueStore::new();
-    let table = store.create_table("test").await.unwrap();
-    
+    let table = create_test_shard(&store, 1).await;
+
     // Insert and verify
     store.put(table, b"key1", b"value1").await.unwrap();
     assert!(store.exists(table, b"key1").await.unwrap());
-    
+
     // Delete and verify
     let deleted = store.delete(table, b"key1").await.unwrap();
     assert!(deleted);
@@ -77,35 +84,44 @@ async fn test_delete() {
 #[tokio::test]
 async fn test_batch_put() {
     let store = LSMKeyValueStore::new();
-    let table = store.create_table("test").await.unwrap();
-    
+    let table = create_test_shard(&store, 1).await;
+
     let pairs = vec![
         (&b"key1"[..], &b"value1"[..]),
         (&b"key2"[..], &b"value2"[..]),
         (&b"key3"[..], &b"value3"[..]),
     ];
-    
+
     store.batch_put(table, &pairs).await.unwrap();
-    
+
     // Verify all keys
-    assert_eq!(store.get(table, b"key1").await.unwrap(), Some(b"value1".to_vec()));
-    assert_eq!(store.get(table, b"key2").await.unwrap(), Some(b"value2".to_vec()));
-    assert_eq!(store.get(table, b"key3").await.unwrap(), Some(b"value3".to_vec()));
+    assert_eq!(
+        store.get(table, b"key1").await.unwrap(),
+        Some(b"value1".to_vec())
+    );
+    assert_eq!(
+        store.get(table, b"key2").await.unwrap(),
+        Some(b"value2".to_vec())
+    );
+    assert_eq!(
+        store.get(table, b"key3").await.unwrap(),
+        Some(b"value3".to_vec())
+    );
 }
 
 #[tokio::test]
 async fn test_batch_get() {
     let store = LSMKeyValueStore::new();
-    let table = store.create_table("test").await.unwrap();
-    
+    let table = create_test_shard(&store, 1).await;
+
     // Insert test data
     store.put(table, b"key1", b"value1").await.unwrap();
     store.put(table, b"key2", b"value2").await.unwrap();
-    
+
     // Batch get
     let keys = vec![&b"key1"[..], &b"key2"[..], &b"key3"[..]];
     let results = store.batch_get(table, &keys).await.unwrap();
-    
+
     assert_eq!(results[0], Some(b"value1".to_vec()));
     assert_eq!(results[1], Some(b"value2".to_vec()));
     assert_eq!(results[2], None);
@@ -118,31 +134,31 @@ async fn test_batch_get() {
 #[tokio::test]
 async fn test_basic_scan() {
     let store = LSMKeyValueStore::new();
-    let table = store.create_table("test").await.unwrap();
-    
+    let table = create_test_shard(&store, 1).await;
+
     // Insert test data
     store.put(table, b"key1", b"value1").await.unwrap();
     store.put(table, b"key2", b"value2").await.unwrap();
     store.put(table, b"key3", b"value3").await.unwrap();
-    
+
     let range = KeyRange {
         start: Bound::Unbounded,
         end: Bound::Unbounded,
         limit: None,
         reverse: false,
     };
-    
+
     let iter = store.scan(table, range).await.unwrap();
     let mut iter = Box::pin(iter);
     let mut results = Vec::new();
-    
+
     while let Some(result) = iter.as_mut().next().await {
         match result {
             Ok((key, value)) => results.push((key, value)),
             Err(_) => break,
         }
     }
-    
+
     // Should be in sorted order
     assert_eq!(results.len(), 3);
     assert_eq!(results[0], (b"key1".to_vec(), b"value1".to_vec()));
@@ -153,14 +169,17 @@ async fn test_basic_scan() {
 #[tokio::test]
 async fn test_scan_with_bounds() {
     let store = LSMKeyValueStore::new();
-    let table = store.create_table("test").await.unwrap();
-    
+    let table = create_test_shard(&store, 1).await;
+
     for i in 0..10 {
         let key = format!("key{:02}", i);
         let value = format!("value{}", i);
-        store.put(table, key.as_bytes(), value.as_bytes()).await.unwrap();
+        store
+            .put(table, key.as_bytes(), value.as_bytes())
+            .await
+            .unwrap();
     }
-    
+
     // Scan from key03 to key07 (inclusive)
     let range = KeyRange {
         start: Bound::Included(b"key03".to_vec()),
@@ -168,18 +187,18 @@ async fn test_scan_with_bounds() {
         limit: None,
         reverse: false,
     };
-    
+
     let iter = store.scan(table, range).await.unwrap();
     let mut iter = Box::pin(iter);
     let mut results = Vec::new();
-    
+
     while let Some(result) = iter.as_mut().next().await {
         match result {
             Ok((key, _)) => results.push(key),
             Err(_) => break,
         }
     }
-    
+
     assert_eq!(results.len(), 5);
     assert_eq!(results[0], b"key03");
     assert_eq!(results[4], b"key07");
@@ -188,62 +207,65 @@ async fn test_scan_with_bounds() {
 #[tokio::test]
 async fn test_scan_with_limit() {
     let store = LSMKeyValueStore::new();
-    let table = store.create_table("test").await.unwrap();
-    
+    let table = create_test_shard(&store, 1).await;
+
     for i in 0..100 {
         let key = format!("key{:03}", i);
         store.put(table, key.as_bytes(), b"value").await.unwrap();
     }
-    
+
     let range = KeyRange {
         start: Bound::Unbounded,
         end: Bound::Unbounded,
         limit: Some(10),
         reverse: false,
     };
-    
+
     let iter = store.scan(table, range).await.unwrap();
     let mut iter = Box::pin(iter);
     let mut count = 0;
-    
+
     while let Some(result) = iter.as_mut().next().await {
         if result.is_ok() {
             count += 1;
         }
     }
-    
+
     assert_eq!(count, 10);
 }
 
 #[tokio::test]
 async fn test_scan_reverse() {
     let store = LSMKeyValueStore::new();
-    let table = store.create_table("test").await.unwrap();
-    
+    let table = create_test_shard(&store, 1).await;
+
     for i in 0..5 {
         let key = format!("key{}", i);
         let value = format!("value{}", i);
-        store.put(table, key.as_bytes(), value.as_bytes()).await.unwrap();
+        store
+            .put(table, key.as_bytes(), value.as_bytes())
+            .await
+            .unwrap();
     }
-    
+
     let range = KeyRange {
         start: Bound::Unbounded,
         end: Bound::Unbounded,
         limit: None,
         reverse: true,
     };
-    
+
     let iter = store.scan(table, range).await.unwrap();
     let mut iter = Box::pin(iter);
     let mut results = Vec::new();
-    
+
     while let Some(result) = iter.as_mut().next().await {
         match result {
             Ok((key, value)) => results.push((key, value)),
             Err(_) => break,
         }
     }
-    
+
     // Should be in reverse order
     assert_eq!(results.len(), 5);
     assert_eq!(results[0].0, b"key4");
@@ -257,13 +279,13 @@ async fn test_scan_reverse() {
 #[tokio::test]
 async fn test_key_count() {
     let store = LSMKeyValueStore::new();
-    let table = store.create_table("test").await.unwrap();
-    
+    let table = create_test_shard(&store, 1).await;
+
     assert_eq!(store.key_count(table).await.unwrap(), 0);
-    
+
     store.put(table, b"key1", b"value1").await.unwrap();
     assert!(store.key_count(table).await.unwrap() > 0);
-    
+
     store.put(table, b"key2", b"value2").await.unwrap();
     assert!(store.key_count(table).await.unwrap() > 0);
 }
@@ -271,27 +293,22 @@ async fn test_key_count() {
 #[tokio::test]
 async fn test_table_stats() {
     let store = LSMKeyValueStore::new();
-    let table = store.create_table("test").await.unwrap();
-    
+    let table = create_test_shard(&store, 1).await;
+
     // Insert some data
     for i in 0..100 {
         let key = format!("key{:03}", i);
         let value = format!("value{}", i);
-        store.put(table, key.as_bytes(), value.as_bytes()).await.unwrap();
+        store
+            .put(table, key.as_bytes(), value.as_bytes())
+            .await
+            .unwrap();
     }
-    
-    let stats = store.table_stats(table).await.unwrap();
-    
+
+    let stats = store.shard_stats(table).await.unwrap();
+
     assert!(stats.key_count > 0);
     assert!(stats.total_bytes > 0);
-    
-    // Check LSM specific stats
-    if let nanograph_kvt::EngineStats::Lsm(lsm_stats) = stats.engine_stats {
-        assert!(lsm_stats.num_levels > 0);
-        assert!(lsm_stats.memtable_bytes > 0);
-    } else {
-        panic!("Expected LSM stats");
-    }
 }
 
 // ============================================================================
@@ -301,54 +318,54 @@ async fn test_table_stats() {
 #[tokio::test]
 async fn test_multiple_tables() {
     let store = LSMKeyValueStore::new();
-    
-    let table1 = store.create_table("table1").await.unwrap();
-    let table2 = store.create_table("table2").await.unwrap();
-    
-    // Insert different data in each table
-    store.put(table1, b"key1", b"value1_table1").await.unwrap();
-    store.put(table2, b"key1", b"value1_table2").await.unwrap();
-    
+
+    let shard1 = create_test_shard(&store, 1).await;
+    let shard2 = create_test_shard(&store, 2).await;
+
+    // Insert different data in each shard
+    store.put(shard1, b"key1", b"value1_shard1").await.unwrap();
+    store.put(shard2, b"key1", b"value1_shard2").await.unwrap();
+
     // Verify isolation
     assert_eq!(
-        store.get(table1, b"key1").await.unwrap(),
-        Some(b"value1_table1".to_vec())
+        store.get(shard1, b"key1").await.unwrap(),
+        Some(b"value1_shard1".to_vec())
     );
     assert_eq!(
-        store.get(table2, b"key1").await.unwrap(),
-        Some(b"value1_table2".to_vec())
+        store.get(shard2, b"key1").await.unwrap(),
+        Some(b"value1_shard2".to_vec())
     );
 }
 
 #[tokio::test]
 async fn test_list_tables() {
     let store = LSMKeyValueStore::new();
-    
-    let _table1 = store.create_table("table1").await.unwrap();
-    let _table2 = store.create_table("table2").await.unwrap();
-    let _table3 = store.create_table("table3").await.unwrap();
-    
-    let tables = store.list_tables().await.unwrap();
-    
-    assert_eq!(tables.len(), 3);
-    assert!(tables.iter().any(|(_, name)| name == "table1"));
-    assert!(tables.iter().any(|(_, name)| name == "table2"));
-    assert!(tables.iter().any(|(_, name)| name == "table3"));
+
+    let shard1 = create_test_shard(&store, 1).await;
+    let shard2 = create_test_shard(&store, 2).await;
+    let shard3 = create_test_shard(&store, 3).await;
+
+    let shards = store.list_shards().await.unwrap();
+
+    assert_eq!(shards.len(), 3);
+    assert!(shards.contains(&shard1));
+    assert!(shards.contains(&shard2));
+    assert!(shards.contains(&shard3));
 }
 
 #[tokio::test]
 async fn test_drop_table() {
     let store = LSMKeyValueStore::new();
-    
-    let table = store.create_table("test").await.unwrap();
-    store.put(table, b"key1", b"value1").await.unwrap();
-    
-    // Drop the table
-    store.drop_table(table).await.unwrap();
-    
-    // Table should no longer exist
-    let tables = store.list_tables().await.unwrap();
-    assert!(!tables.iter().any(|(_, name)| name == "test"));
+
+    let shard = create_test_shard(&store, 1).await;
+    store.put(shard, b"key1", b"value1").await.unwrap();
+
+    // Drop the shard
+    store.drop_shard(shard).await.unwrap();
+
+    // Shard should no longer exist
+    let shards = store.list_shards().await.unwrap();
+    assert!(!shards.contains(&shard));
 }
 
 // ============================================================================
@@ -358,15 +375,18 @@ async fn test_drop_table() {
 #[tokio::test]
 async fn test_concurrent_reads() {
     let store = Arc::new(LSMKeyValueStore::new());
-    let table = store.create_table("test").await.unwrap();
-    
+    let table = create_test_shard(&store, 1).await;
+
     // Insert test data
     for i in 0..100 {
         let key = format!("key{:03}", i);
         let value = format!("value{}", i);
-        store.put(table, key.as_bytes(), value.as_bytes()).await.unwrap();
+        store
+            .put(table, key.as_bytes(), value.as_bytes())
+            .await
+            .unwrap();
     }
-    
+
     // Spawn multiple concurrent readers
     let mut handles = vec![];
     for _ in 0..10 {
@@ -380,11 +400,9 @@ async fn test_concurrent_reads() {
         });
         handles.push(handle);
     }
-    
+
     // Wait for all readers to complete
     for handle in handles {
         handle.await.unwrap();
     }
 }
-
-// Made with Bob

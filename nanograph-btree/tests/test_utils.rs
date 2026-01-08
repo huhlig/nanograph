@@ -21,31 +21,33 @@
 pub fn generate_random_kvs(count: usize, seed: u64) -> Vec<(Vec<u8>, Vec<u8>)> {
     let mut kvs = Vec::with_capacity(count);
     let mut state = seed;
-    
+
     // Simple LCG for deterministic random generation
     let lcg_next = |s: &mut u64| {
-        *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         *s
     };
-    
+
     for _ in 0..count {
         let key_len = (lcg_next(&mut state) % 28 + 4) as usize;
         let value_len = (lcg_next(&mut state) % 120 + 8) as usize;
-        
+
         let mut key = Vec::with_capacity(key_len);
         let mut value = Vec::with_capacity(value_len);
-        
+
         for _ in 0..key_len {
             key.push((lcg_next(&mut state) % 256) as u8);
         }
-        
+
         for _ in 0..value_len {
             value.push((lcg_next(&mut state) % 256) as u8);
         }
-        
+
         kvs.push((key, value));
     }
-    
+
     kvs
 }
 
@@ -80,38 +82,36 @@ pub fn generate_reverse_sequential_keys(count: usize, prefix: &str) -> Vec<Vec<u
 /// Generate keys with specific patterns for testing edge cases
 pub fn generate_edge_case_keys() -> Vec<Vec<u8>> {
     vec![
-        vec![],                           // Empty key
-        vec![0],                          // Single byte
-        vec![0, 0, 0, 0],                // All zeros
-        vec![255, 255, 255, 255],        // All ones
-        vec![0, 255, 0, 255],            // Alternating
-        (0..255).collect(),              // Long sequential
-        vec![b'a'; 1000],                // Very long key
+        vec![],                   // Empty key
+        vec![0],                  // Single byte
+        vec![0, 0, 0, 0],         // All zeros
+        vec![255, 255, 255, 255], // All ones
+        vec![0, 255, 0, 255],     // Alternating
+        (0..255).collect(),       // Long sequential
+        vec![b'a'; 1000],         // Very long key
     ]
 }
 
 /// Verify tree consistency (all leaves at same level, proper ordering)
 #[allow(dead_code)]
-pub fn verify_tree_structure(
-    tree: &nanograph_btree::BPlusTree,
-) -> Result<(), String> {
+pub fn verify_tree_structure(tree: &nanograph_btree::BPlusTree) -> Result<(), String> {
     let stats = tree.stats();
-    
+
     // Verify we have at least one leaf
     if stats.num_leaf_nodes == 0 {
         return Err("Tree has no leaf nodes".to_string());
     }
-    
+
     // Verify height is reasonable
     if stats.height == 0 {
         return Err("Tree height is 0".to_string());
     }
-    
+
     // For non-empty trees, verify we have keys
     if stats.num_keys > 0 && stats.num_leaf_nodes == 0 {
         return Err("Tree has keys but no leaf nodes".to_string());
     }
-    
+
     Ok(())
 }
 
@@ -145,11 +145,11 @@ pub fn fill_tree_with_data(
     count: usize,
 ) -> Vec<(Vec<u8>, Vec<u8>)> {
     let kvs = generate_sequential_kvs(count, "key");
-    
+
     for (key, value) in &kvs {
         tree.insert(key.clone(), value.clone()).unwrap();
     }
-    
+
     kvs
 }
 
@@ -161,7 +161,7 @@ mod tests {
     fn test_generate_random_kvs() {
         let kvs = generate_random_kvs(100, 42);
         assert_eq!(kvs.len(), 100);
-        
+
         // Verify all keys and values are within expected ranges
         for (key, value) in kvs {
             assert!(key.len() >= 4 && key.len() < 32);
@@ -184,5 +184,3 @@ mod tests {
         assert_eq!(keys[0], Vec::<u8>::new()); // Empty key
     }
 }
-
-// Made with Bob

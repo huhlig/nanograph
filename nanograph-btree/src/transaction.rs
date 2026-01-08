@@ -14,14 +14,14 @@
 // limitations under the License.
 //
 
+use crate::tree::BPlusTree;
 use async_trait::async_trait;
 use nanograph_kvt::{
-    KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueTableId, Timestamp,
-    Transaction, TransactionId,
+    KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, ShardId, Timestamp, Transaction,
+    TransactionId,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Weak};
-use crate::tree::BPlusTree;
 
 /// Write operation in a transaction
 #[derive(Debug, Clone)]
@@ -34,9 +34,11 @@ pub enum WriteOp {
 /// Provides snapshot isolation with buffered writes
 pub struct BTreeTransaction {
     id: TransactionId,
-    /// Table ID this transaction operates on
-    /// TODO: Use for multi-table transaction validation
-    _table: KeyValueTableId,
+    /// Shard ID this transaction operates on
+    /// TODO: Use for multi-shard transaction validation
+    shard: ShardId,
+    /// Timestamp of the transaction
+    timestamp: Timestamp,
     /// Reference to the underlying tree
     tree: Weak<BPlusTree>,
     /// Buffered writes (not yet committed)
@@ -46,20 +48,22 @@ pub struct BTreeTransaction {
 }
 
 impl BTreeTransaction {
-    pub fn new(id: TransactionId, table: KeyValueTableId, tree: Arc<BPlusTree>) -> Self {
+    pub fn new(id: TransactionId, shard: ShardId, tree: Arc<BPlusTree>) -> Self {
         Self {
             id,
-            _table: table,
+            shard,
+            timestamp: Timestamp::now(),
             tree: Arc::downgrade(&tree),
             write_buffer: RwLock::new(HashMap::new()),
             active: RwLock::new(true),
         }
     }
-    
+
     /// Get the tree reference
     fn get_tree(&self) -> KeyValueResult<Arc<BPlusTree>> {
-        self.tree.upgrade()
-            .ok_or(KeyValueError::StorageCorruption("Tree no longer exists".to_string()))
+        self.tree.upgrade().ok_or(KeyValueError::StorageCorruption(
+            "Tree no longer exists".to_string(),
+        ))
     }
 
     /// Check if transaction is active
@@ -113,11 +117,10 @@ impl Transaction for BTreeTransaction {
     }
 
     fn snapshot_ts(&self) -> Timestamp {
-        // For now, use transaction ID as timestamp
-        Timestamp(self.id.0)
+        self.timestamp
     }
 
-    async fn get(&self, _table: KeyValueTableId, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
+    async fn get(&self, _table: ShardId, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
         // Check write buffer first
         let buffer = self.write_buffer.read().unwrap();
         if let Some(op) = buffer.get(key) {
@@ -132,19 +135,19 @@ impl Transaction for BTreeTransaction {
         tree.get(key).map_err(Into::into)
     }
 
-    async fn put(&self, _table: KeyValueTableId, key: &[u8], value: &[u8]) -> KeyValueResult<()> {
+    async fn put(&self, _table: ShardId, key: &[u8], value: &[u8]) -> KeyValueResult<()> {
         let _ = self.buffer_put(key.to_vec(), value.to_vec());
         Ok(())
     }
 
-    async fn delete(&self, _table: KeyValueTableId, key: &[u8]) -> KeyValueResult<bool> {
+    async fn delete(&self, _table: ShardId, key: &[u8]) -> KeyValueResult<bool> {
         let _ = self.buffer_delete(key.to_vec());
         Ok(true)
     }
 
     async fn scan(
         &self,
-        _table: KeyValueTableId,
+        _table: ShardId,
         _range: KeyRange,
     ) -> KeyValueResult<Box<dyn KeyValueIterator + Send>> {
         if !self.is_active() {
@@ -159,7 +162,8 @@ impl Transaction for BTreeTransaction {
         //
         // For now, return an error indicating this is not yet implemented
         Err(KeyValueError::StorageCorruption(
-            "Transaction scan not yet fully implemented - needs B+Tree iterator integration".to_string(),
+            "Transaction scan not yet fully implemented - needs B+Tree iterator integration"
+                .to_string(),
         ))
     }
 
@@ -171,14 +175,16 @@ impl Transaction for BTreeTransaction {
         // Apply all buffered writes to the tree
         let tree = self.get_tree()?;
         let writes = self.get_writes();
-        
+
         for op in writes {
             match op {
                 WriteOp::Put { key, value } => {
-                    tree.insert(key, value).map_err(|e| Into::<KeyValueError>::into(e))?;
+                    tree.insert(key, value)
+                        .map_err(|e| Into::<KeyValueError>::into(e))?;
                 }
                 WriteOp::Delete { key } => {
-                    tree.delete(&key).map_err(|e| Into::<KeyValueError>::into(e))?;
+                    tree.delete(&key)
+                        .map_err(|e| Into::<KeyValueError>::into(e))?;
                 }
             }
         }
@@ -219,7 +225,7 @@ impl TransactionManager {
     }
 
     /// Begin a new transaction
-    pub fn begin(&self, table: KeyValueTableId, tree: Arc<BPlusTree>) -> Arc<BTreeTransaction> {
+    pub fn begin(&self, table: ShardId, tree: Arc<BPlusTree>) -> Arc<BTreeTransaction> {
         let mut next_id = self.next_tx_id.write().unwrap();
         let tx_id = TransactionId(*next_id);
         *next_id += 1;
@@ -272,7 +278,7 @@ mod tests {
     async fn test_transaction_lifecycle() {
         let manager = TransactionManager::new();
         let tree = Arc::new(BPlusTree::new(BPlusTreeConfig::default()));
-        let table = KeyValueTableId::new(1);
+        let table = ShardId::new(1);
 
         // Begin transaction
         let tx = manager.begin(table, tree.clone());
@@ -299,7 +305,7 @@ mod tests {
     async fn test_transaction_rollback() {
         let manager = TransactionManager::new();
         let tree = Arc::new(BPlusTree::new(BPlusTreeConfig::default()));
-        let table = KeyValueTableId::new(1);
+        let table = ShardId::new(1);
 
         let tx = manager.begin(table, tree.clone());
         tx.buffer_put(b"key1".to_vec(), b"value1".to_vec()).unwrap();
@@ -310,7 +316,7 @@ mod tests {
 
         // Rollback clears the buffer and marks transaction inactive
         tx.rollback().await.unwrap();
-        
+
         // Transaction is no longer active after rollback
         // (we can't check writes after rollback since tx is consumed)
     }
@@ -319,7 +325,7 @@ mod tests {
     async fn test_multiple_transactions() {
         let manager = TransactionManager::new();
         let tree = Arc::new(BPlusTree::new(BPlusTreeConfig::default()));
-        let table = KeyValueTableId::new(1);
+        let table = ShardId::new(1);
 
         let tx1 = manager.begin(table, tree.clone());
         let tx2 = manager.begin(table, tree.clone());
@@ -337,11 +343,11 @@ mod tests {
     #[tokio::test]
     async fn test_transaction_error_after_commit() {
         let tree = Arc::new(BPlusTree::new(BPlusTreeConfig::default()));
-        let table = KeyValueTableId::new(1);
+        let table = ShardId::new(1);
         let tx = Arc::new(BTreeTransaction::new(TransactionId(1), table, tree.clone()));
 
         tx.buffer_put(b"key1".to_vec(), b"value1".to_vec()).unwrap();
-        
+
         // Clone tx before commit since commit consumes it
         let tx_clone = tx.clone();
         tx.commit().await.unwrap();
@@ -349,10 +355,8 @@ mod tests {
         // Should fail after commit - transaction is no longer active
         let result = tx_clone.buffer_put(b"key2".to_vec(), b"value2".to_vec());
         assert!(result.is_err());
-        
+
         // Verify the first write was committed to the tree
         assert!(tree.get(b"key1").unwrap().is_some());
     }
 }
-
-// Made with Bob

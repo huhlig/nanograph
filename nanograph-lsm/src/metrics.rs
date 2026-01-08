@@ -343,7 +343,10 @@ impl LSMMetrics {
         if total_reads == 0 {
             return 0.0;
         }
-        let sstable_reads = self.inner.total_sstable_reads_for_gets.load(Ordering::Relaxed);
+        let sstable_reads = self
+            .inner
+            .total_sstable_reads_for_gets
+            .load(Ordering::Relaxed);
         sstable_reads as f64 / total_reads as f64
     }
 
@@ -506,12 +509,16 @@ impl MetricsSnapshot {
         println!("  Total Flushes: {}", self.total_flushes);
         println!("  Total Compactions: {}", self.total_compactions);
         if self.last_flush_time > 0 {
-            println!("  Last Flush: {} seconds ago",
-                current_timestamp().saturating_sub(self.last_flush_time));
+            println!(
+                "  Last Flush: {} seconds ago",
+                current_timestamp().saturating_sub(self.last_flush_time)
+            );
         }
         if self.last_compaction_time > 0 {
-            println!("  Last Compaction: {} seconds ago",
-                current_timestamp().saturating_sub(self.last_compaction_time));
+            println!(
+                "  Last Compaction: {} seconds ago",
+                current_timestamp().saturating_sub(self.last_compaction_time)
+            );
         }
         println!();
         println!("Levels:");
@@ -522,11 +529,40 @@ impl MetricsSnapshot {
             .enumerate()
         {
             if *count > 0 {
-                println!("  L{}: {} files, {} bytes ({:.2} MB)",
-                    i, count, size, *size as f64 / 1024.0 / 1024.0);
+                println!(
+                    "  L{}: {} files, {} bytes ({:.2} MB)",
+                    i,
+                    count,
+                    size,
+                    *size as f64 / 1024.0 / 1024.0
+                );
             }
         }
     }
+}
+
+/// Example LSM-specific metric names
+pub mod consts {
+    /// Number of LSM levels (gauge)
+    pub const LEVELS: &str = "nanograph.storage.lsm.levels";
+
+    /// Number of SSTables (gauge, with level label)
+    pub const SSTABLES: &str = "nanograph.storage.lsm.sstables";
+
+    /// Memtable size in bytes (gauge)
+    pub const MEMTABLE_BYTES: &str = "nanograph.storage.lsm.memtable_bytes";
+
+    /// Total compactions performed (counter)
+    pub const COMPACTIONS_TOTAL: &str = "nanograph.storage.lsm.compactions_total";
+
+    /// Write amplification factor (gauge)
+    pub const WRITE_AMPLIFICATION: &str = "nanograph.storage.lsm.write_amplification";
+
+    /// Read amplification factor (gauge)
+    pub const READ_AMPLIFICATION: &str = "nanograph.storage.lsm.read_amplification";
+
+    /// Bloom filter false positive rate (gauge)
+    pub const BLOOM_FP_RATE: &str = "nanograph.storage.lsm.bloom_false_positive_rate";
 }
 
 #[cfg(test)]
@@ -580,5 +616,3 @@ mod tests {
         assert_eq!(snapshot.level_file_counts[0], 5);
     }
 }
-
-// Made with Bob

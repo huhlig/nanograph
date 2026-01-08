@@ -64,6 +64,16 @@ impl FileSystemManager {
         filesystems.remove(scheme);
     }
 
+    /// List registered filesystem schemes
+    pub fn list_schemes(&self) -> Vec<String> {
+        self.filesystems.read().unwrap().keys().cloned().collect()
+    }
+
+    /// Set Default Scheme used for relative addresses
+    pub fn set_default_scheme(&self, _scheme: &str) {
+        todo!("TODO: Implement Default Scheme")
+    }
+
     /// Resolve a filesystem based on a path.
     ///
     /// If the path has a scheme, it looks up the registered filesystem for that scheme.

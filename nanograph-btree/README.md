@@ -11,6 +11,10 @@ This crate provides an in-memory B+Tree implementation that conforms to the `Key
 - **B+Tree Structure**: All data stored in leaf nodes, internal nodes only contain routing keys
 - **Efficient Range Scans**: Linked leaf nodes enable fast forward and reverse iteration
 - **MVCC Support**: Snapshot isolation for concurrent transactions
+- **Write-Ahead Logging (WAL)**: Active WAL writes for durability and crash recovery
+  - Automatic WAL creation on shard initialization
+  - WAL recovery on startup for crash consistency
+  - Checkpointing for optimized recovery performance
 - **Comprehensive Metrics**: Track reads, writes, splits, and other operations
 - **Configurable**: Adjustable node size and tree parameters
 - **In-Memory**: Fast access with no disk I/O overhead
@@ -256,6 +260,7 @@ High-performance B+Tree implementation with MVCC support and automatic rebalanci
 - **Node Borrowing**: Redistributes entries from siblings when possible
 - **Node Merging**: Combines underflowing nodes with siblings
 - **MVCC Support**: Multi-version concurrency control with timestamps
+- **Write-Ahead Logging**: Active WAL with recovery and checkpointing
 - **Persistence**: Optional disk-based storage
 - **Range Scans**: Efficient iteration via leaf node links
 

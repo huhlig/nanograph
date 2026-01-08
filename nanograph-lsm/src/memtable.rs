@@ -24,7 +24,7 @@ pub struct Entry {
     pub key: Vec<u8>,
     pub value: Option<Vec<u8>>, // None represents a deletion
     pub sequence: u64,
-    pub commit_ts: Option<u64>, // None = uncommitted, Some = committed at this timestamp
+    pub commit_ts: Option<i64>, // None = uncommitted, Some = committed at this timestamp
 }
 
 impl Entry {
@@ -36,8 +36,13 @@ impl Entry {
             commit_ts: None, // Initially uncommitted
         }
     }
-    
-    pub fn with_commit_ts(key: Vec<u8>, value: Option<Vec<u8>>, sequence: u64, commit_ts: u64) -> Self {
+
+    pub fn with_commit_ts(
+        key: Vec<u8>,
+        value: Option<Vec<u8>>,
+        sequence: u64,
+        commit_ts: i64,
+    ) -> Self {
         Self {
             key,
             value,
@@ -45,11 +50,11 @@ impl Entry {
             commit_ts: Some(commit_ts),
         }
     }
-    
+
     /// Check if this entry is visible to a transaction with the given snapshot timestamp
-    pub fn is_visible(&self, snapshot_ts: u64) -> bool {
+    pub fn is_visible(&self, snapshot_ts: i64) -> bool {
         match self.commit_ts {
-            None => false, // Uncommitted entries are not visible
+            None => false,                 // Uncommitted entries are not visible
             Some(ts) => ts <= snapshot_ts, // Only see entries committed before or at snapshot
         }
     }
@@ -109,10 +114,10 @@ impl MemTable {
 
         sequence
     }
-    
+
     /// Insert or update a key-value pair with immediate commit timestamp
     /// Used when writing already-committed data (e.g., from transaction commit)
-    pub fn put_committed(&self, key: Vec<u8>, value: Vec<u8>, commit_ts: u64) -> u64 {
+    pub fn put_committed(&self, key: Vec<u8>, value: Vec<u8>, commit_ts: i64) -> u64 {
         let sequence = self.sequence.fetch_add(1, AtomicOrdering::SeqCst);
         // Create entry with commit_ts set (committed)
         let entry = Entry::with_commit_ts(key.clone(), Some(value), sequence, commit_ts);
@@ -159,9 +164,9 @@ impl MemTable {
 
         sequence
     }
-    
+
     /// Mark a key as deleted with immediate commit timestamp
-    pub fn delete_committed(&self, key: Vec<u8>, commit_ts: u64) -> u64 {
+    pub fn delete_committed(&self, key: Vec<u8>, commit_ts: i64) -> u64 {
         let sequence = self.sequence.fetch_add(1, AtomicOrdering::SeqCst);
         let entry = Entry::with_commit_ts(key.clone(), None, sequence, commit_ts);
         let entry_size = entry.size();
@@ -189,10 +194,10 @@ impl MemTable {
         let data = self.data.read().unwrap();
         data.get(key).cloned()
     }
-    
+
     /// Get a value by key with snapshot isolation
     /// Only returns entries that are visible at the given snapshot timestamp
-    pub fn get_at_snapshot(&self, key: &[u8], snapshot_ts: u64) -> Option<Entry> {
+    pub fn get_at_snapshot(&self, key: &[u8], snapshot_ts: i64) -> Option<Entry> {
         let data = self.data.read().unwrap();
         if let Some(entry) = data.get(key) {
             if entry.is_visible(snapshot_ts) {
@@ -201,10 +206,10 @@ impl MemTable {
         }
         None
     }
-    
+
     /// Mark an entry as committed with the given timestamp
     /// This is called when a transaction commits
-    pub fn commit_entry(&self, key: &[u8], commit_ts: u64) -> bool {
+    pub fn commit_entry(&self, key: &[u8], commit_ts: i64) -> bool {
         let mut data = self.data.write().unwrap();
         if let Some(entry) = data.get_mut(key) {
             if entry.commit_ts.is_none() {
@@ -384,5 +389,3 @@ mod tests {
         assert_eq!(memtable.current_sequence(), 3);
     }
 }
-
-// Made with Bob

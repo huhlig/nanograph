@@ -497,5 +497,3 @@ mod tests {
         assert_eq!(EncryptionAlgorithm::ChaCha20Poly1305.nonce_size(), 12);
     }
 }
-
-// Made with Bob

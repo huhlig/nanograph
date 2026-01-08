@@ -19,21 +19,26 @@ use crate::memtable::MemTable;
 use crate::metrics::LSMMetrics;
 use crate::options::LSMTreeOptions;
 use crate::sstable::{SSTable, SSTableMetadata};
-use crate::wal_record::{WalRecordKind, decode_delete, decode_put, encode_delete, encode_put};
+use crate::wal_record::{
+    WalRecordKind, decode_checkpoint, decode_commit, decode_delete, decode_delete_committed,
+    decode_flush_complete, decode_put, decode_put_committed, encode_checkpoint, encode_commit,
+    encode_delete, encode_delete_committed, encode_flush_complete, encode_put,
+    encode_put_committed,
+};
 use nanograph_kvt::KeyValueResult;
 use nanograph_vfs::{DynamicFileSystem, File as VfsFile};
 use nanograph_wal::{LogSequenceNumber, WriteAheadLogManager, WriteAheadLogRecord};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 use tracing::{debug, info, instrument, warn};
 
 // Global timestamp counter for MVCC
-static GLOBAL_TIMESTAMP: AtomicU64 = AtomicU64::new(1);
+static GLOBAL_TIMESTAMP: AtomicI64 = AtomicI64::new(1);
 
-fn next_timestamp() -> u64 {
+fn next_timestamp() -> i64 {
     GLOBAL_TIMESTAMP.fetch_add(1, Ordering::SeqCst)
 }
 
@@ -182,6 +187,9 @@ impl LSMTreeEngine {
         // Load manifest if it exists
         engine.load_manifest()?;
 
+        // Recover from WAL
+        engine.recover_from_wal()?;
+
         Ok(engine)
     }
 
@@ -272,6 +280,120 @@ impl LSMTreeEngine {
         Ok(())
     }
 
+    /// Recover from WAL by replaying all records
+    fn recover_from_wal(&self) -> KeyValueResult<()> {
+        // Get WAL reader starting from the beginning
+        let mut reader = self.wal.reader_from(LogSequenceNumber::ZERO).map_err(|e| {
+            nanograph_kvt::KeyValueError::StorageCorruption(format!(
+                "Failed to create WAL reader: {}",
+                e
+            ))
+        })?;
+
+        let mut recovered_count = 0;
+        let memtable = self.memtable.write().unwrap();
+
+        // Replay all WAL records
+        // Empty WAL will cause a corruption error at offset 0, which we can safely ignore
+        loop {
+            let entry = match reader.next() {
+                Ok(Some(e)) => e,
+                Ok(None) => break, // End of WAL
+                Err(e) => {
+                    // Ignore corruption at the start of an empty WAL
+                    let err_str = e.to_string();
+                    if err_str.contains("segment_id: 0, offset: 0") {
+                        break;
+                    }
+                    return Err(nanograph_kvt::KeyValueError::StorageCorruption(format!(
+                        "WAL read error: {}",
+                        e
+                    )));
+                }
+            };
+
+            match WalRecordKind::from_u16(entry.kind) {
+                Some(WalRecordKind::Put) => {
+                    let (key, value) = decode_put(&entry.payload)?;
+                    let ts = next_timestamp();
+                    memtable.put_committed(key, value, ts);
+                    recovered_count += 1;
+                }
+                Some(WalRecordKind::PutCommitted) => {
+                    let (key, value, ts) = decode_put_committed(&entry.payload)?;
+                    memtable.put_committed(key, value, ts);
+                    recovered_count += 1;
+                }
+                Some(WalRecordKind::Delete) => {
+                    let key = decode_delete(&entry.payload)?;
+                    let ts = next_timestamp();
+                    memtable.delete_committed(key, ts);
+                    recovered_count += 1;
+                }
+                Some(WalRecordKind::DeleteCommitted) => {
+                    let (key, ts) = decode_delete_committed(&entry.payload)?;
+                    memtable.delete_committed(key, ts);
+                    recovered_count += 1;
+                }
+                Some(WalRecordKind::Commit) => {
+                    // Transaction commit marker - already handled by committed records
+                }
+                Some(WalRecordKind::Checkpoint) => {
+                    // Checkpoint marker - could truncate WAL here in the future
+                }
+                Some(WalRecordKind::FlushComplete) => {
+                    // Flush completion marker - metadata already in manifest
+                }
+                None => {
+                    // Unknown record type - skip it
+                    continue;
+                }
+            }
+        }
+
+        drop(memtable);
+
+        if recovered_count > 0 {
+            info!(
+                "Recovered {} operations from WAL for shard {}",
+                recovered_count, self.options.shard_id
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Create a checkpoint for this engine
+    /// Writes checkpoint marker to WAL and saves manifest
+    pub fn checkpoint(&self) -> KeyValueResult<()> {
+        // Get current memtable sequence and file number
+        let sequence = self.memtable.read().unwrap().current_sequence();
+        let file_number = self.next_file_number.load(Ordering::SeqCst);
+
+        // Write checkpoint marker to WAL
+        let payload = encode_checkpoint(sequence, file_number);
+        let record = WriteAheadLogRecord {
+            kind: WalRecordKind::Checkpoint.to_u16(),
+            payload: &payload,
+        };
+
+        let mut writer = self.wal_writer.lock().unwrap();
+        writer
+            .append(record, nanograph_wal::Durability::Sync)
+            .map_err(|e| {
+                nanograph_kvt::KeyValueError::StorageCorruption(format!(
+                    "Checkpoint write failed: {}",
+                    e
+                ))
+            })?;
+        drop(writer);
+
+        // Save manifest to persist SSTable metadata
+        self.save_manifest()?;
+
+        Ok(())
+    }
+
     /// Get path for SSTable file
     fn sstable_path(&self, file_number: u64) -> String {
         format!("{}/{:06}.sst", self.base_path, file_number)
@@ -282,9 +404,9 @@ impl LSMTreeEngine {
     pub fn put(&self, key: Vec<u8>, value: Vec<u8>) -> KeyValueResult<()> {
         let start = Instant::now();
         let total_bytes = key.len() + value.len();
-        
+
         debug!("LSM put operation started");
-        
+
         // Write to WAL first for durability
         let payload = encode_put(&key, &value);
         let record = WriteAheadLogRecord {
@@ -304,12 +426,12 @@ impl LSMTreeEngine {
         // Write to memtable as committed (non-transactional writes are immediately visible)
         let memtable = self.memtable.read().unwrap();
         memtable.put_committed(key, value, commit_ts);
-        
+
         // Update memtable size metric
         self.metrics.set_memtable_size(memtable.size());
 
         self.total_writes.fetch_add(1, Ordering::Relaxed);
-        
+
         // Record metrics
         let duration = start.elapsed();
         self.metrics.record_write(total_bytes, duration);
@@ -330,12 +452,12 @@ impl LSMTreeEngine {
         &self,
         key: Vec<u8>,
         value: Vec<u8>,
-        commit_ts: u64,
+        commit_ts: i64,
     ) -> KeyValueResult<()> {
-        // Write to WAL first for durability
-        let payload = encode_put(&key, &value);
+        // Write to WAL first for durability with commit timestamp
+        let payload = encode_put_committed(&key, &value, commit_ts);
         let record = WriteAheadLogRecord {
-            kind: WalRecordKind::Put.to_u16(),
+            kind: WalRecordKind::PutCommitted.to_u16(),
             payload: &payload,
         };
 
@@ -394,11 +516,11 @@ impl LSMTreeEngine {
     }
 
     /// Delete a key with commit timestamp (for MVCC transactions)
-    pub fn delete_committed(&self, key: Vec<u8>, commit_ts: u64) -> KeyValueResult<()> {
-        // Write to WAL first for durability
-        let payload = encode_delete(&key);
+    pub fn delete_committed(&self, key: Vec<u8>, commit_ts: i64) -> KeyValueResult<()> {
+        // Write to WAL first for durability with commit timestamp
+        let payload = encode_delete_committed(&key, commit_ts);
         let record = WriteAheadLogRecord {
-            kind: WalRecordKind::Delete.to_u16(),
+            kind: WalRecordKind::DeleteCommitted.to_u16(),
             payload: &payload,
         };
 
@@ -428,9 +550,9 @@ impl LSMTreeEngine {
     pub fn get(&self, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
         let start = Instant::now();
         let mut sstables_checked = 0u64;
-        
+
         debug!("LSM get operation started");
-        
+
         self.total_reads.fetch_add(1, Ordering::Relaxed);
 
         // 1. Check active memtable
@@ -476,7 +598,10 @@ impl LSMTreeEngine {
                         let bytes = entry.value.as_ref().map_or(0, |v| v.len());
                         self.metrics.record_read(bytes, duration);
                         self.metrics.record_sstable_reads_for_get(sstables_checked);
-                        debug!("Found in L0 SSTable after checking {} tables in {:?}", sstables_checked, duration);
+                        debug!(
+                            "Found in L0 SSTable after checking {} tables in {:?}",
+                            sstables_checked, duration
+                        );
                         return Ok(entry.value);
                     }
                 }
@@ -507,7 +632,10 @@ impl LSMTreeEngine {
                         let bytes = entry.value.as_ref().map_or(0, |v| v.len());
                         self.metrics.record_read(bytes, duration);
                         self.metrics.record_sstable_reads_for_get(sstables_checked);
-                        debug!("Found in L{} SSTable after checking {} tables in {:?}", level.level_number, sstables_checked, duration);
+                        debug!(
+                            "Found in L{} SSTable after checking {} tables in {:?}",
+                            level.level_number, sstables_checked, duration
+                        );
                         return Ok(entry.value);
                     }
                 }
@@ -518,13 +646,16 @@ impl LSMTreeEngine {
         let duration = start.elapsed();
         self.metrics.record_read(0, duration);
         self.metrics.record_sstable_reads_for_get(sstables_checked);
-        debug!("Key not found after checking {} SSTables in {:?}", sstables_checked, duration);
+        debug!(
+            "Key not found after checking {} SSTables in {:?}",
+            sstables_checked, duration
+        );
         Ok(None)
     }
 
     /// Get a value by key at a specific snapshot timestamp (for MVCC)
     /// Only returns entries that are visible at the given snapshot timestamp
-    pub fn get_at_snapshot(&self, key: &[u8], snapshot_ts: u64) -> KeyValueResult<Option<Vec<u8>>> {
+    pub fn get_at_snapshot(&self, key: &[u8], snapshot_ts: i64) -> KeyValueResult<Option<Vec<u8>>> {
         self.total_reads.fetch_add(1, Ordering::Relaxed);
 
         // 1. Check active memtable with snapshot filtering
@@ -591,7 +722,7 @@ impl LSMTreeEngine {
     }
 
     /// Mark an entry as committed with the given timestamp (for MVCC)
-    pub fn commit_entry(&self, key: &[u8], commit_ts: u64) -> KeyValueResult<()> {
+    pub fn commit_entry(&self, key: &[u8], commit_ts: i64) -> KeyValueResult<()> {
         // Try to commit in active memtable
         {
             let memtable = self.memtable.read().unwrap();
@@ -669,6 +800,9 @@ impl LSMTreeEngine {
             return Ok(());
         }
 
+        // Get memtable sequence before flushing
+        let memtable_sequence = memtable.current_sequence();
+
         // Get all entries sorted
         let entries = memtable.entries();
         if entries.is_empty() {
@@ -678,6 +812,13 @@ impl LSMTreeEngine {
         // Generate file number
         let file_number = self.next_file_number.fetch_add(1, Ordering::SeqCst);
         let path = self.sstable_path(file_number);
+
+        info!(
+            file_number = file_number,
+            sequence = memtable_sequence,
+            entry_count = entries.len(),
+            "Flushing memtable to SSTable"
+        );
 
         // Create SSTable file using VFS
         let mut file = self
@@ -701,11 +842,17 @@ impl LSMTreeEngine {
         file.sync_all()
             .map_err(|e| nanograph_kvt::KeyValueError::StorageCorruption(e.to_string()))?;
 
+        // Write checkpoint marker to WAL before updating in-memory state
+        self.write_checkpoint(memtable_sequence, file_number)?;
+
         // Add to level 0
         {
             let mut levels = self.levels.write().unwrap();
             levels[0].add_sstable(metadata);
         }
+
+        // Write flush complete marker to WAL
+        self.write_flush_complete(file_number, 0)?;
 
         self.total_flushes.fetch_add(1, Ordering::Relaxed);
 
@@ -744,8 +891,56 @@ impl LSMTreeEngine {
         Ok(())
     }
 
+    /// Write a checkpoint marker to WAL
+    /// Records the memtable sequence number and SSTable file number
+    fn write_checkpoint(&self, sequence: u64, file_number: u64) -> KeyValueResult<()> {
+        let payload = encode_checkpoint(sequence, file_number);
+        let record = WriteAheadLogRecord {
+            kind: WalRecordKind::Checkpoint.to_u16(),
+            payload: &payload,
+        };
+
+        let mut writer = self.wal_writer.lock().unwrap();
+        writer
+            .append(record, self.options.durability)
+            .map_err(|e| nanograph_kvt::KeyValueError::StorageCorruption(e.to_string()))?;
+
+        debug!(
+            sequence = sequence,
+            file_number = file_number,
+            "Wrote checkpoint marker to WAL"
+        );
+
+        Ok(())
+    }
+
+    /// Write a flush complete marker to WAL
+    /// Records that an SSTable has been successfully written to a level
+    fn write_flush_complete(&self, file_number: u64, level: u32) -> KeyValueResult<()> {
+        let payload = encode_flush_complete(file_number, level);
+        let record = WriteAheadLogRecord {
+            kind: WalRecordKind::FlushComplete.to_u16(),
+            payload: &payload,
+        };
+
+        let mut writer = self.wal_writer.lock().unwrap();
+        writer
+            .append(record, self.options.durability)
+            .map_err(|e| nanograph_kvt::KeyValueError::StorageCorruption(e.to_string()))?;
+
+        debug!(
+            file_number = file_number,
+            level = level,
+            "Wrote flush complete marker to WAL"
+        );
+
+        Ok(())
+    }
+
     /// Recover from WAL on startup
     pub fn recover(&self) -> KeyValueResult<()> {
+        info!("Starting WAL recovery");
+
         // Get head LSN (oldest available record)
         let head_lsn = self
             .wal
@@ -759,6 +954,8 @@ impl LSMTreeEngine {
             .map_err(|e| nanograph_kvt::KeyValueError::StorageCorruption(e.to_string()))?;
 
         let mut recovered_count = 0;
+        let mut last_checkpoint_seq = None;
+        let mut last_checkpoint_file = None;
 
         // Replay all WAL entries
         loop {
@@ -766,43 +963,128 @@ impl LSMTreeEngine {
                 Ok(Some(entry)) => {
                     // Decode and apply the operation
                     match WalRecordKind::from_u16(entry.kind) {
-                        Some(WalRecordKind::Put) => {
-                            match decode_put(&entry.payload) {
-                                Ok((key, value)) => {
+                        Some(WalRecordKind::Put) => match decode_put(&entry.payload) {
+                            Ok((key, value)) => {
+                                let memtable = self.memtable.read().unwrap();
+                                memtable.put(key, value);
+                                recovered_count += 1;
+                            }
+                            Err(e) => {
+                                warn!(
+                                    lsn = ?entry.lsn,
+                                    error = %e,
+                                    "Failed to decode Put record"
+                                );
+                            }
+                        },
+                        Some(WalRecordKind::Delete) => match decode_delete(&entry.payload) {
+                            Ok(key) => {
+                                let memtable = self.memtable.read().unwrap();
+                                memtable.delete(key);
+                                recovered_count += 1;
+                            }
+                            Err(e) => {
+                                warn!(
+                                    lsn = ?entry.lsn,
+                                    error = %e,
+                                    "Failed to decode Delete record"
+                                );
+                            }
+                        },
+                        Some(WalRecordKind::PutCommitted) => {
+                            match decode_put_committed(&entry.payload) {
+                                Ok((key, value, commit_ts)) => {
                                     let memtable = self.memtable.read().unwrap();
-                                    memtable.put(key, value);
+                                    memtable.put_committed(key, value, commit_ts);
                                     recovered_count += 1;
                                 }
                                 Err(e) => {
-                                    // Log error but continue recovery
-                                    eprintln!(
-                                        "Failed to decode Put record at LSN {:?}: {}",
-                                        entry.lsn, e
+                                    warn!(
+                                        lsn = ?entry.lsn,
+                                        error = %e,
+                                        "Failed to decode PutCommitted record"
                                     );
                                 }
                             }
                         }
-                        Some(WalRecordKind::Delete) => {
-                            match decode_delete(&entry.payload) {
-                                Ok(key) => {
+                        Some(WalRecordKind::DeleteCommitted) => {
+                            match decode_delete_committed(&entry.payload) {
+                                Ok((key, commit_ts)) => {
                                     let memtable = self.memtable.read().unwrap();
-                                    memtable.delete(key);
+                                    memtable.delete_committed(key, commit_ts);
                                     recovered_count += 1;
                                 }
                                 Err(e) => {
-                                    // Log error but continue recovery
-                                    eprintln!(
-                                        "Failed to decode Delete record at LSN {:?}: {}",
-                                        entry.lsn, e
+                                    warn!(
+                                        lsn = ?entry.lsn,
+                                        error = %e,
+                                        "Failed to decode DeleteCommitted record"
+                                    );
+                                }
+                            }
+                        }
+                        Some(WalRecordKind::Commit) => {
+                            match decode_commit(&entry.payload) {
+                                Ok(commit_ts) => {
+                                    debug!(commit_ts = commit_ts, "Transaction commit marker");
+                                    // Commit markers are informational for recovery
+                                    recovered_count += 1;
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        lsn = ?entry.lsn,
+                                        error = %e,
+                                        "Failed to decode Commit record"
+                                    );
+                                }
+                            }
+                        }
+                        Some(WalRecordKind::Checkpoint) => {
+                            match decode_checkpoint(&entry.payload) {
+                                Ok((sequence, file_number)) => {
+                                    info!(
+                                        sequence = sequence,
+                                        file_number = file_number,
+                                        "Checkpoint marker found"
+                                    );
+                                    last_checkpoint_seq = Some(sequence);
+                                    last_checkpoint_file = Some(file_number);
+                                    recovered_count += 1;
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        lsn = ?entry.lsn,
+                                        error = %e,
+                                        "Failed to decode Checkpoint record"
+                                    );
+                                }
+                            }
+                        }
+                        Some(WalRecordKind::FlushComplete) => {
+                            match decode_flush_complete(&entry.payload) {
+                                Ok((file_number, level)) => {
+                                    debug!(
+                                        file_number = file_number,
+                                        level = level,
+                                        "Flush complete marker"
+                                    );
+                                    // Flush markers help track which data is persisted
+                                    recovered_count += 1;
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        lsn = ?entry.lsn,
+                                        error = %e,
+                                        "Failed to decode FlushComplete record"
                                     );
                                 }
                             }
                         }
                         None => {
-                            // Unknown record type, skip
-                            eprintln!(
-                                "Unknown WAL record type: {} at LSN {:?}",
-                                entry.kind, entry.lsn
+                            warn!(
+                                kind = entry.kind,
+                                lsn = ?entry.lsn,
+                                "Unknown WAL record type"
                             );
                         }
                     }
@@ -812,17 +1094,26 @@ impl LSMTreeEngine {
                     break;
                 }
                 Err(e) => {
-                    // Log error and stop recovery
-                    eprintln!("Error reading WAL during recovery: {}", e);
+                    warn!(error = %e, "Error reading WAL during recovery");
                     break;
                 }
             }
         }
 
-        println!(
-            "WAL recovery complete: {} operations replayed",
-            recovered_count
-        );
+        if let (Some(seq), Some(file)) = (last_checkpoint_seq, last_checkpoint_file) {
+            info!(
+                sequence = seq,
+                file_number = file,
+                recovered_ops = recovered_count,
+                "WAL recovery complete with checkpoint"
+            );
+        } else {
+            info!(
+                recovered_ops = recovered_count,
+                "WAL recovery complete without checkpoint"
+            );
+        }
+
         Ok(())
     }
 
@@ -873,20 +1164,19 @@ impl LSMTreeEngine {
 
         // Create compaction strategy
         let strategy = CompactionStrategy::default();
-        
+
         // Get current levels snapshot
         let levels = self.levels.read().unwrap();
-        let level_snapshots: Vec<Vec<SSTableMetadata>> = levels
-            .iter()
-            .map(|l| l.sstables.clone())
-            .collect();
+        let level_snapshots: Vec<Vec<SSTableMetadata>> =
+            levels.iter().map(|l| l.sstables.clone()).collect();
         drop(levels);
 
         // Select compaction task
-        let task = match strategy.select_compaction(&level_snapshots, self.options.memtable_size as u64) {
-            Some(task) => task,
-            None => return Ok(()), // No compaction needed
-        };
+        let task =
+            match strategy.select_compaction(&level_snapshots, self.options.memtable_size as u64) {
+                Some(task) => task,
+                None => return Ok(()), // No compaction needed
+            };
 
         println!(
             "Starting compaction: Level {} -> Level {} ({} source files, {} target files)",
@@ -908,22 +1198,23 @@ impl LSMTreeEngine {
         // Execute compaction
         let mut next_file_number = self.next_file_number.load(Ordering::SeqCst);
         let new_sstables = executor.execute(&task, &mut next_file_number)?;
-        self.next_file_number.store(next_file_number, Ordering::SeqCst);
+        self.next_file_number
+            .store(next_file_number, Ordering::SeqCst);
 
         // Atomically update levels
         {
             let mut levels = self.levels.write().unwrap();
-            
+
             // Remove old SSTables from source level
             for old_meta in &task.source_sstables {
                 levels[task.source_level].remove_sstable(old_meta.file_number);
             }
-            
+
             // Remove old SSTables from target level
             for old_meta in &task.target_sstables {
                 levels[task.target_level].remove_sstable(old_meta.file_number);
             }
-            
+
             // Add new SSTables to target level
             for new_meta in &new_sstables {
                 levels[task.target_level].add_sstable(new_meta.clone());
@@ -934,7 +1225,11 @@ impl LSMTreeEngine {
         self.save_manifest()?;
 
         // Delete old SSTable files
-        for old_meta in task.source_sstables.iter().chain(task.target_sstables.iter()) {
+        for old_meta in task
+            .source_sstables
+            .iter()
+            .chain(task.target_sstables.iter())
+        {
             let path = self.sstable_path(old_meta.file_number);
             // Ignore errors on deletion - files might already be gone
             let _ = self.fs.remove_file(&path);
@@ -1070,5 +1365,3 @@ mod tests {
         assert!(stats.memtable_size > 0);
     }
 }
-
-// Made with Bob

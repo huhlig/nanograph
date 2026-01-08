@@ -284,5 +284,3 @@ mod tests {
         record_record_size(0, 256);
     }
 }
-
-

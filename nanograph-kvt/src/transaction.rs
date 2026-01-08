@@ -14,19 +14,36 @@
 // limitations under the License.
 //
 
-use crate::kvstore::KeyValueTableId;
-use crate::types::KeyRange;
+use crate::types::{KeyRange, ShardId};
 use crate::{KeyValueIterator, KeyValueResult};
 use async_trait::async_trait;
+use chrono::Utc;
 use std::sync::Arc;
 
 /// Transaction identifier for Multiversion Concurrency Control (MVCC)
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct TransactionId(pub u64);
 
-/// Timestamp for Multiversion Concurrency Control (MVCC)
+/// Millisecond Timestamp for Multiversion Concurrency Control (MVCC)
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub struct Timestamp(pub u64);
+pub struct Timestamp(pub i64);
+
+impl Timestamp {
+    /// Current Timestamp in Milliseconds
+    pub fn now() -> Timestamp {
+        Timestamp(Utc::now().timestamp_millis())
+    }
+    /// Epoch Timestamp in Milliseconds
+    pub fn epoch() -> Timestamp {
+        Timestamp(0)
+    }
+}
+
+impl std::fmt::Display for Timestamp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Timestamp({}ms)", self.0)
+    }
+}
 
 /// Transaction interface for ACID operations
 ///
@@ -40,18 +57,18 @@ pub trait Transaction: Send + Sync {
     fn snapshot_ts(&self) -> Timestamp;
 
     /// Get a value within this transaction
-    async fn get(&self, table: KeyValueTableId, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>>;
+    async fn get(&self, shard: ShardId, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>>;
 
     /// Put a key-value pair within this transaction
-    async fn put(&self, table: KeyValueTableId, key: &[u8], value: &[u8]) -> KeyValueResult<()>;
+    async fn put(&self, shard: ShardId, key: &[u8], value: &[u8]) -> KeyValueResult<()>;
 
     /// Delete a key within this transaction
-    async fn delete(&self, table: KeyValueTableId, key: &[u8]) -> KeyValueResult<bool>;
+    async fn delete(&self, shard: ShardId, key: &[u8]) -> KeyValueResult<bool>;
 
     /// Scan within this transaction
     async fn scan(
         &self,
-        table: KeyValueTableId,
+        shard: ShardId,
         range: KeyRange,
     ) -> KeyValueResult<Box<dyn KeyValueIterator + Send>>;
 

@@ -17,6 +17,8 @@
 use super::{FileSystemError, FileSystemResult};
 use std::fmt::Debug;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::ops::Deref;
+use std::sync::Arc;
 
 /// API definition all KBase [`FileSystem`] implementations must adhere to.
 ///
@@ -162,6 +164,112 @@ where
     /// Removes the file at this path
     fn remove_file(&self, path: &str) -> FileSystemResult<()> {
         FileSystem::remove_file(self, path)
+    }
+}
+
+impl<FS> DynamicFileSystem for Arc<FS>
+where
+    FS: FileSystem,
+    FS::File: File + 'static,
+{
+    /// Check if an entry exists at the provided path.
+    fn exists(&self, path: &str) -> FileSystemResult<bool> {
+        FileSystem::exists(self.deref(), path)
+    }
+    /// See if an entry at the path is a file.
+    fn is_file(&self, path: &str) -> FileSystemResult<bool> {
+        FileSystem::is_file(self.deref(), path)
+    }
+    /// See if an entry at the path is a folder.
+    fn is_directory(&self, path: &str) -> FileSystemResult<bool> {
+        FileSystem::is_directory(self.deref(), path)
+    }
+    /// Get file or directory size.
+    fn filesize(&self, path: &str) -> FileSystemResult<u64> {
+        FileSystem::filesize(self.deref(), path)
+    }
+    /// Creates a new, empty folder entry at the provided path.
+    fn create_directory(&self, path: &str) -> FileSystemResult<()> {
+        FileSystem::create_directory(self.deref(), path)
+    }
+    /// Creates a new, empty folder entry at the provided path, creating all parents as needed.
+    fn create_directory_all(&self, path: &str) -> FileSystemResult<()> {
+        FileSystem::create_directory_all(self.deref(), path)
+    }
+    /// Returns an iterator over the names of entries within a Folder.
+    fn list_directory<'a>(&self, path: &str) -> FileSystemResult<Vec<String>> {
+        FileSystem::list_directory(self.deref(), path)
+    }
+    /// Removes the folder at this path.
+    fn remove_directory(&self, path: &str) -> FileSystemResult<()> {
+        FileSystem::remove_directory(self.deref(), path)
+    }
+    /// Removes the folder at this path and all children.
+    fn remove_directory_all(&self, path: &str) -> FileSystemResult<()> {
+        FileSystem::remove_directory_all(self.deref(), path)
+    }
+    /// Create or Open a new append-only file for writing.
+    fn create_file(&self, path: &str) -> FileSystemResult<Box<dyn File>> {
+        Ok(Box::new(FileSystem::create_file(self.deref(), path)?))
+    }
+    /// Create or Open a new append only file for writing.
+    fn open_file(&self, path: &str) -> FileSystemResult<Box<dyn File>> {
+        Ok(Box::new(FileSystem::open_file(self.deref(), path)?))
+    }
+    /// Removes the file at this path
+    fn remove_file(&self, path: &str) -> FileSystemResult<()> {
+        FileSystem::remove_file(self.deref(), path)
+    }
+}
+
+impl DynamicFileSystem for Arc<dyn DynamicFileSystem> {
+    /// Check if an entry exists at the provided path.
+    fn exists(&self, path: &str) -> FileSystemResult<bool> {
+        self.deref().exists(path)
+    }
+    /// See if an entry at the path is a file.
+    fn is_file(&self, path: &str) -> FileSystemResult<bool> {
+        self.deref().is_file(path)
+    }
+    /// See if an entry at the path is a folder.
+    fn is_directory(&self, path: &str) -> FileSystemResult<bool> {
+        self.deref().is_directory(path)
+    }
+    /// Get file or directory size.
+    fn filesize(&self, path: &str) -> FileSystemResult<u64> {
+        self.deref().filesize(path)
+    }
+    /// Creates a new, empty folder entry at the provided path.
+    fn create_directory(&self, path: &str) -> FileSystemResult<()> {
+        self.deref().create_directory(path)
+    }
+    /// Creates a new, empty folder entry at the provided path, creating all parents as needed.
+    fn create_directory_all(&self, path: &str) -> FileSystemResult<()> {
+        self.deref().create_directory_all(path)
+    }
+    /// Returns an iterator over the names of entries within a Folder.
+    fn list_directory<'a>(&self, path: &str) -> FileSystemResult<Vec<String>> {
+        self.deref().list_directory(path)
+    }
+    /// Removes the folder at this path.
+    fn remove_directory(&self, path: &str) -> FileSystemResult<()> {
+        self.deref().remove_directory(path)
+    }
+    /// Removes the folder at this path and all children.
+    fn remove_directory_all(&self, path: &str) -> FileSystemResult<()> {
+        self.deref().remove_directory_all(path)
+    }
+    /// Create or Open a new append-only file for writing.
+    fn create_file(&self, path: &str) -> FileSystemResult<Box<dyn File>> {
+        self.deref().create_file(path)
+    }
+    /// Create or Open a new append only file for writing.
+    fn open_file(&self, path: &str) -> FileSystemResult<Box<dyn File>> {
+        self.deref().open_file(path)
+    }
+    /// Removes the file at this path
+    fn remove_file(&self, path: &str) -> FileSystemResult<()> {
+        self.deref().remove_file(path)
     }
 }
 

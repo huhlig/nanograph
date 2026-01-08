@@ -16,6 +16,26 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+pub mod consts {
+    /// Tree height (gauge)
+    pub const HEIGHT: &str = "nanograph.storage.btree.height";
+
+    /// Total number of nodes (gauge)
+    pub const TOTAL_NODES: &str = "nanograph.storage.btree.total_nodes";
+
+    /// Number of leaf nodes (gauge)
+    pub const LEAF_NODES: &str = "nanograph.storage.btree.leaf_nodes";
+
+    /// Average node utilization (gauge, 0.0-1.0)
+    pub const NODE_UTILIZATION: &str = "nanograph.storage.btree.node_utilization";
+
+    /// Total node splits (counter)
+    pub const SPLITS_TOTAL: &str = "nanograph.storage.btree.splits_total";
+
+    /// Total node merges (counter)
+    pub const MERGES_TOTAL: &str = "nanograph.storage.btree.merges_total";
+}
+
 /// Metrics for B+Tree operations
 #[derive(Debug)]
 pub struct BTreeMetrics {
@@ -23,22 +43,22 @@ pub struct BTreeMetrics {
     pub reads: AtomicU64,
     pub read_hits: AtomicU64,
     pub read_misses: AtomicU64,
-    
+
     // Write operations
     pub writes: AtomicU64,
     pub updates: AtomicU64,
     pub deletes: AtomicU64,
-    
+
     // Node operations
     pub node_splits: AtomicU64,
     pub node_merges: AtomicU64,
     pub node_reads: AtomicU64,
     pub node_writes: AtomicU64,
-    
+
     // Tree structure
     pub height_changes: AtomicU64,
     pub rebalances: AtomicU64,
-    
+
     // Scan operations
     pub scans: AtomicU64,
     pub scan_entries_returned: AtomicU64,
@@ -171,7 +191,8 @@ impl BTreeMetrics {
     // Scan metrics
     pub fn record_scan(&self, entries_returned: u64) {
         self.scans.fetch_add(1, Ordering::Relaxed);
-        self.scan_entries_returned.fetch_add(entries_returned, Ordering::Relaxed);
+        self.scan_entries_returned
+            .fetch_add(entries_returned, Ordering::Relaxed);
     }
 
     pub fn get_scans(&self) -> u64 {
@@ -324,5 +345,3 @@ mod tests {
         assert_eq!(metrics.get_writes(), 0);
     }
 }
-
-// Made with Bob

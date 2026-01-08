@@ -15,13 +15,11 @@
 //
 
 use crate::KeyValueIterator;
-use crate::kvstore::KeyValueStore;
-use crate::kvstore::KeyValueTableId;
+use crate::config::ShardConfig;
+use crate::kvstore::KeyValueShardStore;
 use crate::result::{KeyValueError, KeyValueResult};
-use crate::transaction::Timestamp;
-use crate::transaction::Transaction;
-use crate::types::{KeyRange, TableStats};
-use async_trait::async_trait;
+use crate::types::{KeyRange, ShardStats};
+use crate::types::{NodeId, ShardId};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -43,39 +41,6 @@ impl StorageEngineType {
     pub fn as_str(&self) -> &str {
         &self.0
     }
-
-    /// LSM-tree based storage (write-optimized)
-    pub const fn lsm() -> Self {
-        Self(String::new()) // Will be replaced with "lsm" at runtime
-    }
-
-    /// B+Tree based storage (balanced read/write)
-    pub const fn btree() -> Self {
-        Self(String::new()) // Will be replaced with "btree" at runtime
-    }
-
-    /// Adaptive Radix Tree (read-optimized, in-memory)
-    pub const fn art() -> Self {
-        Self(String::new()) // Will be replaced with "art" at runtime
-    }
-}
-
-// Helper constants for built-in engine types
-impl StorageEngineType {
-    /// LSM-tree engine type
-    pub fn lsm_type() -> Self {
-        Self("lsm".to_string())
-    }
-
-    /// B+Tree engine type
-    pub fn btree_type() -> Self {
-        Self("btree".to_string())
-    }
-
-    /// ART engine type
-    pub fn art_type() -> Self {
-        Self("art".to_string())
-    }
 }
 
 impl From<&str> for StorageEngineType {
@@ -96,60 +61,14 @@ impl std::fmt::Display for StorageEngineType {
     }
 }
 
-/// Table metadata
-#[derive(Debug, Clone)]
-pub struct TableMetadata {
-    pub id: KeyValueTableId,
-    pub name: String,
+#[derive(Clone, Debug)]
+pub struct ShardState {
+    pub id: ShardId,
     pub engine_type: StorageEngineType,
-    pub created_at: Timestamp,
-    pub last_modified: Option<Timestamp>,
-    /// Number of shards for distributed tables (1 for single-node)
-    pub shard_count: u32,
-    /// Replication factor for each shard (1 for single-node)
     pub replication_factor: usize,
 }
 
-/// Configuration for table creation
-#[derive(Debug, Clone)]
-pub struct TableConfig {
-    pub name: String,
-    pub engine_type: StorageEngineType,
-    /// Number of shards to distribute data across (default: 1 for single-node)
-    pub shard_count: u32,
-    /// Number of replicas per shard (default: 1 for single-node)
-    pub replication_factor: usize,
-    pub options: HashMap<String, String>,
-}
-
-impl TableConfig {
-    pub fn new(name: impl Into<String>, engine_type: StorageEngineType) -> Self {
-        Self {
-            name: name.into(),
-            engine_type,
-            shard_count: 1,        // Default to single shard
-            replication_factor: 1, // Default to no replication
-            options: HashMap::new(),
-        }
-    }
-
-    pub fn with_option(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.options.insert(key.into(), value.into());
-        self
-    }
-
-    pub fn with_shards(mut self, shard_count: u32) -> Self {
-        self.shard_count = shard_count;
-        self
-    }
-
-    pub fn with_replication(mut self, replication_factor: usize) -> Self {
-        self.replication_factor = replication_factor;
-        self
-    }
-}
-
-/// KeyValueTableManager manages multiple storage engines and provides a unified API
+/// KeyValueShardManager manages multiple storage engines and provides a unified API
 ///
 /// This is the primary interface for higher-level applications. It:
 /// - Manages multiple storage engines (LSM, B+Tree, ART)
@@ -157,61 +76,50 @@ impl TableConfig {
 /// - Provides table lifecycle management
 /// - Coordinates cross-engine transactions (future)
 /// - Maintains table metadata
-pub struct KeyValueTableManager {
+/// - Optionally provides distributed consensus via Raft
+pub struct KeyValueShardManager {
     /// Registered storage engines by type
-    engines: HashMap<StorageEngineType, Arc<dyn KeyValueStore>>,
+    engines: HashMap<StorageEngineType, Arc<dyn KeyValueShardStore>>,
 
-    /// Table metadata: table_id -> (metadata, engine_type)
-    tables: Arc<RwLock<HashMap<KeyValueTableId, (TableMetadata, StorageEngineType)>>>,
+    /// Shards Managed by this instance
+    shards: Arc<RwLock<HashMap<ShardId, ShardState>>>,
 
-    /// Table name to ID mapping for lookups
-    table_names: Arc<RwLock<HashMap<String, KeyValueTableId>>>,
+    /// Local node ID (for distributed mode)
+    node_id: Option<NodeId>,
 
-    /// Next table ID to assign
-    next_table_id: Arc<RwLock<u128>>,
+    /// Distributed mode flag
+    distributed_mode: bool,
 }
 
-impl KeyValueTableManager {
-    /// Create a new table manager
+impl KeyValueShardManager {
+    /// Create a new shard manager in single-node mode
     pub fn new() -> Self {
         Self {
             engines: HashMap::new(),
-            tables: Arc::new(RwLock::new(HashMap::new())),
-            table_names: Arc::new(RwLock::new(HashMap::new())),
-            next_table_id: Arc::new(RwLock::new(1)),
+            shards: Arc::new(RwLock::new(HashMap::new())),
+            node_id: None,
+            distributed_mode: false,
         }
     }
 
-    /// Calculate which shard a key belongs to for a given table
-    ///
-    /// Uses hash-based partitioning to distribute keys across shards.
-    /// For single-shard tables (shard_count=1), always returns shard 0.
-    pub fn get_shard_for_key(
-        &self,
-        table: KeyValueTableId,
-        key: &[u8],
-    ) -> KeyValueResult<crate::types::ShardId> {
-        let tables = self.tables.read().unwrap();
-        let (metadata, _) = tables.get(&table).ok_or(KeyValueError::InvalidKey(format!(
-            "Table {:?} not found",
-            table
-        )))?;
-
-        if metadata.shard_count == 1 {
-            // Single shard - no hashing needed
-            return Ok(crate::types::ShardId::new(0));
+    /// Create a new shard manager in distributed mode
+    pub fn new_distributed(node_id: NodeId) -> Self {
+        Self {
+            engines: HashMap::new(),
+            shards: Arc::new(RwLock::new(HashMap::new())),
+            node_id: Some(node_id),
+            distributed_mode: true,
         }
+    }
 
-        // Hash the key and mod by shard count
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+    /// Check if running in distributed mode
+    pub fn is_distributed(&self) -> bool {
+        self.distributed_mode
+    }
 
-        let mut hasher = DefaultHasher::new();
-        key.hash(&mut hasher);
-        let hash = hasher.finish();
-
-        let shard_id = (hash % metadata.shard_count as u64) as u64;
-        Ok(crate::types::ShardId::new(shard_id))
+    /// Get the local node ID (if in distributed mode)
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 
     /// Register a storage engine
@@ -223,7 +131,7 @@ impl KeyValueTableManager {
     pub fn register_engine(
         &mut self,
         engine_type: StorageEngineType,
-        engine: Arc<dyn KeyValueStore>,
+        engine: Arc<dyn KeyValueShardStore>,
     ) -> KeyValueResult<()> {
         if self.engines.contains_key(&engine_type) {
             return Err(KeyValueError::InvalidValue(format!(
@@ -235,39 +143,25 @@ impl KeyValueTableManager {
         Ok(())
     }
 
-    /// Get the storage engine for a table
-    fn get_engine_for_table(
-        &self,
-        table: KeyValueTableId,
-    ) -> KeyValueResult<Arc<dyn KeyValueStore>> {
-        let tables = self.tables.read().unwrap();
-        let (_, engine_type) = tables.get(&table).ok_or(KeyValueError::InvalidKey(format!(
-            "Table {:?} not found",
-            table
+    /// Get the storage engine for a specific shard
+    fn get_engine_for_shard(&self, shard: ShardId) -> KeyValueResult<Arc<dyn KeyValueShardStore>> {
+        let shards = self.shards.read().unwrap();
+        let shard = shards.get(&shard).ok_or(KeyValueError::InvalidKey(format!(
+            "Shard {:?} not found",
+            shard
         )))?;
 
         self.engines
-            .get(engine_type)
+            .get(&shard.engine_type)
             .cloned()
             .ok_or(KeyValueError::InvalidValue(format!(
                 "Engine type {:?} not registered",
-                engine_type
+                &shard.engine_type
             )))
     }
 
-    /// Create a new table with the specified configuration
-    pub async fn create_table(&self, config: TableConfig) -> KeyValueResult<KeyValueTableId> {
-        // Check if table name already exists
-        {
-            let names = self.table_names.read().unwrap();
-            if names.contains_key(&config.name) {
-                return Err(KeyValueError::InvalidKey(format!(
-                    "Table '{}' already exists",
-                    config.name
-                )));
-            }
-        }
-
+    /// Create a new shard with the specified configuration
+    pub async fn create_shard(&self, config: ShardConfig) -> KeyValueResult<ShardId> {
         // Get the engine for this table type
         let engine = self
             .engines
@@ -277,223 +171,136 @@ impl KeyValueTableManager {
                 config.engine_type
             )))?;
 
-        // Allocate table ID
-        let table_id = {
-            let mut next_id = self.next_table_id.write().unwrap();
-            let id = KeyValueTableId::new(*next_id);
-            *next_id += 1;
-            id
-        };
+        // Create shard in the underlying engine
+        let shard_id = engine.create_shard(config.table, config.index).await?;
 
-        // Create table in the underlying engine
-        let _engine_table_id = engine.create_table(&config.name).await?;
-
-        // Store metadata
-        let metadata = TableMetadata {
-            id: table_id,
-            name: config.name.clone(),
+        let shard_state = ShardState {
+            id: shard_id,
             engine_type: config.engine_type.clone(),
-            created_at: Timestamp(0), // TODO: Use actual timestamp
-            last_modified: None,
-            shard_count: config.shard_count,
             replication_factor: config.replication_factor,
         };
 
         {
-            let mut tables = self.tables.write().unwrap();
-            tables.insert(table_id, (metadata.clone(), config.engine_type.clone()));
+            let mut shards = self.shards.write().unwrap();
+            shards.insert(shard_id, shard_state);
         }
 
-        {
-            let mut names = self.table_names.write().unwrap();
-            names.insert(config.name, table_id);
-        }
-
-        Ok(table_id)
+        Ok(shard_id)
     }
 
-    /// Get table by name
-    pub fn get_table(&self, name: &str) -> KeyValueResult<KeyValueTableId> {
-        let names = self.table_names.read().unwrap();
-        names
-            .get(name)
-            .copied()
-            .ok_or(KeyValueError::InvalidKey(format!(
-                "Table '{}' not found",
-                name
-            )))
-    }
-
-    /// Get table metadata
-    pub fn get_table_metadata(&self, table: KeyValueTableId) -> KeyValueResult<TableMetadata> {
-        let tables = self.tables.read().unwrap();
-        tables
-            .get(&table)
-            .map(|(metadata, _)| metadata.clone())
-            .ok_or(KeyValueError::InvalidKey(format!(
-                "Table {:?} not found",
-                table
-            )))
-    }
-
-    /// Drop a table
-    pub async fn drop_table(&self, table: KeyValueTableId) -> KeyValueResult<()> {
-        let engine = self.get_engine_for_table(table)?;
-
-        // Get table name before removing
-        let table_name = {
-            let tables = self.tables.read().unwrap();
-            tables
-                .get(&table)
-                .map(|(metadata, _)| metadata.name.clone())
-                .ok_or(KeyValueError::InvalidKey(format!(
-                    "Table {:?} not found",
-                    table
-                )))?
-        };
+    /// Drop a shard
+    pub async fn drop_shard(&self, table: ShardId) -> KeyValueResult<()> {
+        let engine = self.get_engine_for_shard(table)?;
 
         // Drop from engine
-        engine.drop_table(table).await?;
+        engine.drop_shard(table).await?;
 
         // Remove from metadata
         {
-            let mut tables = self.tables.write().unwrap();
+            let mut tables = self.shards.write().unwrap();
             tables.remove(&table);
-        }
-
-        {
-            let mut names = self.table_names.write().unwrap();
-            names.remove(&table_name);
         }
 
         Ok(())
     }
 
-    /// List all tables
-    pub fn list_tables(&self) -> KeyValueResult<Vec<TableMetadata>> {
-        let tables = self.tables.read().unwrap();
-        Ok(tables
-            .values()
-            .map(|(metadata, _)| metadata.clone())
-            .collect())
+    /// List all shards managed by this instance
+    pub fn list_shards(&self) -> KeyValueResult<Vec<ShardState>> {
+        let shards = self.shards.read().unwrap();
+        Ok(shards.values().cloned().collect())
     }
 
-    /// Check if table exists
-    pub fn table_exists(&self, table: KeyValueTableId) -> bool {
-        let tables = self.tables.read().unwrap();
-        tables.contains_key(&table)
+    /// Check if a shard exists
+    pub fn shard_exists(&self, shard: ShardId) -> bool {
+        let shards = self.shards.read().unwrap();
+        shards.contains_key(&shard)
     }
 
-    /// Check if table name exists
-    pub fn table_name_exists(&self, name: &str) -> bool {
-        let names = self.table_names.read().unwrap();
-        names.contains_key(name)
-    }
-}
-
-/// Implement KeyValueStore trait for the manager to provide unified API
-#[async_trait]
-impl KeyValueStore for KeyValueTableManager {
-    async fn get(&self, table: KeyValueTableId, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
-        let engine = self.get_engine_for_table(table)?;
-        engine.get(table, key).await
+    /// Get the value for a key in a specific shard
+    pub async fn get(&self, shard: ShardId, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
+        let engine = self.get_engine_for_shard(shard)?;
+        engine.get(shard, key).await
     }
 
-    async fn put(&self, table: KeyValueTableId, key: &[u8], value: &[u8]) -> KeyValueResult<()> {
-        let engine = self.get_engine_for_table(table)?;
-        engine.put(table, key, value).await
+    /// Put a key-value pair into a specific shard
+    pub async fn put(&self, shard: ShardId, key: &[u8], value: &[u8]) -> KeyValueResult<()> {
+        let engine = self.get_engine_for_shard(shard)?;
+        engine.put(shard, key, value).await
     }
 
-    async fn delete(&self, table: KeyValueTableId, key: &[u8]) -> KeyValueResult<bool> {
-        let engine = self.get_engine_for_table(table)?;
-        engine.delete(table, key).await
+    /// Delete a key from a specific shard
+    ///
+    /// Returns true if the key existed and was deleted, false otherwise.
+    pub async fn delete(&self, shard: ShardId, key: &[u8]) -> KeyValueResult<bool> {
+        let engine = self.get_engine_for_shard(shard)?;
+        engine.delete(shard, key).await
     }
 
-    async fn exists(&self, table: KeyValueTableId, key: &[u8]) -> KeyValueResult<bool> {
-        let engine = self.get_engine_for_table(table)?;
-        engine.exists(table, key).await
+    /// Check if a key exists in a specific shard
+    pub async fn exists(&self, shard: ShardId, key: &[u8]) -> KeyValueResult<bool> {
+        let engine = self.get_engine_for_shard(shard)?;
+        engine.exists(shard, key).await
     }
 
-    async fn batch_get(
+    /// Get multiple values from a specific shard
+    pub async fn batch_get(
         &self,
-        table: KeyValueTableId,
+        shard: ShardId,
         keys: &[&[u8]],
     ) -> KeyValueResult<Vec<Option<Vec<u8>>>> {
-        let engine = self.get_engine_for_table(table)?;
-        engine.batch_get(table, keys).await
+        let engine = self.get_engine_for_shard(shard)?;
+        engine.batch_get(shard, keys).await
     }
 
-    async fn batch_put(
+    /// Put multiple key-value pairs into a specific shard
+    pub async fn batch_put(&self, shard: ShardId, pairs: &[(&[u8], &[u8])]) -> KeyValueResult<()> {
+        let engine = self.get_engine_for_shard(shard)?;
+        engine.batch_put(shard, pairs).await
+    }
+
+    /// Delete multiple keys from a specific shard
+    ///
+    /// Returns the number of keys deleted.
+    pub async fn batch_delete(&self, shard: ShardId, keys: &[&[u8]]) -> KeyValueResult<usize> {
+        let engine = self.get_engine_for_shard(shard)?;
+        engine.batch_delete(shard, keys).await
+    }
+
+    /// Scan a range of keys in a specific shard
+    pub async fn scan(
         &self,
-        table: KeyValueTableId,
-        pairs: &[(&[u8], &[u8])],
-    ) -> KeyValueResult<()> {
-        let engine = self.get_engine_for_table(table)?;
-        engine.batch_put(table, pairs).await
-    }
-
-    async fn batch_delete(&self, table: KeyValueTableId, keys: &[&[u8]]) -> KeyValueResult<usize> {
-        let engine = self.get_engine_for_table(table)?;
-        engine.batch_delete(table, keys).await
-    }
-
-    async fn scan(
-        &self,
-        table: KeyValueTableId,
+        shard: ShardId,
         range: KeyRange,
     ) -> KeyValueResult<Box<dyn KeyValueIterator + Send>> {
-        let engine = self.get_engine_for_table(table)?;
-        engine.scan(table, range).await
+        let engine = self.get_engine_for_shard(shard)?;
+        engine.scan(shard, range).await
     }
 
-    async fn scan_prefix(
+    /// Scan keys with a specific prefix in a specific shard
+    pub async fn scan_prefix(
         &self,
-        table: KeyValueTableId,
+        shard: ShardId,
         prefix: &[u8],
         limit: Option<usize>,
     ) -> KeyValueResult<Box<dyn KeyValueIterator + Send>> {
-        let engine = self.get_engine_for_table(table)?;
-        engine.scan_prefix(table, prefix, limit).await
+        let engine = self.get_engine_for_shard(shard)?;
+        engine.scan_prefix(shard, prefix, limit).await
     }
 
-    async fn key_count(&self, table: KeyValueTableId) -> KeyValueResult<u64> {
-        let engine = self.get_engine_for_table(table)?;
-        engine.key_count(table).await
+    /// Get the total number of keys in a specific shard
+    pub async fn key_count(&self, shard: ShardId) -> KeyValueResult<u64> {
+        let engine = self.get_engine_for_shard(shard)?;
+        engine.key_count(shard).await
     }
 
-    async fn table_stats(&self, table: KeyValueTableId) -> KeyValueResult<TableStats> {
-        let engine = self.get_engine_for_table(table)?;
-        engine.table_stats(table).await
+    /// Get statistics for a specific shard
+    pub async fn shard_stats(&self, shard: ShardId) -> KeyValueResult<ShardStats> {
+        let engine = self.get_engine_for_shard(shard)?;
+        engine.shard_stats(shard).await
     }
 
-    async fn begin_transaction(&self) -> KeyValueResult<Arc<dyn Transaction>> {
-        // For now, transactions are single-engine
-        // Future: implement cross-engine distributed transactions
-        Err(KeyValueError::InvalidValue(
-            "Transactions must be started on a specific table's engine".to_string(),
-        ))
-    }
-
-    async fn create_table(&self, name: &str) -> KeyValueResult<KeyValueTableId> {
-        // Default to LSM engine
-        let config = TableConfig::new(name, StorageEngineType::lsm_type());
-        KeyValueTableManager::create_table(self, config).await
-    }
-
-    async fn drop_table(&self, table: KeyValueTableId) -> KeyValueResult<()> {
-        KeyValueTableManager::drop_table(self, table).await
-    }
-
-    async fn list_tables(&self) -> KeyValueResult<Vec<(KeyValueTableId, String)>> {
-        let metadata = KeyValueTableManager::list_tables(self)?;
-        Ok(metadata.into_iter().map(|m| (m.id, m.name)).collect())
-    }
-
-    async fn table_exists(&self, table: KeyValueTableId) -> KeyValueResult<bool> {
-        Ok(KeyValueTableManager::table_exists(self, table))
-    }
-
-    async fn flush(&self) -> KeyValueResult<()> {
+    /// Flush all registered storage engines to disk
+    pub async fn flush(&self) -> KeyValueResult<()> {
         // Flush all engines
         for engine in self.engines.values() {
             engine.flush().await?;
@@ -501,11 +308,15 @@ impl KeyValueStore for KeyValueTableManager {
         Ok(())
     }
 
-    async fn compact(&self, table: Option<KeyValueTableId>) -> KeyValueResult<()> {
-        if let Some(table_id) = table {
+    /// Compact a specific shard or all registered storage engines
+    ///
+    /// If `shard` is `Some`, only that shard is compacted.
+    /// If `shard` is `None`, all engines are compacted.
+    pub async fn compact(&self, shard: Option<ShardId>) -> KeyValueResult<()> {
+        if let Some(shard_id) = shard {
             // Compact specific table
-            let engine = self.get_engine_for_table(table_id)?;
-            engine.compact(Some(table_id)).await
+            let engine = self.get_engine_for_shard(shard_id)?;
+            engine.compact(Some(shard_id)).await
         } else {
             // Compact all engines
             for engine in self.engines.values() {
@@ -516,7 +327,7 @@ impl KeyValueStore for KeyValueTableManager {
     }
 }
 
-impl Default for KeyValueTableManager {
+impl Default for KeyValueShardManager {
     fn default() -> Self {
         Self::new()
     }

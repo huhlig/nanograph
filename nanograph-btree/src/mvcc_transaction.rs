@@ -39,16 +39,16 @@ enum WriteOp {
 pub struct MvccTransaction {
     /// Transaction ID (used as created_ts)
     id: TxId,
-    
+
     /// Snapshot timestamp (when transaction started)
     snapshot_ts: u64,
-    
+
     /// Reference to the tree
     tree: Arc<MvccBPlusTree>,
-    
+
     /// Buffered writes (not yet applied to tree)
     write_buffer: RwLock<HashMap<Vec<u8>, WriteOp>>,
-    
+
     /// Whether the transaction is active
     active: RwLock<bool>,
 }
@@ -84,7 +84,7 @@ impl MvccTransaction {
     pub fn get(&self, key: &[u8]) -> BTreeResult<Option<Vec<u8>>> {
         if !self.is_active() {
             return Err(crate::error::BTreeError::Internal(
-                "Transaction is not active".to_string()
+                "Transaction is not active".to_string(),
             ));
         }
 
@@ -105,7 +105,7 @@ impl MvccTransaction {
     pub fn put(&self, key: Vec<u8>, value: Vec<u8>) -> BTreeResult<()> {
         if !self.is_active() {
             return Err(crate::error::BTreeError::Internal(
-                "Transaction is not active".to_string()
+                "Transaction is not active".to_string(),
             ));
         }
 
@@ -118,7 +118,7 @@ impl MvccTransaction {
     pub fn delete(&self, key: Vec<u8>) -> BTreeResult<()> {
         if !self.is_active() {
             return Err(crate::error::BTreeError::Internal(
-                "Transaction is not active".to_string()
+                "Transaction is not active".to_string(),
             ));
         }
 
@@ -133,7 +133,7 @@ impl MvccTransaction {
     pub fn commit(self: Arc<Self>, commit_ts: u64) -> BTreeResult<()> {
         if !self.is_active() {
             return Err(crate::error::BTreeError::Internal(
-                "Transaction is not active".to_string()
+                "Transaction is not active".to_string(),
             ));
         }
 
@@ -144,20 +144,18 @@ impl MvccTransaction {
         };
 
         // Convert writes to the format expected by atomic_commit
-        let atomic_writes: Vec<(Vec<u8>, Option<Vec<u8>>)> = writes.iter().map(|op| {
-            match op {
+        let atomic_writes: Vec<(Vec<u8>, Option<Vec<u8>>)> = writes
+            .iter()
+            .map(|op| match op {
                 WriteOp::Put { key, value } => (key.clone(), Some(value.clone())),
                 WriteOp::Delete { key } => (key.clone(), None),
-            }
-        }).collect();
+            })
+            .collect();
 
         // Use atomic_commit to prevent deadlocks
-        let result = self.tree.atomic_commit(
-            &atomic_writes,
-            self.snapshot_ts,
-            self.id.0,
-            commit_ts
-        );
+        let result =
+            self.tree
+                .atomic_commit(&atomic_writes, self.snapshot_ts, self.id.0, commit_ts);
 
         // Mark transaction as committed/aborted
         *self.active.write().unwrap() = false;
@@ -169,7 +167,7 @@ impl MvccTransaction {
     pub fn rollback(self: Arc<Self>) -> BTreeResult<()> {
         if !self.is_active() {
             return Err(crate::error::BTreeError::Internal(
-                "Transaction is not active".to_string()
+                "Transaction is not active".to_string(),
             ));
         }
 
@@ -190,19 +188,19 @@ impl MvccTransaction {
 pub struct MvccTransactionManager {
     /// Next transaction ID
     next_tx_id: RwLock<u64>,
-    
+
     /// Next commit timestamp
     next_commit_ts: RwLock<u64>,
-    
+
     /// Active transactions
     active_transactions: RwLock<HashMap<TxId, Arc<MvccTransaction>>>,
-    
+
     /// The MVCC tree
     tree: Arc<MvccBPlusTree>,
-    
+
     /// GC counter (trigger GC every N commits)
     gc_counter: RwLock<u64>,
-    
+
     /// GC interval
     gc_interval: u64,
 }
@@ -322,7 +320,7 @@ impl MvccTransactionManager {
     fn update_min_snapshot_ts(&self) {
         // Get the default value first (without holding any locks)
         let default_ts = *self.next_commit_ts.read().unwrap();
-        
+
         // Then get the minimum from active transactions
         let active = self.active_transactions.read().unwrap();
         let min_snapshot = active
@@ -450,20 +448,20 @@ mod tests {
         let manager = MvccTransactionManager::new(tree);
 
         let tx = manager.begin();
-        
+
         // Write is buffered
         tx.put(b"key1".to_vec(), b"value1".to_vec()).unwrap();
-        
+
         // Can read own write before commit
         assert_eq!(tx.get(b"key1").unwrap(), Some(b"value1".to_vec()));
-        
+
         manager.commit(tx).unwrap();
     }
 
     #[test]
     fn test_concurrent_transaction_commits_no_deadlock() {
         use std::sync::atomic::{AtomicUsize, Ordering};
-        
+
         let tree = Arc::new(MvccBPlusTree::new(MvccTreeConfig::default()));
         let manager = Arc::new(MvccTransactionManager::new(tree));
         let success_count = Arc::new(AtomicUsize::new(0));
@@ -484,7 +482,7 @@ mod tests {
                 let key = format!("key{}", i);
                 let value = format!("value{}", i);
                 tx.put(key.into_bytes(), value.into_bytes()).unwrap();
-                
+
                 // Commit - this should not deadlock
                 if manager_clone.commit(tx).is_ok() {
                     success_count_clone.fetch_add(1, Ordering::SeqCst);
@@ -499,16 +497,19 @@ mod tests {
         }
 
         // All transactions should succeed since they write to different keys
-        assert_eq!(success_count.load(Ordering::SeqCst), 10,
-                   "All transactions should succeed without deadlock");
-        
+        assert_eq!(
+            success_count.load(Ordering::SeqCst),
+            10,
+            "All transactions should succeed without deadlock"
+        );
+
         // Verify we can still read data (no deadlock occurred)
         // Note: key1 may have been overwritten by one of the concurrent transactions
         let tx = manager.begin();
         let value = tx.get(b"key1").unwrap();
         assert!(value.is_some(), "key1 should still exist");
         manager.commit(tx).unwrap();
-        
+
         // Verify all individual keys were written successfully
         for i in 0..10 {
             let tx = manager.begin();
@@ -519,5 +520,3 @@ mod tests {
         }
     }
 }
-
-// Made with Bob

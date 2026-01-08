@@ -747,5 +747,3 @@ fn test_full_pipeline() {
 
     assert_eq!(decompressed, original_data);
 }
-
-// Made with Bob

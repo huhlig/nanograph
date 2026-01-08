@@ -555,5 +555,3 @@ criterion_main!(
     integrity_benches,
     pipeline_benches,
 );
-
-// Made with Bob

@@ -20,8 +20,8 @@ use crate::options::LSMTreeOptions;
 use crate::transaction::TransactionManager;
 use async_trait::async_trait;
 use nanograph_kvt::{
-    EngineStats as KvEngineStats, KeyRange, KeyValueIterator, KeyValueResult, KeyValueStore,
-    KeyValueTableId, LsmStats, TableStats, Transaction,
+    KeyRange, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId, ShardIndex,
+    ShardStats, StatValue, TableId, Transaction,
 };
 use nanograph_vfs::{MemoryFileSystem, Path};
 use nanograph_wal::{WriteAheadLogConfig, WriteAheadLogManager};
@@ -29,124 +29,136 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 /// LSM Tree implementation of KeyValueStore
+///
+/// This is a low-level storage engine that manages physical shards.
+/// It does NOT manage table names or allocate IDs - that's the responsibility
+/// of KeyValueDatabaseManager at a higher level.
 pub struct LSMKeyValueStore {
-    engines: Arc<RwLock<HashMap<KeyValueTableId, Arc<LSMTreeEngine>>>>,
-    table_names: Arc<RwLock<HashMap<KeyValueTableId, String>>>,
-    next_table_id: Arc<RwLock<u128>>,
-    next_shard_id: Arc<RwLock<u64>>,
+    /// Storage engines for each shard
+    engines: Arc<RwLock<HashMap<ShardId, Arc<LSMTreeEngine>>>>,
+
+    /// Transaction manager
     tx_manager: RwLock<Option<Arc<TransactionManager>>>,
 }
 
 impl LSMKeyValueStore {
     pub fn new() -> Self {
-        // Create store components
-        let engines = Arc::new(RwLock::new(HashMap::new()));
-        let table_names = Arc::new(RwLock::new(HashMap::new()));
-        let next_table_id = Arc::new(RwLock::new(1));
-        let next_shard_id = Arc::new(RwLock::new(0));
-
         Self {
-            engines,
-            table_names,
-            next_table_id,
-            next_shard_id,
+            engines: Arc::new(RwLock::new(HashMap::new())),
             tx_manager: RwLock::new(None),
         }
     }
-    
+
     /// Initialize the transaction manager (must be called after store is wrapped in Arc)
     pub fn init_tx_manager(self: &Arc<Self>) {
         let tx_manager = Arc::new(TransactionManager::new(Arc::clone(self)));
         *self.tx_manager.write().unwrap() = Some(tx_manager);
     }
-    
+
     pub fn get_tx_manager(&self) -> Arc<TransactionManager> {
         self.tx_manager.read().unwrap().as_ref().unwrap().clone()
     }
 
-    fn get_engine(&self, table: KeyValueTableId) -> KeyValueResult<Arc<LSMTreeEngine>> {
+    fn get_engine(&self, shard: ShardId) -> KeyValueResult<Arc<LSMTreeEngine>> {
         let engines = self.engines.read().unwrap();
         engines
-            .get(&table)
+            .get(&shard)
             .cloned()
             .ok_or(nanograph_kvt::KeyValueError::KeyNotFound)
     }
-    
-    fn create_engine_for_table(&self, table: KeyValueTableId) -> KeyValueResult<Arc<LSMTreeEngine>> {
-        // Get next shard ID
-        let shard_id = {
-            let mut next_id = self.next_shard_id.write().unwrap();
-            let id = *next_id;
-            *next_id += 1;
-            id
-        };
-        
+
+    fn create_engine_for_table(&self, shard: ShardId) -> KeyValueResult<Arc<LSMTreeEngine>> {
+        // ShardId is already provided - no allocation needed!
+        // The shard_id parameter IS the unique identifier for this shard
+
         // Create memory filesystems for WAL and SSTables
         let wal_fs = MemoryFileSystem::new();
-        let sstable_fs: Arc<dyn nanograph_vfs::DynamicFileSystem> = Arc::new(MemoryFileSystem::new());
-        let wal_path_str = format!("/wal_{}", table.0);
+        let sstable_fs: Arc<dyn nanograph_vfs::DynamicFileSystem> =
+            Arc::new(MemoryFileSystem::new());
+        let wal_path_str = format!("/wal_{}", shard.0);
         let wal_path = Path::from(wal_path_str.as_str());
-        
-        // Create WAL manager
-        let wal_config = WriteAheadLogConfig::new(shard_id);
+
+        // Create WAL manager - use the ShardId directly
+        let wal_config = WriteAheadLogConfig::new(shard.0);
         let wal = WriteAheadLogManager::new(wal_fs, wal_path, wal_config)
             .map_err(|e| nanograph_kvt::KeyValueError::StorageCorruption(e.to_string()))?;
-        
-        // Create LSM options with matching shard_id
-        let options = LSMTreeOptions::default().with_shard_id(shard_id);
-        
-        // Create base path for this table (in VFS)
-        let base_path = format!("/lsm/{}", table.0);
-        
+
+        // Create LSM options with the ShardId
+        let options = LSMTreeOptions::default().with_shard_id(shard.0);
+
+        // Create base path for this shard (in VFS)
+        let base_path = format!("/lsm/{}", shard.0);
+
         // Create engine with VFS
         let engine = LSMTreeEngine::new(sstable_fs, base_path, options, wal)?;
-        
+
         Ok(Arc::new(engine))
     }
-    
+
     /// Get a value at a specific snapshot timestamp (for MVCC)
     pub async fn get_at_snapshot(
         &self,
-        table: KeyValueTableId,
+        shard: ShardId,
         key: &[u8],
-        snapshot_ts: u64,
+        snapshot_ts: i64,
     ) -> KeyValueResult<Option<Vec<u8>>> {
-        let engine = self.get_engine(table)?;
+        let engine = self.get_engine(shard)?;
         engine.get_at_snapshot(key, snapshot_ts)
     }
-    
+
     /// Mark an entry as committed with the given timestamp (for MVCC)
     pub async fn commit_entry(
         &self,
-        table: KeyValueTableId,
+        shard: ShardId,
         key: &[u8],
-        commit_ts: u64,
+        commit_ts: i64,
     ) -> KeyValueResult<()> {
-        let engine = self.get_engine(table)?;
+        let engine = self.get_engine(shard)?;
         engine.commit_entry(key, commit_ts)
     }
-    
+
     /// Put with commit timestamp (for MVCC transactions)
     pub async fn put_committed(
         &self,
-        table: KeyValueTableId,
+        shard: ShardId,
         key: &[u8],
         value: &[u8],
-        commit_ts: u64,
+        commit_ts: i64,
     ) -> KeyValueResult<()> {
-        let engine = self.get_engine(table)?;
+        let engine = self.get_engine(shard)?;
         engine.put_committed(key.to_vec(), value.to_vec(), commit_ts)
     }
-    
+
     /// Delete with commit timestamp (for MVCC transactions)
     pub async fn delete_committed(
         &self,
-        table: KeyValueTableId,
+        shard: ShardId,
         key: &[u8],
-        commit_ts: u64,
+        commit_ts: i64,
     ) -> KeyValueResult<()> {
-        let engine = self.get_engine(table)?;
+        let engine = self.get_engine(shard)?;
         engine.delete_committed(key.to_vec(), commit_ts)
+    }
+
+    /// Create a checkpoint for a shard
+    /// This saves the current LSM tree state and writes a checkpoint marker to the WAL
+    pub async fn checkpoint_shard(&self, shard: ShardId) -> KeyValueResult<()> {
+        let engine = self.get_engine(shard)?;
+        engine.checkpoint()
+    }
+
+    /// Create checkpoints for all shards
+    pub async fn checkpoint_all(&self) -> KeyValueResult<()> {
+        let shard_ids: Vec<ShardId> = {
+            let engines = self.engines.read().unwrap();
+            engines.keys().copied().collect()
+        };
+
+        for shard_id in shard_ids {
+            self.checkpoint_shard(shard_id).await?;
+        }
+
+        Ok(())
     }
 }
 
@@ -157,28 +169,28 @@ impl Default for LSMKeyValueStore {
 }
 
 #[async_trait]
-impl KeyValueStore for LSMKeyValueStore {
+impl KeyValueShardStore for LSMKeyValueStore {
     // ===== Basic Operations =====
 
-    async fn get(&self, table: KeyValueTableId, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
-        let engine = self.get_engine(table)?;
+    async fn get(&self, shard: ShardId, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
+        let engine = self.get_engine(shard)?;
         engine.get(key)
     }
 
-    async fn put(&self, table: KeyValueTableId, key: &[u8], value: &[u8]) -> KeyValueResult<()> {
-        let engine = self.get_engine(table)?;
+    async fn put(&self, shard: ShardId, key: &[u8], value: &[u8]) -> KeyValueResult<()> {
+        let engine = self.get_engine(shard)?;
         engine.put(key.to_vec(), value.to_vec())
     }
 
-    async fn delete(&self, table: KeyValueTableId, key: &[u8]) -> KeyValueResult<bool> {
-        let engine = self.get_engine(table)?;
+    async fn delete(&self, shard: ShardId, key: &[u8]) -> KeyValueResult<bool> {
+        let engine = self.get_engine(shard)?;
         engine.delete(key.to_vec())?;
         // TODO: Return true if key existed, false otherwise
         Ok(true)
     }
 
-    async fn exists(&self, table: KeyValueTableId, key: &[u8]) -> KeyValueResult<bool> {
-        let engine = self.get_engine(table)?;
+    async fn exists(&self, shard: ShardId, key: &[u8]) -> KeyValueResult<bool> {
+        let engine = self.get_engine(shard)?;
         Ok(engine.get(key)?.is_some())
     }
 
@@ -186,10 +198,10 @@ impl KeyValueStore for LSMKeyValueStore {
 
     async fn batch_get(
         &self,
-        table: KeyValueTableId,
+        shard: ShardId,
         keys: &[&[u8]],
     ) -> KeyValueResult<Vec<Option<Vec<u8>>>> {
-        let engine = self.get_engine(table)?;
+        let engine = self.get_engine(shard)?;
         let mut results = Vec::with_capacity(keys.len());
         for key in keys {
             results.push(engine.get(key)?);
@@ -197,20 +209,16 @@ impl KeyValueStore for LSMKeyValueStore {
         Ok(results)
     }
 
-    async fn batch_put(
-        &self,
-        table: KeyValueTableId,
-        pairs: &[(&[u8], &[u8])],
-    ) -> KeyValueResult<()> {
-        let engine = self.get_engine(table)?;
+    async fn batch_put(&self, shard: ShardId, pairs: &[(&[u8], &[u8])]) -> KeyValueResult<()> {
+        let engine = self.get_engine(shard)?;
         for (key, value) in pairs {
             engine.put(key.to_vec(), value.to_vec())?;
         }
         Ok(())
     }
 
-    async fn batch_delete(&self, table: KeyValueTableId, keys: &[&[u8]]) -> KeyValueResult<usize> {
-        let engine = self.get_engine(table)?;
+    async fn batch_delete(&self, shard: ShardId, keys: &[&[u8]]) -> KeyValueResult<usize> {
+        let engine = self.get_engine(shard)?;
         let mut count = 0;
         for key in keys {
             engine.delete(key.to_vec())?;
@@ -223,14 +231,14 @@ impl KeyValueStore for LSMKeyValueStore {
 
     async fn scan(
         &self,
-        table: KeyValueTableId,
+        shard: ShardId,
         range: KeyRange,
     ) -> KeyValueResult<Box<dyn KeyValueIterator + Send>> {
-        let engine = self.get_engine(table)?;
+        let engine = self.get_engine(shard)?;
 
         // Collect entries from all sources for merging
         let mut sources = Vec::new();
-        
+
         // 1. Get entries from active memtable (highest priority)
         {
             let memtable = engine.memtable.read().unwrap();
@@ -251,7 +259,7 @@ impl KeyValueStore for LSMKeyValueStore {
             });
             sources.push(memtable_entries);
         }
-        
+
         // 2. Get entries from immutable memtable if it exists
         {
             let immutable = engine.immutable_memtable.read().unwrap();
@@ -274,7 +282,7 @@ impl KeyValueStore for LSMKeyValueStore {
                 sources.push(imm_entries);
             }
         }
-        
+
         // 3. SSTables would be added here in a complete implementation
         // For now, we have memtable + immutable memtable coverage
 
@@ -291,8 +299,8 @@ impl KeyValueStore for LSMKeyValueStore {
 
     // ===== Statistics & Metadata =====
 
-    async fn key_count(&self, table: KeyValueTableId) -> KeyValueResult<u64> {
-        let engine = self.get_engine(table)?;
+    async fn key_count(&self, shard: ShardId) -> KeyValueResult<u64> {
+        let engine = self.get_engine(shard)?;
         let stats = engine.stats();
 
         // Sum up entries across all levels
@@ -308,8 +316,8 @@ impl KeyValueStore for LSMKeyValueStore {
         Ok(count)
     }
 
-    async fn table_stats(&self, table: KeyValueTableId) -> KeyValueResult<TableStats> {
-        let engine = self.get_engine(table)?;
+    async fn shard_stats(&self, shard: ShardId) -> KeyValueResult<ShardStats> {
+        let engine = self.get_engine(shard)?;
         let stats = engine.stats();
 
         // Calculate total bytes
@@ -321,27 +329,58 @@ impl KeyValueStore for LSMKeyValueStore {
             data_bytes += level_stats.total_size;
         }
 
-        // Build LSM-specific stats
-        let lsm_stats = LsmStats {
-            num_levels: stats.levels.len(),
-            sstables_per_level: stats.levels.iter().map(|l| l.num_sstables).collect(),
-            bytes_per_level: stats.levels.iter().map(|l| l.total_size).collect(),
-            memtable_bytes: stats.memtable_size as u64,
-            pending_compactions: 0, // TODO: Track this
-            total_compactions: stats.total_compactions,
-            write_amplification: 0.0, // TODO: Calculate from metrics
-            read_amplification: 0.0,  // TODO: Calculate from metrics
-            bloom_filter_false_positives: 0.0, // TODO: Get from metrics
-        };
-
-        Ok(TableStats {
-            key_count: self.key_count(table).await?,
+        let mut shard_stats = ShardStats {
+            key_count: self.key_count(shard).await?,
             total_bytes,
             data_bytes,
             index_bytes: 0,      // TODO: Calculate index overhead
             last_modified: None, // TODO: Track modification time
-            engine_stats: KvEngineStats::Lsm(lsm_stats),
-        })
+            engine_stats: Default::default(),
+        };
+
+        // Build LSM-specific stats
+        shard_stats
+            .engine_stats
+            .insert("num_levels", StatValue::from_u64(stats.levels.len() as u64));
+        shard_stats.engine_stats.insert(
+            "sstables_per_level",
+            StatValue::from_list(
+                stats
+                    .levels
+                    .iter()
+                    .map(|l| StatValue::from_usize(l.num_sstables)),
+            ),
+        );
+        shard_stats.engine_stats.insert(
+            "bytes_per_level",
+            StatValue::from_list(
+                stats
+                    .levels
+                    .iter()
+                    .map(|l| StatValue::from_u64(l.total_size)),
+            ),
+        );
+        shard_stats
+            .engine_stats
+            .insert("memtable_bytes", StatValue::from_usize(stats.memtable_size));
+        shard_stats
+            .engine_stats // TODO: Track this
+            .insert("pending_compactions", StatValue::from_usize(0));
+        shard_stats.engine_stats.insert(
+            "total_compactions",
+            StatValue::from_u64(stats.total_compactions),
+        );
+        shard_stats
+            .engine_stats // TODO: Calculate from metrics
+            .insert("write_amplification", StatValue::from_f64(0.0));
+        shard_stats
+            .engine_stats // TODO: Calculate from metrics
+            .insert("read_amplification", StatValue::from_f64(0.0));
+        shard_stats
+            .engine_stats // TODO: Get from metrics
+            .insert("bloom_filter_false_positives", StatValue::from_f64(0.0));
+
+        Ok(shard_stats)
     }
 
     // ===== Transaction Support =====
@@ -352,46 +391,35 @@ impl KeyValueStore for LSMKeyValueStore {
 
     // ===== Table Management =====
 
-    async fn create_table(&self, name: &str) -> KeyValueResult<KeyValueTableId> {
-        let mut next_id = self.next_table_id.write().unwrap();
-        let table_id = KeyValueTableId::new(*next_id);
-        *next_id += 1;
+    async fn create_shard(&self, table: TableId, index: ShardIndex) -> KeyValueResult<ShardId> {
+        // Compute deterministic ShardId from TableId and ShardIndex
+        let shard_id = ShardId::from_parts(table, index);
 
-        // Store table name
-        let mut table_names = self.table_names.write().unwrap();
-        table_names.insert(table_id, name.to_string());
+        // Create LSMTreeEngine for this shard
+        let engine = self.create_engine_for_table(shard_id)?;
 
-        // Create LSMTreeEngine for this table
-        let engine = self.create_engine_for_table(table_id)?;
-        
         // Store engine
         let mut engines = self.engines.write().unwrap();
-        engines.insert(table_id, engine);
+        engines.insert(shard_id, engine);
 
-        Ok(table_id)
+        Ok(shard_id)
     }
 
-    async fn drop_table(&self, table: KeyValueTableId) -> KeyValueResult<()> {
+    async fn drop_shard(&self, shard: ShardId) -> KeyValueResult<()> {
         let mut engines = self.engines.write().unwrap();
-        engines.remove(&table);
-
-        let mut table_names = self.table_names.write().unwrap();
-        table_names.remove(&table);
+        engines.remove(&shard);
 
         Ok(())
     }
 
-    async fn list_tables(&self) -> KeyValueResult<Vec<(KeyValueTableId, String)>> {
-        let table_names = self.table_names.read().unwrap();
-        Ok(table_names
-            .iter()
-            .map(|(id, name)| (*id, name.clone()))
-            .collect())
+    async fn list_shards(&self) -> KeyValueResult<Vec<ShardId>> {
+        let engines = self.engines.read().unwrap();
+        Ok(engines.keys().copied().collect())
     }
 
-    async fn table_exists(&self, table: KeyValueTableId) -> KeyValueResult<bool> {
-        let table_names = self.table_names.read().unwrap();
-        Ok(table_names.contains_key(&table))
+    async fn shard_exists(&self, shard: ShardId) -> KeyValueResult<bool> {
+        let engines = self.engines.read().unwrap();
+        Ok(engines.contains_key(&shard))
     }
 
     // ===== Maintenance Operations =====
@@ -404,7 +432,7 @@ impl KeyValueStore for LSMKeyValueStore {
         Ok(())
     }
 
-    async fn compact(&self, table: Option<KeyValueTableId>) -> KeyValueResult<()> {
+    async fn compact(&self, table: Option<ShardId>) -> KeyValueResult<()> {
         if let Some(table_id) = table {
             let engine = self.get_engine(table_id)?;
             engine.compact()?;
@@ -427,28 +455,31 @@ mod tests {
     async fn test_table_management() {
         let store = LSMKeyValueStore::new();
 
-        // Create table
-        let table_id = store.create_table("test_table").await.unwrap();
-        assert!(store.table_exists(table_id).await.unwrap());
+        // Create Shard
+        let table_id = TableId::new(0);
+        let shard_index = ShardIndex::new(0);
+        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+
+        assert!(store.shard_exists(shard).await.unwrap());
 
         // List tables
-        let tables = store.list_tables().await.unwrap();
+        let tables = store.list_shards().await.unwrap();
         assert_eq!(tables.len(), 1);
-        assert_eq!(tables[0].1, "test_table");
 
         // Drop table
-        store.drop_table(table_id).await.unwrap();
-        assert!(!store.table_exists(table_id).await.unwrap());
+        store.drop_shard(shard).await.unwrap();
+        assert!(!store.shard_exists(shard).await.unwrap());
     }
 
     #[tokio::test]
     async fn test_basic_operations() {
         let store = LSMKeyValueStore::new();
-        let _table_id = store.create_table("test").await.unwrap();
+
+        let table_id = TableId::new(0);
+        let shard_index = ShardIndex::new(0);
+        let _shard = store.create_shard(table_id, shard_index).await.unwrap();
 
         // Note: These tests will fail until we properly initialize engines
         // TODO: Add engine initialization in create_table
     }
 }
-
-// Made with Bob

@@ -30,16 +30,16 @@ use serde::{Deserialize, Serialize};
 pub struct MvccLeafNode {
     /// Node ID
     pub id: NodeId,
-    
+
     /// Key-value entries with version chains (sorted by key)
     pub entries: Vec<(Vec<u8>, VersionChain)>,
-    
+
     /// Link to the next leaf node (for range scans)
     pub next: Option<NodeId>,
-    
+
     /// Link to the previous leaf node (for reverse scans)
     pub prev: Option<NodeId>,
-    
+
     /// Parent node ID
     pub parent: Option<NodeId>,
 }
@@ -58,7 +58,8 @@ impl MvccLeafNode {
 
     /// Find the index of a key in this leaf
     pub fn find_key_index(&self, key: &[u8]) -> Result<usize, usize> {
-        self.entries.binary_search_by(|(k, _)| k.as_slice().cmp(key))
+        self.entries
+            .binary_search_by(|(k, _)| k.as_slice().cmp(key))
     }
 
     /// Insert or update a key-value pair with versioning
@@ -157,7 +158,7 @@ impl MvccLeafNode {
         for (_, chain) in &mut self.entries {
             chain.rollback_versions(created_ts);
         }
-        
+
         // Remove entries with no versions left
         self.entries.retain(|(_, chain)| !chain.is_empty());
     }
@@ -198,22 +199,22 @@ impl MvccLeafNode {
     /// Returns (middle_key, new_right_node)
     pub fn split(&mut self) -> (Vec<u8>, MvccLeafNode) {
         let mid = self.entries.len() / 2;
-        
+
         // Split entries
         let right_entries = self.entries.split_off(mid);
-        
+
         // The first key of the right node becomes the separator
         let middle_key = right_entries[0].0.clone();
-        
+
         // Create the new right node
         let right_node = MvccLeafNode {
             id: self.id, // Will be replaced by caller
             entries: right_entries,
             next: self.next,
-            prev: None,  // Will be set by caller
+            prev: None, // Will be set by caller
             parent: self.parent,
         };
-        
+
         (middle_key, right_node)
     }
 
@@ -240,13 +241,13 @@ mod tests {
     #[test]
     fn test_mvcc_leaf_insert_and_get() {
         let mut leaf = MvccLeafNode::new(NodeId::new(1));
-        
+
         // Insert a value
         assert_eq!(leaf.insert(b"key1".to_vec(), b"value1".to_vec(), 1), None);
-        
+
         // Commit it
         leaf.commit_versions(1, 2);
-        
+
         // Read at different timestamps
         assert_eq!(leaf.get(b"key1", 1), None); // Before commit
         assert_eq!(leaf.get(b"key1", 2), Some(b"value1".to_vec())); // At commit
@@ -256,21 +257,21 @@ mod tests {
     #[test]
     fn test_mvcc_leaf_update() {
         let mut leaf = MvccLeafNode::new(NodeId::new(1));
-        
+
         // Insert and commit first version
         leaf.insert(b"key1".to_vec(), b"v1".to_vec(), 1);
         leaf.commit_versions(1, 2);
-        
+
         // Insert and commit second version
         assert_eq!(
             leaf.insert(b"key1".to_vec(), b"v2".to_vec(), 3),
             Some(b"v1".to_vec())
         );
         leaf.commit_versions(3, 4);
-        
+
         // Old transaction sees old version
         assert_eq!(leaf.get(b"key1", 3), Some(b"v1".to_vec()));
-        
+
         // New transaction sees new version
         assert_eq!(leaf.get(b"key1", 5), Some(b"v2".to_vec()));
     }
@@ -278,18 +279,18 @@ mod tests {
     #[test]
     fn test_mvcc_leaf_delete() {
         let mut leaf = MvccLeafNode::new(NodeId::new(1));
-        
+
         // Insert and commit
         leaf.insert(b"key1".to_vec(), b"value1".to_vec(), 1);
         leaf.commit_versions(1, 2);
-        
+
         // Delete and commit
         assert_eq!(leaf.remove(b"key1", 3), Some(b"value1".to_vec()));
         leaf.commit_versions(3, 4);
-        
+
         // Old transaction sees value
         assert_eq!(leaf.get(b"key1", 3), Some(b"value1".to_vec()));
-        
+
         // New transaction sees deletion
         assert_eq!(leaf.get(b"key1", 5), None);
     }
@@ -297,17 +298,17 @@ mod tests {
     #[test]
     fn test_mvcc_leaf_rollback() {
         let mut leaf = MvccLeafNode::new(NodeId::new(1));
-        
+
         // Insert and commit first version
         leaf.insert(b"key1".to_vec(), b"v1".to_vec(), 1);
         leaf.commit_versions(1, 2);
-        
+
         // Insert second version but don't commit
         leaf.insert(b"key1".to_vec(), b"v2".to_vec(), 3);
-        
+
         // Rollback the uncommitted version
         leaf.rollback_versions(3);
-        
+
         // Should only see first version
         assert_eq!(leaf.get(b"key1", 10), Some(b"v1".to_vec()));
     }
@@ -315,23 +316,23 @@ mod tests {
     #[test]
     fn test_mvcc_leaf_conflict_detection() {
         let mut leaf = MvccLeafNode::new(NodeId::new(1));
-        
+
         // Insert and commit at ts=2
         leaf.insert(b"key1".to_vec(), b"value1".to_vec(), 1);
         leaf.commit_versions(1, 2);
-        
+
         // No conflict for transaction that started at ts=2 or later
         assert!(!leaf.has_conflict(b"key1", 2));
         assert!(!leaf.has_conflict(b"key1", 3));
-        
+
         // Update and commit at ts=5
         leaf.insert(b"key1".to_vec(), b"value2".to_vec(), 4);
         leaf.commit_versions(4, 5);
-        
+
         // Conflict for transaction that started before ts=5
         assert!(leaf.has_conflict(b"key1", 4));
         assert!(leaf.has_conflict(b"key1", 3));
-        
+
         // No conflict for transaction that started at ts=5 or later
         assert!(!leaf.has_conflict(b"key1", 5));
         assert!(!leaf.has_conflict(b"key1", 6));
@@ -340,19 +341,17 @@ mod tests {
     #[test]
     fn test_mvcc_leaf_gc() {
         let mut leaf = MvccLeafNode::new(NodeId::new(1));
-        
+
         // Create multiple versions
         for i in 1..=5 {
             leaf.insert(b"key1".to_vec(), format!("v{}", i).into_bytes(), i);
             leaf.commit_versions(i, i + 1);
         }
-        
+
         // GC with min_snapshot_ts = 4, max_versions = 3
         leaf.gc_versions(4, 3);
-        
+
         // Should still be able to read recent versions
         assert_eq!(leaf.get(b"key1", 10), Some(b"v5".to_vec()));
     }
 }
-
-// Made with Bob

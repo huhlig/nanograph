@@ -63,8 +63,10 @@ thiserror = "2.0"
 # Consensus
 openraft = { version = "0.9" }
 
+# Date/Time Handling
+chrono = { version = "0.4", features = ["default", "now"] }
+
 # Serialization
-bincode = { version = "3" }
 byteorder = { version = "1.5", features = ["default"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["default"] }

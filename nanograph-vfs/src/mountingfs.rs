@@ -65,6 +65,23 @@ impl MountableFilesystem {
         self.mounts.insert(path.to_string(), fs);
     }
 
+    /// Unmounts a filesystem from the specified path
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The path where the filesystem should be unmounted.
+    pub fn unmount(&mut self, path: &str) {
+        self.mounts.remove(path);
+    }
+
+    /// Lists all mounted filesystems with their mount points
+    pub fn list_mounts(&self) -> Vec<String> {
+        self.mounts
+            .iter()
+            .map(|(k, v)| format!("{} - {:?}", k, v))
+            .collect()
+    }
+
     /// Finds the appropriate mount point for a given path.
     /// Returns the filesystem and the path relative to its mount point.
     fn find_mount(&self, path: &str) -> FileSystemResult<(&Arc<dyn DynamicFileSystem>, String)> {

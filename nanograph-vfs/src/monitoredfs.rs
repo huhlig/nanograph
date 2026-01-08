@@ -48,6 +48,7 @@ use tracing_timing::HashMap;
 /// # Ok(())
 /// # }
 /// ```
+/// TODO: Implement Operation Counting
 #[derive(Clone)]
 pub struct MonitoredFilesystem {
     inner: Arc<dyn DynamicFileSystem>,
@@ -82,6 +83,63 @@ impl MonitoredFilesystem {
     /// Returns the total number of bytes read from this filesystem.
     pub fn bytes_read(&self) -> u64 {
         self.stats.read().unwrap().bytes_read
+    }
+
+    /// Count of Failed Operations
+    pub fn failed_operations(&self) -> usize {
+        self.stats.read().unwrap().failed_operations
+    }
+
+    /// Count of Successful Operations
+    pub fn successful_operations(&self) -> usize {
+        self.stats.read().unwrap().success_operations
+    }
+
+    /// Count of Total Operations
+    pub fn total_operations(&self) -> usize {
+        self.stats.read().unwrap().failed_operations + self.stats.read().unwrap().success_operations
+    }
+
+    /// Get Count of Specific Operations
+
+    pub fn operation_count(&self, operation: &str) -> usize {
+        match operation {
+            "create_directory" => self.stats.read().unwrap().create_directory_calls,
+            "list_directory" => self.stats.read().unwrap().list_directory_calls,
+            "remove_directory" => self.stats.read().unwrap().remove_directory_calls,
+            "create_file" => self.stats.read().unwrap().create_file_calls,
+            "open_file" => self.stats.read().unwrap().open_file_calls,
+            "remove_file" => self.stats.read().unwrap().remove_file_calls,
+            _ => 0,
+        }
+    }
+
+    /// Reset metrics to zero
+    pub fn reset_metrics(&self) {
+        {
+            let mut lock = self.stats.write().unwrap();
+            lock.open_files.clear();
+            lock.bytes_written = 0;
+            lock.bytes_read = 0;
+            lock.create_directory_calls = 0;
+            lock.list_directory_calls = 0;
+            lock.remove_directory_calls = 0;
+            lock.create_file_calls = 0;
+            lock.open_file_calls = 0;
+            lock.remove_file_calls = 0;
+            lock.failed_operations = 0;
+            lock.success_operations = 0;
+        }
+        {
+            let mut outer_lock = self.files.write().unwrap();
+            for (_, stats) in outer_lock.iter_mut() {
+                let mut inner_lock = stats.write().unwrap();
+                inner_lock.bytes_read = 0;
+                inner_lock.bytes_written = 0;
+                inner_lock.write_calls = 0;
+                inner_lock.read_calls = 0;
+            }
+        }
     }
 
     /// Returns a list of currently open files.
@@ -313,6 +371,25 @@ pub struct MonitoredFile {
     path: Path,
 }
 
+impl MonitoredFile {
+    /// Number of bytes written to the file
+    pub fn bytes_written(&self) -> u64 {
+        self.file_stats.read().unwrap().bytes_written
+    }
+    /// Number of bytes read from the file
+    pub fn bytes_read(&self) -> u64 {
+        self.file_stats.read().unwrap().bytes_read
+    }
+    /// Number of read calls made to the file
+    pub fn read_calls(&self) -> usize {
+        self.file_stats.read().unwrap().read_calls
+    }
+    /// Number of write calls made to the file
+    pub fn write_calls(&self) -> usize {
+        self.file_stats.write().unwrap().write_calls
+    }
+}
+
 impl Drop for MonitoredFile {
     fn drop(&mut self) {
         let mut stats = self.filesystem_stats.write().unwrap();
@@ -399,17 +476,28 @@ impl std::fmt::Debug for MonitoredFile {
     }
 }
 
+/// FileSystem
 #[derive(Default)]
 struct FileSystemStats {
     open_files: HashSet<Path>,
     bytes_written: u64,
     bytes_read: u64,
+    create_directory_calls: usize,
+    list_directory_calls: usize,
+    remove_directory_calls: usize,
+    create_file_calls: usize,
+    open_file_calls: usize,
+    remove_file_calls: usize,
+    failed_operations: usize,
+    success_operations: usize,
 }
 
 #[derive(Default)]
 struct FileStats {
     bytes_written: u64,
     bytes_read: u64,
+    read_calls: usize,
+    write_calls: usize,
 }
 
 #[cfg(test)]

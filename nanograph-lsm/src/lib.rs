@@ -36,6 +36,132 @@
 //! ## Architecture
 //!
 //! See `ARCHITECTURE.md` for detailed design documentation.
+//!
+//! ## Examples
+//!
+//! ### Basic Usage with KeyValueStore
+//!
+//! ```rust,no_run
+//! use nanograph_lsm::LSMKeyValueStore;
+//! use nanograph_kvt::{KeyValueShardStore, TableId, ShardIndex};
+//!
+//! # #[tokio::main]
+//! # async fn main() {
+//! // Create LSM store with default options
+//! let store = LSMKeyValueStore::new();
+//!
+//! // Create a shard with table ID and shard index
+//! let table_id = TableId::from(1u64);
+//! let shard_index = ShardIndex::from(0u32);
+//! let shard = store.create_shard(table_id, shard_index).await.unwrap();
+//!
+//! // Insert data
+//! store.put(shard, b"key1", b"value1").await.unwrap();
+//! store.put(shard, b"key2", b"value2").await.unwrap();
+//!
+//! // Retrieve data
+//! let value = store.get(shard, b"key1").await.unwrap();
+//! assert_eq!(value, Some(b"value1".to_vec()));
+//!
+//! // Delete data
+//! store.delete(shard, b"key1").await.unwrap();
+//! # }
+//! ```
+//!
+//! ### Configuring LSM Options
+//!
+//! ```rust
+//! use nanograph_lsm::LSMTreeOptions;
+//! use nanograph_util::CompressionAlgorithm;
+//!
+//! let mut options = LSMTreeOptions::default();
+//! options.memtable_size = 4 * 1024 * 1024; // 4MB
+//! options.compression = CompressionAlgorithm::Zstd;
+//! options.block_size = 8192; // 8KB blocks
+//!
+//! println!("MemTable size: {} bytes", options.memtable_size);
+//! println!("Block size: {} bytes", options.block_size);
+//! ```
+//!
+//! ### Range Scans
+//!
+//! ```rust,no_run
+//! use nanograph_lsm::LSMKeyValueStore;
+//! use nanograph_kvt::{KeyValueShardStore, KeyRange, TableId, ShardIndex};
+//! use futures::StreamExt;
+//!
+//! # #[tokio::main]
+//! # async fn main() {
+//! let store = LSMKeyValueStore::new();
+//! let table_id = TableId::from(1u64);
+//! let shard_index = ShardIndex::from(0u32);
+//! let shard = store.create_shard(table_id, shard_index).await.unwrap();
+//!
+//! // Insert sorted data
+//! store.put(shard, b"product:001", b"Widget A").await.unwrap();
+//! store.put(shard, b"product:002", b"Widget B").await.unwrap();
+//! store.put(shard, b"product:003", b"Widget C").await.unwrap();
+//!
+//! // Scan a range
+//! let range = KeyRange::prefix(b"product:".to_vec());
+//! let mut iter = store.scan(shard, range).await.unwrap();
+//!
+//! while let Some(result) = iter.next().await {
+//!     let (key, value) = result.unwrap();
+//!     println!("{:?} => {:?}", key, value);
+//! }
+//! # }
+//! ```
+//!
+//! ### Transactions with MVCC
+//!
+//! ```rust,no_run
+//! use nanograph_lsm::LSMKeyValueStore;
+//! use nanograph_kvt::{KeyValueShardStore, TableId, ShardIndex};
+//!
+//! # #[tokio::main]
+//! # async fn main() {
+//! let store = LSMKeyValueStore::new();
+//! let table_id = TableId::from(1u64);
+//! let shard_index = ShardIndex::from(0u32);
+//! let shard = store.create_shard(table_id, shard_index).await.unwrap();
+//!
+//! // Start a transaction
+//! let txn = store.begin_transaction().await.unwrap();
+//!
+//! // Perform operations within transaction
+//! txn.put(shard, b"account:alice", b"1000").await.unwrap();
+//! txn.put(shard, b"account:bob", b"500").await.unwrap();
+//!
+//! // Read within transaction sees uncommitted changes
+//! let balance = txn.get(shard, b"account:alice").await.unwrap();
+//! assert_eq!(balance, Some(b"1000".to_vec()));
+//!
+//! // Commit transaction
+//! txn.commit().await.unwrap();
+//! # }
+//! ```
+//!
+//! ### Monitoring with Metrics
+//!
+//! ```rust,no_run
+//! use nanograph_lsm::{LSMKeyValueStore, LSMMetrics};
+//!
+//! # #[tokio::main]
+//! # async fn main() {
+//! let store = LSMKeyValueStore::new();
+//! let metrics = LSMMetrics::new();
+//!
+//! // Perform operations...
+//! // Metrics are automatically collected
+//!
+//! let snapshot = metrics.snapshot();
+//! println!("Total writes: {}", snapshot.total_writes);
+//! println!("Total reads: {}", snapshot.total_reads);
+//! println!("Block cache hit rate: {:.2}%", snapshot.block_cache_hit_rate * 100.0);
+//! println!("Write amplification: {:.2}", snapshot.write_amplification);
+//! # }
+//! ```
 
 mod cache;
 mod compaction;

@@ -441,5 +441,3 @@ mod tests {
         assert!(entry1 > entry2); // Reversed for min-heap
     }
 }
-
-// Made with Bob

@@ -210,7 +210,7 @@ impl futures_core::Stream for LSMIterator {
                 return std::task::Poll::Ready(None);
             }
         }
-        
+
         if self.position < self.entries.len() {
             let entry = self.entries[self.position].clone();
             self.position += 1;
@@ -253,7 +253,11 @@ impl LSMIterator {
     }
 
     /// Create iterator from a saved cursor position
-    pub fn from_cursor(entries: Vec<(Vec<u8>, Vec<u8>)>, cursor: IteratorCursor, reverse: bool) -> Self {
+    pub fn from_cursor(
+        entries: Vec<(Vec<u8>, Vec<u8>)>,
+        cursor: IteratorCursor,
+        reverse: bool,
+    ) -> Self {
         Self {
             entries,
             position: cursor.position,
@@ -366,5 +370,3 @@ mod tests {
         assert_eq!(iter.position(), Some(b"key1".to_vec()));
     }
 }
-
-// Made with Bob
