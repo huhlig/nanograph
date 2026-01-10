@@ -3,7 +3,8 @@
 //! This example demonstrates using LSM Tree as a KeyValueShardStore,
 //! including shard management, batch operations, and write-optimized performance.
 
-use nanograph_kvt::{KeyValueShardStore, ShardIndex, StatValue, TableId};
+use nanograph_kvt::metrics::StatValue;
+use nanograph_kvt::{KeyValueShardStore, ShardIndex, TableId};
 use nanograph_lsm::LSMKeyValueStore;
 use std::ops::Deref;
 use std::sync::Arc;

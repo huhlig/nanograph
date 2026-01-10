@@ -16,10 +16,11 @@
 
 //! Shard Raft Group - manages consensus for a single shard
 
-use crate::error::{RaftError, Result};
+use crate::error::{ConsensusError, ConsensusResult};
 use crate::storage::RaftStorageAdapter;
 use crate::types::{Operation, OperationResponse, ReadConsistency, ReplicationConfig};
-use nanograph_kvt::{NodeId, ShardId};
+use nanograph_core::types::NodeId;
+use nanograph_kvt::ShardId;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
@@ -97,12 +98,12 @@ impl ShardRaftGroup {
     ///
     /// This will replicate the operation via Raft consensus and apply it
     /// to the state machine once committed.
-    pub async fn propose_write(&self, operation: Operation) -> Result<OperationResponse> {
+    pub async fn propose_write(&self, operation: Operation) -> ConsensusResult<OperationResponse> {
         // Check if we're the leader
         let role = self.role.read().await;
         if *role != RaftRole::Leader {
             let leader = self.leader.read().await;
-            return Err(RaftError::NotLeader {
+            return Err(ConsensusError::NotLeader {
                 shard_id: self.shard_id,
                 leader: leader.map(|n| n),
             });
@@ -111,7 +112,7 @@ impl ShardRaftGroup {
 
         // Check if we have quorum
         if !self.has_quorum().await {
-            return Err(RaftError::NoQuorum {
+            return Err(ConsensusError::NoQuorum {
                 shard_id: self.shard_id,
                 required: self.config.quorum_size(),
                 available: self.count_active_peers().await,
@@ -129,7 +130,11 @@ impl ShardRaftGroup {
     }
 
     /// Read with specified consistency level
-    pub async fn read(&self, key: &[u8], consistency: ReadConsistency) -> Result<Option<Vec<u8>>> {
+    pub async fn read(
+        &self,
+        key: &[u8],
+        consistency: ReadConsistency,
+    ) -> ConsensusResult<Option<Vec<u8>>> {
         match consistency {
             ReadConsistency::Linearizable => self.linearizable_read(key).await,
             ReadConsistency::Lease => self.lease_read(key).await,
@@ -138,12 +143,12 @@ impl ShardRaftGroup {
     }
 
     /// Linearizable read (strongest consistency)
-    async fn linearizable_read(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+    async fn linearizable_read(&self, key: &[u8]) -> ConsensusResult<Option<Vec<u8>>> {
         // Must be leader
         let role = self.role.read().await;
         if *role != RaftRole::Leader {
             let leader = self.leader.read().await;
-            return Err(RaftError::NotLeader {
+            return Err(ConsensusError::NotLeader {
                 shard_id: self.shard_id,
                 leader: leader.map(|n| n),
             });
@@ -156,12 +161,12 @@ impl ShardRaftGroup {
     }
 
     /// Lease-based read (fast, requires clock sync)
-    async fn lease_read(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+    async fn lease_read(&self, key: &[u8]) -> ConsensusResult<Option<Vec<u8>>> {
         // Must be leader with valid lease
         let role = self.role.read().await;
         if *role != RaftRole::Leader {
             let leader = self.leader.read().await;
-            return Err(RaftError::NotLeader {
+            return Err(ConsensusError::NotLeader {
                 shard_id: self.shard_id,
                 leader: leader.map(|n| n),
             });
@@ -172,12 +177,12 @@ impl ShardRaftGroup {
         let lease = self.lease_expiry.read().await;
         if let Some(expiry) = *lease {
             if std::time::Instant::now() > expiry {
-                return Err(RaftError::Internal {
+                return Err(ConsensusError::Internal {
                     message: "Leader lease expired".to_string(),
                 });
             }
         } else {
-            return Err(RaftError::Internal {
+            return Err(ConsensusError::Internal {
                 message: "No leader lease".to_string(),
             });
         }
@@ -187,7 +192,7 @@ impl ShardRaftGroup {
     }
 
     /// Follower read (potentially stale)
-    async fn follower_read(&self, _key: &[u8]) -> Result<Option<Vec<u8>>> {
+    async fn follower_read(&self, _key: &[u8]) -> ConsensusResult<Option<Vec<u8>>> {
         // TODO: Implement actual read from storage
         // For now, return None
         Ok(None)
@@ -284,7 +289,7 @@ impl ShardRaftGroup {
     }
 
     /// Add a peer to the Raft group
-    pub async fn add_peer(&self, peer: NodeId) -> Result<()> {
+    pub async fn add_peer(&self, peer: NodeId) -> ConsensusResult<()> {
         info!("Adding peer {} to shard {}", peer, self.shard_id);
 
         let mut peers = self.peers.write().await;
@@ -297,7 +302,7 @@ impl ShardRaftGroup {
     }
 
     /// Remove a peer from the Raft group
-    pub async fn remove_peer(&self, peer: NodeId) -> Result<()> {
+    pub async fn remove_peer(&self, peer: NodeId) -> ConsensusResult<()> {
         info!("Removing peer {} from shard {}", peer, self.shard_id);
 
         let mut peers = self.peers.write().await;

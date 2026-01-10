@@ -22,9 +22,10 @@ use crate::wal_record::{
     WalRecordKind, decode_delete, decode_put, encode_checkpoint, encode_delete, encode_put,
 };
 use async_trait::async_trait;
+use nanograph_kvt::metrics::{ShardStats, StatValue};
 use nanograph_kvt::{
     KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId,
-    ShardIndex, ShardStats, StatValue, TableId, Transaction,
+    ShardIndex, TableId, Transaction,
 };
 use nanograph_vfs::{MemoryFileSystem, Path};
 use nanograph_wal::{

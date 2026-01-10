@@ -14,13 +14,13 @@
 // limitations under the License.
 //
 
-use crate::iterator::KeyValueIterator;
+use crate::kviter::KeyValueIterator;
+use crate::metrics::ShardStats;
 use crate::result::KeyValueResult;
 use crate::transaction::Transaction;
 use crate::types::KeyRange;
-use crate::types::ShardId;
-use crate::{ShardIndex, ShardStats, TableId};
 use async_trait::async_trait;
+use nanograph_core::types::{ShardId, ShardIndex, TableId};
 use std::ops::Bound;
 use std::sync::Arc;
 

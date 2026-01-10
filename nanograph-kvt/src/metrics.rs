@@ -142,7 +142,8 @@
 //! }
 //! ```
 
-use crate::types::ShardId;
+use nanograph_core::types::{ShardId, Timestamp};
+use std::collections::HashMap;
 
 /// Helper trait for storage engines to register their metrics
 ///
@@ -176,6 +177,156 @@ pub trait EngineMetrics: Send + Sync {
     /// Returns a list of all metrics this engine exposes.
     /// Useful for introspection and monitoring setup.
     fn metric_names(&self) -> Vec<String>;
+}
+
+/// Common table statistics shared across all storage engines
+#[derive(Debug, Clone)]
+pub struct ShardStats {
+    /// Approximate number of keys in the table
+    pub key_count: u64,
+
+    /// Total bytes used by the table (data + metadata + indexes)
+    pub total_bytes: u64,
+
+    /// Bytes used for actual key-value data
+    pub data_bytes: u64,
+
+    /// Bytes used for indexes and metadata
+    pub index_bytes: u64,
+
+    /// Last modification timestamp
+    pub last_modified: Option<Timestamp>,
+
+    /// Engine-specific statistics
+    pub engine_stats: EngineStats,
+}
+
+impl ShardStats {
+    /// Get Stat by name
+    pub fn get(&self, key: &str) -> StatValue {
+        match key {
+            "key_count" => StatValue::None,
+            "total_bytes" => StatValue::None,
+            "data_bytes" => StatValue::None,
+            "index_bytes" => StatValue::None,
+            "last_modified" => StatValue::None,
+            _ => self.engine_stats.get(key),
+        }
+    }
+    pub fn keys(&self) -> impl Iterator<Item = String> {
+        let mut names = vec![
+            String::from("key_count"),
+            String::from("total_bytes"),
+            String::from("data_bytes"),
+            String::from("index_bytes"),
+            String::from("last_modified"),
+        ];
+        names.extend(self.engine_stats.keys());
+        names.into_iter()
+    }
+    /// Get Iterator of Stats
+    pub fn iter(&self) -> impl Iterator<Item = (String, StatValue)> {
+        let mut stats = vec![
+            (String::from("key_count"), StatValue::U64(self.key_count)),
+            (
+                String::from("total_bytes"),
+                StatValue::U64(self.total_bytes),
+            ),
+            (String::from("data_bytes"), StatValue::U64(self.data_bytes)),
+            (
+                String::from("index_bytes"),
+                StatValue::U64(self.index_bytes),
+            ),
+            (
+                String::from("last_modified"),
+                StatValue::Timestamp(self.last_modified.unwrap_or(Timestamp::epoch())),
+            ),
+        ];
+        stats.extend(self.engine_stats.iter());
+        stats.into_iter()
+    }
+}
+
+/// Shard Engine statistics
+#[derive(Clone, Debug, Default)]
+pub struct EngineStats(HashMap<String, StatValue>);
+
+impl EngineStats {
+    /// Insert an engine-specific statistic.
+    pub fn insert(&mut self, key: &str, value: StatValue) {
+        self.0.insert(key.to_owned(), value);
+    }
+    /// Retrieve an engine-specific statistic.
+    pub fn get(&self, key: &str) -> StatValue {
+        self.0.get(key).cloned().unwrap_or_default()
+    }
+    /// Iterator of engine-specific statistic names
+    pub fn keys(&self) -> impl Iterator<Item = String> {
+        self.0.keys().cloned()
+    }
+    /// Iterator of engine-specific statistics
+    pub fn iter(&self) -> impl Iterator<Item = (String, StatValue)> {
+        self.0.iter().map(|(k, v)| (k.clone(), v.clone()))
+    }
+}
+
+/// Generic statistic value for extensibility
+#[derive(Clone, Debug, Default)]
+pub enum StatValue {
+    /// None value
+    #[default]
+    None,
+    /// Unsigned 64-bit integer
+    U64(u64),
+    /// Signed 64-bit integer
+    I64(i64),
+    /// 64-bit floating point
+    F64(f64),
+    /// Boolean value
+    Bool(bool),
+    /// String value
+    String(String),
+    /// List of statistic values
+    List(Vec<StatValue>),
+    /// Map of statistic values
+    Map(HashMap<String, StatValue>),
+    /// Timestamp
+    Timestamp(Timestamp),
+}
+
+impl StatValue {
+    /// Create a StatValue from a u64.
+    pub fn from_u64(value: u64) -> Self {
+        Self::U64(value)
+    }
+    /// Create a StatValue from a usize.
+    pub fn from_usize(value: usize) -> Self {
+        Self::U64(value as u64)
+    }
+    /// Create a StatValue from an i64.
+    pub fn from_i64(value: i64) -> Self {
+        Self::I64(value)
+    }
+    /// Create a StatValue from an f64.
+    pub fn from_f64(value: f64) -> Self {
+        Self::F64(value)
+    }
+    /// Create a StatValue from a bool.
+    pub fn from_bool(value: bool) -> Self {
+        Self::Bool(value)
+    }
+    /// Create a StatValue from a string.
+    pub fn from_string(value: impl Into<String>) -> Self {
+        Self::String(value.into())
+    }
+    /// Create a StatValue from an iterator of StatValues.
+    pub fn from_list(values: impl IntoIterator<Item = Self>) -> Self {
+        Self::List(values.into_iter().collect())
+    }
+    /// Create a StatValue from an iterator of key-value pairs.
+    pub fn from_map(values: impl IntoIterator<Item = (String, Self)>) -> Self {
+        Self::Map(values.into_iter().collect())
+    }
 }
 
 /// Common metric names used across all engines

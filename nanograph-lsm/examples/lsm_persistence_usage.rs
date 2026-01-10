@@ -24,12 +24,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let wal_config = WriteAheadLogConfig::default();
         let wal = WriteAheadLogManager::new(fs.clone(), Path::from("/wal1"), wal_config)?;
-        let engine = LSMTreeEngine::new(
-            fs.clone(),
-            "/lsm_data1".to_string(),
-            options.clone(),
-            wal,
-        )?;
+        let engine =
+            LSMTreeEngine::new(fs.clone(), "/lsm_data1".to_string(), options.clone(), wal)?;
         println!("✓ Created LSM engine with WAL enabled");
 
         // Writes are logged to WAL before being applied
@@ -169,8 +165,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             let wal_config = WriteAheadLogConfig::default();
             let wal = WriteAheadLogManager::new(fs.clone(), wal_path.clone(), wal_config)?;
-            let engine =
-                LSMTreeEngine::new(fs.clone(), data_path.clone(), options.clone(), wal)?;
+            let engine = LSMTreeEngine::new(fs.clone(), data_path.clone(), options.clone(), wal)?;
 
             engine.put(b"persistent:1".to_vec(), b"Data 1".to_vec())?;
             engine.put(b"persistent:2".to_vec(), b"Data 2".to_vec())?;

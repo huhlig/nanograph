@@ -14,59 +14,15 @@
 // limitations under the License.
 //
 
-use crate::KeyValueIterator;
-use crate::config::ShardConfig;
-use crate::kvstore::KeyValueShardStore;
-use crate::result::{KeyValueError, KeyValueResult};
-use crate::types::{KeyRange, ShardStats};
-use crate::types::{NodeId, ShardId};
+use nanograph_core::types::{NodeId, ShardId};
+use nanograph_kvt::KeyRange;
+use nanograph_kvt::KeyValueShardStore;
+use nanograph_kvt::ShardConfig;
+use nanograph_kvt::metrics::ShardStats;
+use nanograph_kvt::{KeyValueError, KeyValueResult};
+use nanograph_kvt::{KeyValueIterator, ShardState, StorageEngineType};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-
-/// Storage engine type identifier
-///
-/// This is a string-based type to allow for pluggable storage engines.
-/// Third-party engines can register with custom type names without
-/// modifying this crate.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StorageEngineType(String);
-
-impl StorageEngineType {
-    /// Create a new storage engine type
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
-    }
-
-    /// Get the engine type name
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl From<&str> for StorageEngineType {
-    fn from(s: &str) -> Self {
-        Self(s.to_string())
-    }
-}
-
-impl From<String> for StorageEngineType {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-impl std::fmt::Display for StorageEngineType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct ShardState {
-    pub id: ShardId,
-    pub engine_type: StorageEngineType,
-    pub replication_factor: usize,
-}
 
 /// KeyValueShardManager manages multiple storage engines and provides a unified API
 ///

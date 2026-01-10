@@ -16,10 +16,11 @@
 
 //! Integration tests for the Raft consensus layer
 
-use nanograph_kvt::{NodeId, ShardId};
+use nanograph_core::types::{NodeId, RegionId};
+use nanograph_kvt::ShardId;
 use nanograph_raft::{
-    MetadataRaftGroup, NodeInfo, NodeStatus, Operation, ReadConsistency, ReplicationConfig,
-    ResourceCapacity, Router,
+    ConsensusRouter, MetadataRaftGroup, NodeInfo, NodeStatus, Operation, ReadConsistency,
+    ReplicationConfig, ResourceCapacity,
 };
 
 /// Test basic router creation and configuration
@@ -28,7 +29,7 @@ async fn test_router_creation() {
     let node_id = NodeId::new(1);
     let config = ReplicationConfig::default();
 
-    let router = Router::new(node_id, config);
+    let router = ConsensusRouter::new(node_id, config);
 
     // Verify router is created with correct node ID
     assert_eq!(router.local_shards().await.len(), 0);
@@ -39,7 +40,7 @@ async fn test_router_creation() {
 async fn test_shard_routing() {
     let node_id = NodeId::new(1);
     let config = ReplicationConfig::default();
-    let router = Router::new(node_id, config);
+    let router = ConsensusRouter::new(node_id, config);
 
     // Set up multiple shards
     router.set_shard_count(4).await;
@@ -81,7 +82,8 @@ async fn test_metadata_add_node() {
 
     // Add a new node
     let new_node = NodeInfo {
-        id: NodeId::new(2),
+        node: NodeId::new(2),
+        region: RegionId::new(3),
         raft_addr: "127.0.0.1:5000".parse().unwrap(),
         api_addr: "127.0.0.1:8080".parse().unwrap(),
         status: NodeStatus::Active,
@@ -265,7 +267,7 @@ fn test_resource_capacity() {
 async fn test_batch_operation_grouping() {
     let node_id = NodeId::new(1);
     let config = ReplicationConfig::default();
-    let router = Router::new(node_id, config);
+    let router = ConsensusRouter::new(node_id, config);
 
     router.set_shard_count(4).await;
 
@@ -316,7 +318,8 @@ async fn test_metadata_versioning() {
 
     // Add a node (should increment version)
     let new_node = NodeInfo {
-        id: NodeId::new(2),
+        node: NodeId::new(2),
+        region: RegionId::new(1),
         raft_addr: "127.0.0.1:5000".parse().unwrap(),
         api_addr: "127.0.0.1:8080".parse().unwrap(),
         status: NodeStatus::Active,
@@ -379,7 +382,8 @@ async fn test_leader_election() {
 
     // Should now be able to propose changes
     let new_node = NodeInfo {
-        id: NodeId::new(2),
+        node: NodeId::new(2),
+        region: RegionId::new(1),
         raft_addr: "127.0.0.1:5000".parse().unwrap(),
         api_addr: "127.0.0.1:8080".parse().unwrap(),
         status: NodeStatus::Active,
@@ -396,7 +400,8 @@ async fn test_leader_election() {
 
     // Should no longer be able to propose changes (would return NotLeader error)
     let another_node = NodeInfo {
-        id: NodeId::new(3),
+        node: NodeId::new(3),
+        region: RegionId::new(1),
         raft_addr: "127.0.0.1:5001".parse().unwrap(),
         api_addr: "127.0.0.1:8081".parse().unwrap(),
         status: NodeStatus::Active,

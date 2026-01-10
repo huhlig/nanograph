@@ -16,9 +16,11 @@
 
 //! Cluster metadata management
 
-use crate::error::{RaftError, Result};
-use crate::types::{MetadataChange, NodeInfo, RaftClusterState, ShardMetadata, ShardStatus};
-use nanograph_kvt::{ClusterMetadata, NodeId, ShardId};
+use crate::config::ClusterMetadata;
+use crate::error::{ConsensusError, ConsensusResult};
+use crate::types::{MetadataChange, NodeInfo, RaftClusterState};
+use nanograph_core::types::{NodeId, Timestamp};
+use nanograph_kvt::{ShardId, ShardMetadata, ShardStatus};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
@@ -50,7 +52,7 @@ impl MetadataRaftGroup {
         }
     }
 
-    /// Get current cluster state (read-only)
+    /// Get the current cluster state (read-only)
     pub async fn get_state(&self) -> RaftClusterState {
         let state = self.state.read().await;
         state.clone()
@@ -63,11 +65,11 @@ impl MetadataRaftGroup {
     }
 
     /// Propose a metadata change
-    pub async fn propose_change(&self, change: MetadataChange) -> Result<()> {
+    pub async fn propose_change(&self, change: MetadataChange) -> ConsensusResult<()> {
         // Check if we're the leader
         let is_leader = self.is_leader.read().await;
         if !*is_leader {
-            return Err(RaftError::NotLeader {
+            return Err(ConsensusError::NotLeader {
                 shard_id: ShardId::new(0), // Metadata group uses shard_id 0
                 leader: None,
             });
@@ -82,14 +84,14 @@ impl MetadataRaftGroup {
     }
 
     /// Apply a metadata change
-    async fn apply_change(&self, change: MetadataChange) -> Result<()> {
+    async fn apply_change(&self, change: MetadataChange) -> ConsensusResult<()> {
         let mut state = self.state.write().await;
         state.cluster.version += 1;
 
         match change {
             MetadataChange::AddNode { node } => {
-                info!("Adding node {} to cluster", node.id);
-                state.nodes.insert(node.id, node);
+                info!("Adding node {} to cluster", node.node);
+                state.nodes.insert(node.node, node);
             }
 
             MetadataChange::RemoveNode { node_id } => {
@@ -137,9 +139,9 @@ impl MetadataRaftGroup {
                     id: shard_id,
                     name: format!("shard_{}", shard_id.as_u64()),
                     table: nanograph_kvt::TableId::new(shard_id.table().as_u64()),
-                    created_at: chrono::Utc::now(),
+                    created_at: Timestamp::now(),
                     engine_type: nanograph_kvt::StorageEngineType::new("lsm"),
-                    last_modified: chrono::Utc::now(),
+                    last_modified: Timestamp::now(),
                     range,
                     leader: None,
                     replicas: replicas.clone(),
@@ -163,12 +165,12 @@ impl MetadataRaftGroup {
     }
 
     /// Add a node to the cluster
-    pub async fn add_node(&self, node: NodeInfo) -> Result<()> {
+    pub async fn add_node(&self, node: NodeInfo) -> ConsensusResult<()> {
         self.propose_change(MetadataChange::AddNode { node }).await
     }
 
     /// Remove a node from the cluster
-    pub async fn remove_node(&self, node_id: NodeId) -> Result<()> {
+    pub async fn remove_node(&self, node_id: NodeId) -> ConsensusResult<()> {
         self.propose_change(MetadataChange::RemoveNode { node_id })
             .await
     }
@@ -178,13 +180,17 @@ impl MetadataRaftGroup {
         &self,
         shard_id: ShardId,
         replicas: Vec<NodeId>,
-    ) -> Result<()> {
+    ) -> ConsensusResult<()> {
         self.propose_change(MetadataChange::UpdateShardAssignment { shard_id, replicas })
             .await
     }
 
     /// Update shard leader
-    pub async fn update_shard_leader(&self, shard_id: ShardId, leader: NodeId) -> Result<()> {
+    pub async fn update_shard_leader(
+        &self,
+        shard_id: ShardId,
+        leader: NodeId,
+    ) -> ConsensusResult<()> {
         self.propose_change(MetadataChange::UpdateShardLeader { shard_id, leader })
             .await
     }
@@ -195,7 +201,7 @@ impl MetadataRaftGroup {
         shard_id: ShardId,
         range: (Vec<u8>, Vec<u8>),
         replicas: Vec<NodeId>,
-    ) -> Result<()> {
+    ) -> ConsensusResult<()> {
         self.propose_change(MetadataChange::CreateShard {
             shard_id,
             range,
@@ -205,7 +211,7 @@ impl MetadataRaftGroup {
     }
 
     /// Delete a shard
-    pub async fn delete_shard(&self, shard_id: ShardId) -> Result<()> {
+    pub async fn delete_shard(&self, shard_id: ShardId) -> ConsensusResult<()> {
         self.propose_change(MetadataChange::DeleteShard { shard_id })
             .await
     }
@@ -228,16 +234,16 @@ impl MetadataRaftGroup {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nanograph_core::types::ClusterId;
 
     #[tokio::test]
     async fn test_metadata_creation() {
-        use nanograph_kvt::ClusterId;
         let metadata = ClusterMetadata {
             id: ClusterId::new(0),
             name: String::new(),
             version: 0,
-            created_at: chrono::Utc::now(),
-            last_modified: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            last_modified: Timestamp::now(),
         };
         assert_eq!(metadata.version, 0);
     }

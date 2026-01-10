@@ -4,7 +4,8 @@
 //! including shard management, batch operations, and basic queries.
 
 use nanograph_btree::BTreeKeyValueStore;
-use nanograph_kvt::{KeyValueShardStore, ShardIndex, StatValue, TableId};
+use nanograph_kvt::metrics::StatValue;
+use nanograph_kvt::{KeyValueShardStore, ShardIndex, TableId};
 use std::sync::Arc;
 
 #[tokio::main]

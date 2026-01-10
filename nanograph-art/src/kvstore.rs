@@ -20,9 +20,10 @@ use crate::tree::AdaptiveRadixTree;
 use crate::wal_record::{WalRecordKind, decode_put};
 use async_trait::async_trait;
 use futures_core::Stream;
+use nanograph_kvt::metrics::{ShardStats, StatValue};
 use nanograph_kvt::{
     KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId,
-    ShardIndex, ShardStats, StatValue, TableId, Transaction,
+    ShardIndex, TableId, Transaction,
 };
 use nanograph_vfs::{MemoryFileSystem, Path};
 use nanograph_wal::{
@@ -36,17 +37,26 @@ use std::task::{Context, Poll};
 
 /// Wrapper to adapt ArtIterator to KeyValueIterator trait
 struct ArtKeyValueIterator {
+    /// Inner ART iterator
     inner: ArtIterator<Vec<u8>>,
+    /// Start bound for range scan
     start_bound: Bound<Vec<u8>>,
+    /// End bound for range scan
     end_bound: Bound<Vec<u8>>,
+    /// Whether to iterate in reverse order
     reverse: bool,
+    /// Maximum number of items to return
     limit: Option<usize>,
+    /// Number of items already returned
     count: usize,
+    /// Current key-value pair
     current: Option<(Vec<u8>, Vec<u8>)>,
+    /// Whether the iterator has reached the end
     exhausted: bool,
 }
 
 impl ArtKeyValueIterator {
+    /// Create a new ART key-value iterator
     fn new(
         tree: AdaptiveRadixTree<Vec<u8>>,
         start: Bound<Vec<u8>>,
@@ -69,6 +79,7 @@ impl ArtKeyValueIterator {
         }
     }
 
+    /// Check if a key is within the iterator bounds
     fn check_bounds(&self, key: &[u8]) -> bool {
         let after_start = match &self.start_bound {
             Bound::Included(start) => key >= start.as_slice(),
@@ -89,6 +100,7 @@ impl ArtKeyValueIterator {
 impl Stream for ArtKeyValueIterator {
     type Item = KeyValueResult<(Vec<u8>, Vec<u8>)>;
 
+    /// Poll for the next item in the stream
     fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.exhausted {
             return Poll::Ready(None);
@@ -135,15 +147,18 @@ impl Stream for ArtKeyValueIterator {
 }
 
 impl KeyValueIterator for ArtKeyValueIterator {
+    /// Seek to the first key greater than or equal to the given key
     fn seek(&mut self, _key: &[u8]) -> KeyValueResult<()> {
         // TODO: Implement efficient seeking
         Ok(())
     }
 
+    /// Get the current position of the iterator
     fn position(&self) -> Option<Vec<u8>> {
         self.current.as_ref().map(|(k, _)| k.clone())
     }
 
+    /// Check if the iterator is still valid
     fn valid(&self) -> bool {
         !self.exhausted
     }
@@ -153,9 +168,13 @@ impl Unpin for ArtKeyValueIterator {}
 
 /// Shard data including tree and WAL
 struct ShardData {
+    /// In-memory Adaptive Radix Tree
     tree: Arc<RwLock<AdaptiveRadixTree<Vec<u8>>>>,
+    /// Optional Write-Ahead Log manager
     wal: Option<Arc<WriteAheadLogManager>>,
+    /// Optional Write-Ahead Log writer
     wal_writer: Option<Arc<Mutex<nanograph_wal::WriteAheadLogWriter>>>,
+    /// Last LSN that was flushed to disk
     flushed_lsn: Arc<RwLock<Option<LogSequenceNumber>>>,
 }
 
@@ -397,6 +416,7 @@ impl ArtKeyValueStore {
 }
 
 impl Default for ArtKeyValueStore {
+    /// Create a default ART key-value store (no WAL)
     fn default() -> Self {
         Self::new()
     }
@@ -406,6 +426,7 @@ impl Default for ArtKeyValueStore {
 impl KeyValueShardStore for ArtKeyValueStore {
     // ===== Basic Operations =====
 
+    /// Get a value from a shard
     async fn get(&self, shard: ShardId, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
         let tree = self.get_tree(shard)?;
         let metrics = self.get_metrics(shard);
@@ -418,6 +439,7 @@ impl KeyValueShardStore for ArtKeyValueStore {
         Ok(result)
     }
 
+    /// Put a key-value pair into a shard
     async fn put(&self, shard: ShardId, key: &[u8], value: &[u8]) -> KeyValueResult<()> {
         // Write to WAL first (write-ahead logging)
         self.wal_write_put(shard, key, value)?;
@@ -441,6 +463,7 @@ impl KeyValueShardStore for ArtKeyValueStore {
         Ok(())
     }
 
+    /// Delete a key from a shard
     async fn delete(&self, shard: ShardId, key: &[u8]) -> KeyValueResult<bool> {
         // Write to WAL first (write-ahead logging)
         self.wal_write_delete(shard, key)?;
@@ -465,6 +488,7 @@ impl KeyValueShardStore for ArtKeyValueStore {
         Ok(deleted)
     }
 
+    /// Check if a key exists in a shard
     async fn exists(&self, shard: ShardId, key: &[u8]) -> KeyValueResult<bool> {
         let tree = self.get_tree(shard)?;
         let tree_guard = tree.read().unwrap();
@@ -473,6 +497,7 @@ impl KeyValueShardStore for ArtKeyValueStore {
 
     // ===== Batch Operations =====
 
+    /// Get multiple values from a shard
     async fn batch_get(
         &self,
         shard: ShardId,
@@ -493,6 +518,7 @@ impl KeyValueShardStore for ArtKeyValueStore {
         Ok(results)
     }
 
+    /// Put multiple key-value pairs into a shard
     async fn batch_put(&self, shard: ShardId, pairs: &[(&[u8], &[u8])]) -> KeyValueResult<()> {
         // Write all operations to WAL first
         for (key, value) in pairs {
@@ -517,6 +543,7 @@ impl KeyValueShardStore for ArtKeyValueStore {
         Ok(())
     }
 
+    /// Delete multiple keys from a shard
     async fn batch_delete(&self, shard: ShardId, keys: &[&[u8]]) -> KeyValueResult<usize> {
         // Write all operations to WAL first
         for key in keys {
@@ -549,6 +576,7 @@ impl KeyValueShardStore for ArtKeyValueStore {
 
     // ===== Range Operations =====
 
+    /// Scan a range of keys in a shard
     async fn scan(
         &self,
         shard: ShardId,
@@ -575,12 +603,14 @@ impl KeyValueShardStore for ArtKeyValueStore {
 
     // ===== Statistics & Metadata =====
 
+    /// Get the number of keys in a shard
     async fn key_count(&self, shard: ShardId) -> KeyValueResult<u64> {
         let tree = self.get_tree(shard)?;
         let tree_guard = tree.read().unwrap();
         Ok(tree_guard.len() as u64)
     }
 
+    /// Get statistics for a shard
     async fn shard_stats(&self, shard: ShardId) -> KeyValueResult<ShardStats> {
         let tree = self.get_tree(shard)?;
         let tree_guard = tree.read().unwrap();
@@ -641,6 +671,7 @@ impl KeyValueShardStore for ArtKeyValueStore {
 
     // ===== Transaction Support =====
 
+    /// Start a new transaction
     async fn begin_transaction(&self) -> KeyValueResult<Arc<dyn Transaction>> {
         // Get or create transaction manager
         let tx_mgr = self.get_tx_manager();
@@ -649,6 +680,7 @@ impl KeyValueShardStore for ArtKeyValueStore {
 
     // ===== Shard Management =====
 
+    /// Create a new shard
     async fn create_shard(&self, table: TableId, index: ShardIndex) -> KeyValueResult<ShardId> {
         // Compute deterministic ShardId from TableId and ShardIndex
         let shard_id = ShardId::from_parts(table, index);
@@ -707,6 +739,7 @@ impl KeyValueShardStore for ArtKeyValueStore {
         Ok(shard_id)
     }
 
+    /// Drop a shard
     async fn drop_shard(&self, shard: ShardId) -> KeyValueResult<()> {
         let mut shards = self.shards.write().unwrap();
         shards.remove(&shard);
@@ -717,11 +750,13 @@ impl KeyValueShardStore for ArtKeyValueStore {
         Ok(())
     }
 
+    /// List all shards in the store
     async fn list_shards(&self) -> KeyValueResult<Vec<ShardId>> {
         let shards = self.shards.read().unwrap();
         Ok(shards.keys().copied().collect())
     }
 
+    /// Check if a shard exists in the store
     async fn shard_exists(&self, shard: ShardId) -> KeyValueResult<bool> {
         let shards = self.shards.read().unwrap();
         Ok(shards.contains_key(&shard))
@@ -729,16 +764,43 @@ impl KeyValueShardStore for ArtKeyValueStore {
 
     // ===== Maintenance Operations =====
 
+    /// Flush all shards to disk
     async fn flush(&self) -> KeyValueResult<()> {
         // ART is in-memory, so flush is a no-op for now
         // In a persistent implementation, this would write to disk
         Ok(())
     }
 
+    /// Compact one or all shards
     async fn compact(&self, _shard: Option<ShardId>) -> KeyValueResult<()> {
         // ART doesn't need compaction like LSM trees
         // This is a no-op
         Ok(())
+    }
+
+    /// Scan keys with a given prefix
+    async fn scan_prefix(
+        &self,
+        shard: ShardId,
+        prefix: &[u8],
+        limit: Option<usize>,
+    ) -> KeyValueResult<Box<dyn KeyValueIterator + Send>> {
+        let tree = self.get_tree(shard)?;
+        let tree_guard = tree.read().unwrap();
+
+        let start = Bound::Included(prefix.to_vec());
+        // Simple prefix end bound: increment last byte
+        let mut end_vec = prefix.to_vec();
+        let end = if let Some(last) = end_vec.last_mut() {
+            *last += 1;
+            Bound::Excluded(end_vec)
+        } else {
+            Bound::Unbounded
+        };
+
+        let iterator = ArtKeyValueIterator::new(tree_guard.clone(), start, end, false, limit);
+
+        Ok(Box::new(iterator) as Box<dyn KeyValueIterator + Send>)
     }
 }
 
@@ -881,5 +943,3 @@ mod tests {
         // For now, just verify the iterator was created successfully
     }
 }
-
-// Made with Bob

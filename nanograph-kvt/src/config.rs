@@ -14,44 +14,13 @@
 // limitations under the License.
 //
 
-use crate::{ShardIndex, StorageEngineType, TableId};
+use crate::types::Partitioner;
+use nanograph_core::types::{NamespaceId, NodeId, ShardId, ShardIndex, TableId, Timestamp};
 use std::collections::HashMap;
-
-/// Configuration for Cluster creation
-pub struct ClusterConfig {
-    pub name: String,
-}
-
-impl ClusterConfig {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into() }
-    }
-}
-
-/// Configuration for Region creation
-pub struct RegionConfig {
-    pub name: String,
-}
-
-impl RegionConfig {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into() }
-    }
-}
-
-/// Configuration for Server creation
-pub struct ServerConfig {
-    pub name: String,
-}
-
-impl ServerConfig {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into() }
-    }
-}
 
 /// Configuration for Namespace creation
 pub struct NamespaceConfig {
+    /// Name of the Namespace
     pub name: String,
 }
 
@@ -61,6 +30,21 @@ impl NamespaceConfig {
     }
 }
 
+/// Metadata for a schema.
+#[derive(Clone, Debug)]
+pub struct NamespaceMetadata {
+    /// Unique identifier for the Namespace
+    pub id: NamespaceId,
+    /// Name of the Namespace
+    pub name: String,
+    /// Path of the schema within the namespace hierarchy
+    pub path: String,
+    /// Timestamp when the schema was created
+    pub created_at: Timestamp,
+    /// Timestamp when the schema was last modified
+    pub last_modified: Timestamp,
+}
+
 /// Configuration for table creation
 #[derive(Debug, Clone)]
 pub struct TableConfig {
@@ -68,12 +52,8 @@ pub struct TableConfig {
     pub name: String,
     /// Engine Type
     pub engine_type: StorageEngineType,
-    /// Number of shards to distribute data across (default: 1 for single-node)
-    pub shard_count: u32,
-    /// Number of replicas per shard (default: 1 for single-node)
-    pub replication_factor: usize,
-    /// Partitioning strategy (None for single-shard tables)
-    pub partitioner: Option<crate::Partitioner>,
+    /// Sharding configuration
+    pub sharding_config: TableSharding,
     /// Additional engine-specific options
     pub options: HashMap<String, String>,
 }
@@ -83,9 +63,7 @@ impl TableConfig {
         Self {
             name: name.into(),
             engine_type,
-            shard_count: 1,        // Default to single shard
-            replication_factor: 1, // Default to no replication
-            partitioner: None,     // No partitioner for single shard
+            sharding_config: TableSharding::Single,
             options: HashMap::new(),
         }
     }
@@ -95,24 +73,54 @@ impl TableConfig {
         self
     }
 
-    pub fn with_shards(mut self, shard_count: u32) -> Self {
-        self.shard_count = shard_count;
-        // Set default hash partitioner if sharding is enabled
-        if shard_count > 1 && self.partitioner.is_none() {
-            self.partitioner = Some(crate::Partitioner::default());
-        }
+    pub fn with_sharding(
+        mut self,
+        shard_count: u32,
+        partitioner: Partitioner,
+        replication_factor: usize,
+    ) -> Self {
+        self.sharding_config = TableSharding::Multiple {
+            shard_count,
+            partitioner,
+            replication_factor,
+        };
         self
     }
+}
 
-    pub fn with_partitioner(mut self, partitioner: crate::Partitioner) -> Self {
-        self.partitioner = Some(partitioner);
-        self
-    }
+/// Metadata for a table.
+#[derive(Debug, Clone)]
+pub struct TableMetadata {
+    /// Unique identifier for the table
+    pub id: TableId,
+    /// Name of the table
+    pub name: String,
+    /// Path of the table within the namespace hierarchy
+    pub path: String,
+    /// Timestamp when the table was created
+    pub created_at: Timestamp,
+    /// Type of storage engine used by the table
+    pub engine_type: StorageEngineType,
+    /// Timestamp when the table was last modified
+    pub last_modified: Timestamp,
+    /// Distributed table Config (Single or Multiple)
+    pub sharding: TableSharding,
+}
 
-    pub fn with_replication(mut self, replication_factor: usize) -> Self {
-        self.replication_factor = replication_factor;
-        self
-    }
+/// Table Sharding Configuration
+#[derive(Debug, Clone)]
+pub enum TableSharding {
+    /// Single Shard
+    Single,
+    /// Multiple Shards with Partitioning and Replication
+    Multiple {
+        /// Number of Shards
+        shard_count: u32,
+        /// Key Partitioner
+        partitioner: Partitioner,
+        /// Number of replicas per shard
+        replication_factor: usize,
+    },
 }
 
 /// Configuration for shard creation
@@ -140,5 +148,94 @@ impl ShardConfig {
     pub fn with_replication(mut self, replication_factor: usize) -> Self {
         self.replication_factor = replication_factor;
         self
+    }
+}
+
+/// Metadata for a shard.
+#[derive(Clone, Debug)]
+pub struct ShardMetadata {
+    /// Unique identifier for the shard
+    pub id: ShardId,
+    /// Name of the shard
+    pub name: String,
+    /// Identifier of the table this shard belongs to
+    pub table: TableId,
+    /// Type of storage engine used by the shard
+    pub engine_type: StorageEngineType,
+    /// Timestamp when the shard was created
+    pub created_at: Timestamp,
+    /// Timestamp when the shard was last modified
+    pub last_modified: Timestamp,
+    /// Key range covered by this shard
+    pub range: (Vec<u8>, Vec<u8>),
+    /// Current leader node (if known)
+    pub leader: Option<NodeId>,
+    /// All replica nodes for this shard
+    pub replicas: Vec<NodeId>,
+    /// Current shard status
+    pub status: ShardStatus,
+    /// Raft term (for debugging)
+    pub term: u64,
+    /// Approximate size in bytes
+    pub size_bytes: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct ShardState {
+    pub id: ShardId,
+    pub engine_type: StorageEngineType,
+    pub replication_factor: usize,
+}
+
+/// Shard status
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ShardStatus {
+    /// Shard is active and serving requests
+    Active,
+    /// Shard is being rebalanced
+    Rebalancing,
+    /// Shard is being split into multiple shards
+    Splitting,
+    /// Shard is being merged with another shard
+    Merging,
+    /// Shard is offline (no quorum)
+    Offline,
+}
+
+/// Storage engine type identifier
+///
+/// This is a string-based type to allow for pluggable storage engines.
+/// Third-party engines can register with custom type names without
+/// modifying this crate.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StorageEngineType(String);
+
+impl StorageEngineType {
+    /// Create a new storage engine type
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+
+    /// Get the engine type name
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for StorageEngineType {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+impl From<String> for StorageEngineType {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl std::fmt::Display for StorageEngineType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }

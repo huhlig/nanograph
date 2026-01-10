@@ -21,15 +21,7 @@ use nanograph_kvt::{
     Transaction, TransactionId,
 };
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
-
-// Global timestamp counter for MVCC (shared with engine)
-static GLOBAL_TIMESTAMP: AtomicI64 = AtomicI64::new(1);
-
-fn next_timestamp() -> i64 {
-    GLOBAL_TIMESTAMP.fetch_add(1, Ordering::SeqCst)
-}
 
 /// Write operation in a transaction
 #[derive(Debug, Clone)]
@@ -139,7 +131,7 @@ impl Transaction for LSMTransaction {
         // Then check the store at our snapshot timestamp
         // This provides snapshot isolation - we only see data committed before our snapshot
         self.store
-            .get_at_snapshot(table, key, self.snapshot_ts.0)
+            .get_at_snapshot(table, key, self.snapshot_ts.as_millis())
             .await
     }
 
@@ -245,8 +237,8 @@ impl Transaction for LSMTransaction {
     async fn commit(self: Arc<Self>) -> KeyValueResult<()> {
         self.check_active()?;
 
-        // Get commit timestamp from global counter
-        let commit_ts = next_timestamp();
+        // Get commit timestamp using real wall-clock time
+        let commit_ts = Timestamp::now().as_millis();
 
         // Mark as committed
         {
@@ -305,7 +297,6 @@ impl Transaction for LSMTransaction {
 /// Transaction manager for LSM Tree
 pub struct TransactionManager {
     next_tx_id: Arc<Mutex<u64>>,
-    next_timestamp: Arc<Mutex<i64>>,
     store: Arc<LSMKeyValueStore>,
 }
 
@@ -313,7 +304,6 @@ impl TransactionManager {
     pub fn new(store: Arc<LSMKeyValueStore>) -> Self {
         Self {
             next_tx_id: Arc::new(Mutex::new(1)),
-            next_timestamp: Arc::new(Mutex::new(1)),
             store,
         }
     }
@@ -334,8 +324,8 @@ impl TransactionManager {
             TransactionId(id)
         };
 
-        // Use global timestamp for snapshot
-        let snapshot_ts = Timestamp(next_timestamp());
+        // Use real wall-clock time for snapshot isolation
+        let snapshot_ts = Timestamp::now();
 
         Arc::new(LSMTransaction::new(
             tx_id,
@@ -346,8 +336,7 @@ impl TransactionManager {
 
     /// Get current timestamp
     pub fn current_timestamp(&self) -> Timestamp {
-        let ts = self.next_timestamp.lock().unwrap();
-        Timestamp(*ts)
+        Timestamp::now()
     }
 }
 

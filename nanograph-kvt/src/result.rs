@@ -44,6 +44,9 @@ pub enum KeyValueError {
     StorageFull,
     KeyTooLarge { size: usize, max: usize },
     ValueTooLarge { size: usize, max: usize },
+
+    // Network & Consensus Errors
+    Consensus(String),
 }
 
 impl std::fmt::Display for KeyValueError {
@@ -65,6 +68,9 @@ impl std::fmt::Display for KeyValueError {
             }
             KeyValueError::ValueTooLarge { size, max } => {
                 write!(f, "Value is too large: {} > {}", size, max)
+            }
+            KeyValueError::Consensus(msg) => {
+                write!(f, "Consensus error: {}", msg)
             }
         }
     }

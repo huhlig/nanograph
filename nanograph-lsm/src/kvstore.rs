@@ -19,9 +19,10 @@ use crate::iterator::LSMIterator;
 use crate::options::LSMTreeOptions;
 use crate::transaction::TransactionManager;
 use async_trait::async_trait;
+use nanograph_kvt::metrics::{ShardStats, StatValue};
 use nanograph_kvt::{
-    KeyRange, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId, ShardIndex,
-    ShardStats, StatValue, TableId, Transaction,
+    KeyRange, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId, ShardIndex, TableId,
+    Transaction,
 };
 use nanograph_vfs::{MemoryFileSystem, Path};
 use nanograph_wal::{WriteAheadLogConfig, WriteAheadLogManager};

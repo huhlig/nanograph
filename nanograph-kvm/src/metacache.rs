@@ -14,14 +14,14 @@
 // limitations under the License.
 //
 
-use crate::NodeId;
-use crate::config::{NamespaceConfig, TableConfig};
-use crate::metadata::{
-    ClusterMetadata, NamespaceMetadata, RegionMetadata, ServerMetadata, ShardMetadata,
-    TableMetadata,
-};
-use crate::types::{ClusterId, NamespaceId, ObjectId, RegionId, ServerId, ShardId, TableId};
 use chrono::Utc;
+use nanograph_core::types::{
+    ClusterId, NamespaceId, NodeId, ObjectId, RegionId, ServerId, ShardId, TableId, Timestamp,
+};
+use nanograph_kvt::{
+    NamespaceConfig, NamespaceMetadata, ShardMetadata, TableConfig, TableMetadata,
+};
+use nanograph_raft::{ClusterMetadata, RegionMetadata, ServerMetadata};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,30 +170,29 @@ impl MetadataCache {
             id: NamespaceId(id),
             name: namespace.name.clone(),
             path: full_path,
-            created_at: Utc::now(),
-            last_modified: Utc::now(),
+            created_at: Timestamp::now(),
+            last_modified: Timestamp::now(),
         };
         self.namespaces.insert(metadata.id, metadata);
     }
     /// Adds a new table to the cache at the specified path.
-    pub fn add_table(&mut self, path: &str, table: TableConfig) {
+    pub fn add_table(&mut self, path: &str, config: TableConfig) {
         let full_path = if path.is_empty() {
-            table.name.clone()
+            config.name.clone()
         } else {
-            format!("{}.{}", path, table.name)
+            format!("{}.{}", path, config.name)
         };
         let id = self
             .add_path(&full_path, ObjectType::Table)
             .expect("Failed to add table path");
         let metadata = TableMetadata {
             id: TableId(id),
-            name: table.name.clone(),
+            name: config.name.clone(),
             path: full_path,
-            created_at: Utc::now(),
-            engine_type: table.engine_type,
-            last_modified: Utc::now(),
-            shard_count: table.shard_count,
-            replication_factor: table.replication_factor,
+            created_at: Timestamp::now(),
+            engine_type: config.engine_type,
+            last_modified: Timestamp::now(),
+            sharding: config.sharding_config,
         };
         self.tables.insert(metadata.id, metadata);
     }
@@ -438,8 +437,8 @@ impl Default for MetadataCache {
                 id: ClusterId(0),
                 name: Default::default(),
                 version: Default::default(),
-                created_at: Utc::now(),
-                last_modified: Utc::now(),
+                created_at: Timestamp::now(),
+                last_modified: Timestamp::now(),
             },
             regions: Default::default(),
             servers: Default::default(),
@@ -471,8 +470,7 @@ struct Node {
 #[cfg(test)]
 mod tests {
     use super::MetadataCache;
-    use crate::StorageEngineType;
-    use crate::config::{NamespaceConfig, TableConfig};
+    use nanograph_kvt::{NamespaceConfig, StorageEngineType, TableConfig};
 
     #[test]
     fn test_resolver() {

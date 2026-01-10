@@ -15,6 +15,7 @@ repository.workspace = true
 
 [dependencies]
 # Internal Crates
+nanograph-core.workspace = true
 nanograph-kvt.workspace = true
 nanograph-wal.workspace = true
 

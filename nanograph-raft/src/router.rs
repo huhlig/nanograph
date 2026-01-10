@@ -18,18 +18,20 @@
 //!
 //! Routes operations to the correct shard based on key hashing.
 
-use crate::error::{RaftError, Result};
+use crate::error::{ConsensusError, ConsensusResult};
 use crate::metadata::MetadataRaftGroup;
 use crate::shard_group::ShardRaftGroup;
 use crate::storage::RaftStorageAdapter;
 use crate::types::{Operation, ReadConsistency, ReplicationConfig};
-use nanograph_kvt::{KeyValueShardStore, NodeId, ShardId};
+use nanograph_core::types::{NodeId, RegionId};
+use nanograph_kvt::{KeyValueShardStore, ShardId};
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
+use crate::NodeInfo;
 
 /// Router for distributed operations
 ///
@@ -38,7 +40,7 @@ use tracing::{debug, info};
 /// - Managing shard Raft groups
 /// - Coordinating with metadata Raft group
 /// - Handling cross-shard operations
-pub struct Router {
+pub struct ConsensusRouter {
     /// Local node ID
     local_node_id: NodeId,
 
@@ -48,6 +50,9 @@ pub struct Router {
     /// Metadata Raft group
     metadata: Arc<MetadataRaftGroup>,
 
+    /// Peer Nodes
+    peers: Arc<RwLock<HashMap<NodeId, NodeInfo>>>,
+
     /// Shard Raft groups (shard_id -> group)
     shards: Arc<RwLock<HashMap<ShardId, Arc<ShardRaftGroup>>>>,
 
@@ -55,7 +60,7 @@ pub struct Router {
     shard_count: Arc<RwLock<u32>>,
 }
 
-impl Router {
+impl ConsensusRouter {
     /// Create a new router
     pub fn new(local_node_id: NodeId, config: ReplicationConfig) -> Self {
         info!("Creating router on node {}", local_node_id);
@@ -64,9 +69,20 @@ impl Router {
             local_node_id,
             config,
             metadata: Arc::new(MetadataRaftGroup::new(local_node_id)),
+            peers: Arc::new(RwLock::new(HashMap::new())),
             shards: Arc::new(RwLock::new(HashMap::new())),
             shard_count: Arc::new(RwLock::new(1)), // Default to single shard
         }
+    }
+
+    /// Get Local Node Id
+    pub fn node_id(&self) -> NodeId {
+        self.local_node_id
+    }
+
+    /// Get a List of all peers
+    pub async fn peer_nodes(&self) -> Vec<NodeId> {
+        self.peers.read().await.keys().cloned().collect::<Vec<_>>()
     }
 
     /// Set the total number of shards
@@ -82,7 +98,7 @@ impl Router {
         shard_id: ShardId,
         storage: Box<dyn KeyValueShardStore>,
         peers: Vec<NodeId>,
-    ) -> Result<()> {
+    ) -> ConsensusResult<()> {
         info!("Adding shard {} to node {}", shard_id, self.local_node_id);
 
         let storage_adapter = Arc::new(RaftStorageAdapter::new(storage, shard_id));
@@ -102,7 +118,7 @@ impl Router {
     }
 
     /// Remove a shard from this node
-    pub async fn remove_shard(&self, shard_id: ShardId) -> Result<()> {
+    pub async fn remove_shard(&self, shard_id: ShardId) -> ConsensusResult<()> {
         info!(
             "Removing shard {} from node {}",
             shard_id, self.local_node_id
@@ -130,16 +146,16 @@ impl Router {
     }
 
     /// Get shard group by ID
-    async fn get_shard_group(&self, shard_id: ShardId) -> Result<Arc<ShardRaftGroup>> {
+    async fn get_shard_group(&self, shard_id: ShardId) -> ConsensusResult<Arc<ShardRaftGroup>> {
         let shards = self.shards.read().await;
         shards
             .get(&shard_id)
             .cloned()
-            .ok_or_else(|| RaftError::ShardNotFound { shard_id })
+            .ok_or_else(|| ConsensusError::ShardNotFound { shard_id })
     }
 
     /// Put a key-value pair
-    pub async fn put(&self, key: Vec<u8>, value: Vec<u8>) -> Result<()> {
+    pub async fn put(&self, key: Vec<u8>, value: Vec<u8>) -> ConsensusResult<()> {
         let shard_id = self.get_shard_for_key(&key).await;
         debug!("Routing PUT to shard {}", shard_id);
 
@@ -151,7 +167,7 @@ impl Router {
     }
 
     /// Get a value by key
-    pub async fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+    pub async fn get(&self, key: &[u8]) -> ConsensusResult<Option<Vec<u8>>> {
         self.get_with_consistency(key, ReadConsistency::Linearizable)
             .await
     }
@@ -161,7 +177,7 @@ impl Router {
         &self,
         key: &[u8],
         consistency: ReadConsistency,
-    ) -> Result<Option<Vec<u8>>> {
+    ) -> ConsensusResult<Option<Vec<u8>>> {
         let shard_id = self.get_shard_for_key(key).await;
         debug!("Routing GET to shard {} with {:?}", shard_id, consistency);
 
@@ -170,7 +186,7 @@ impl Router {
     }
 
     /// Delete a key
-    pub async fn delete(&self, key: Vec<u8>) -> Result<()> {
+    pub async fn delete(&self, key: Vec<u8>) -> ConsensusResult<()> {
         let shard_id = self.get_shard_for_key(&key).await;
         debug!("Routing DELETE to shard {}", shard_id);
 
@@ -185,7 +201,7 @@ impl Router {
     ///
     /// Note: This only provides atomicity within a single shard.
     /// Cross-shard atomicity is not supported in Phase 2.
-    pub async fn batch(&self, operations: Vec<Operation>) -> Result<()> {
+    pub async fn batch(&self, operations: Vec<Operation>) -> ConsensusResult<()> {
         // Group operations by shard
         let mut shard_ops: HashMap<ShardId, Vec<Operation>> = HashMap::new();
 
@@ -194,7 +210,7 @@ impl Router {
                 Operation::Put { key, .. } => key,
                 Operation::Delete { key } => key,
                 Operation::Batch { .. } => {
-                    return Err(RaftError::Internal {
+                    return Err(ConsensusError::Internal {
                         message: "Nested batch operations not supported".to_string(),
                     });
                 }
@@ -229,7 +245,7 @@ impl Router {
     }
 
     /// Get shard group (for advanced operations)
-    pub async fn shard_group(&self, shard_id: ShardId) -> Result<Arc<ShardRaftGroup>> {
+    pub async fn shard_group(&self, shard_id: ShardId) -> ConsensusResult<Arc<ShardRaftGroup>> {
         self.get_shard_group(shard_id).await
     }
 }
@@ -240,13 +256,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_router_creation() {
-        let router = Router::new(NodeId::new(1), ReplicationConfig::default());
+        let router = ConsensusRouter::new(NodeId::new(1), ReplicationConfig::default());
         assert_eq!(router.local_node_id, NodeId::new(1));
     }
 
     #[tokio::test]
     async fn test_shard_routing() {
-        let router = Router::new(NodeId::new(1), ReplicationConfig::default());
+        let router = ConsensusRouter::new(NodeId::new(1), ReplicationConfig::default());
         router.set_shard_count(4).await;
 
         let key1 = b"test_key_1";

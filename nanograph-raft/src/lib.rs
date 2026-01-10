@@ -30,7 +30,7 @@
 //!
 //! - [`ShardRaftGroup`]: Manages consensus for a single shard
 //! - [`MetadataRaftGroup`]: Manages cluster metadata
-//! - [`Router`]: Routes operations to the correct shard
+//! - [`ConsensusRouter`]: Routes operations to the correct shard
 //! - [`RaftStorageAdapter`]: Bridges Raft with KeyValueStore trait
 //!
 //! ## Examples
@@ -146,6 +146,7 @@
 //! assert_eq!(ReadConsistency::default(), ReadConsistency::Linearizable);
 //! ```
 
+mod config;
 mod error;
 mod metadata;
 mod router;
@@ -154,13 +155,16 @@ mod storage;
 mod types;
 
 // Re-export public API
-pub use error::{RaftError, Result};
+pub use config::{
+    ClusterConfig, ClusterMetadata, RegionConfig, RegionMetadata, ServerConfig, ServerMetadata,
+};
+pub use error::{ConsensusError, ConsensusResult};
 pub use metadata::MetadataRaftGroup;
-pub use router::Router;
+pub use nanograph_core::types::{NodeId, RegionId, ServerId, ShardId};
+pub use router::ConsensusRouter;
 pub use shard_group::{RaftRole, ShardRaftGroup};
 pub use storage::{LogEntry, RaftStorageAdapter, ShardSnapshot, SnapshotMeta};
 pub use types::{
-    ClusterMetadata, MetadataChange, NodeInfo, NodeStatus, Operation, OperationResponse,
-    PlacementStrategy, RaftClusterState, ReadConsistency, ReplicationConfig, ResourceCapacity,
-    ShardMetadata, ShardStatus,
+    MetadataChange, NodeInfo, NodeStatus, Operation, OperationResponse, PlacementStrategy,
+    RaftClusterState, ReadConsistency, ReplicationConfig, ResourceCapacity,
 };

@@ -674,7 +674,7 @@ impl<V: Clone> AdaptiveRadixTree<V> {
                 Node::Node256(n) => n.header.value.clone(),
                 Node::Leaf(_) => unreachable!(),
             };
-            
+
             if old_value.is_some() {
                 // Remove the value from this inner node
                 let new_node = match node.as_ref() {
@@ -702,7 +702,7 @@ impl<V: Clone> AdaptiveRadixTree<V> {
                 };
                 return Ok((Some(new_node), old_value));
             }
-            
+
             return Ok((Some(node), None));
         }
 

@@ -15,14 +15,16 @@
 //
 
 //! Error types for Raft consensus operations
-use nanograph_kvt::{NodeId, ShardId, Timestamp};
+
+use nanograph_core::types::NodeId;
+use nanograph_kvt::{ShardId, Timestamp};
 
 /// Result type for Raft operations
-pub type Result<T> = std::result::Result<T, RaftError>;
+pub type ConsensusResult<T> = Result<T, ConsensusError>;
 
 /// Errors that can occur during Raft operations
 #[derive(Debug)]
-pub enum RaftError {
+pub enum ConsensusError {
     /// Not the leader for this shard
     NotLeader {
         shard_id: ShardId,
@@ -67,17 +69,17 @@ pub enum RaftError {
     Internal { message: String },
 }
 
-impl std::fmt::Display for RaftError {
+impl std::fmt::Display for ConsensusError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RaftError::NotLeader { shard_id, leader } => {
+            ConsensusError::NotLeader { shard_id, leader } => {
                 write!(f, "Not leader for shard {}", shard_id)?;
                 if let Some(leader_id) = leader {
                     write!(f, ", leader is node {}", leader_id)?;
                 }
                 Ok(())
             }
-            RaftError::NoQuorum {
+            ConsensusError::NoQuorum {
                 shard_id,
                 required,
                 available,
@@ -88,13 +90,13 @@ impl std::fmt::Display for RaftError {
                     shard_id, required, available
                 )
             }
-            RaftError::ShardNotFound { shard_id } => {
+            ConsensusError::ShardNotFound { shard_id } => {
                 write!(f, "Shard {} not found", shard_id)
             }
-            RaftError::NodeNotFound { node_id } => {
+            ConsensusError::NodeNotFound { node_id } => {
                 write!(f, "Node {} not found", node_id)
             }
-            RaftError::Timeout {
+            ConsensusError::Timeout {
                 operation,
                 timeout_ms,
             } => {
@@ -104,34 +106,34 @@ impl std::fmt::Display for RaftError {
                     operation, timeout_ms
                 )
             }
-            RaftError::Network { message } => {
+            ConsensusError::Network { message } => {
                 write!(f, "Network error: {}", message)
             }
-            RaftError::Storage { message } => {
+            ConsensusError::Storage { message } => {
                 write!(f, "Storage error: {}", message)
             }
-            RaftError::Serialization { message } => {
+            ConsensusError::Serialization { message } => {
                 write!(f, "Serialization error: {}", message)
             }
-            RaftError::Configuration { message } => {
+            ConsensusError::Configuration { message } => {
                 write!(f, "Configuration error: {}", message)
             }
-            RaftError::Protocol { message } => {
+            ConsensusError::Protocol { message } => {
                 write!(f, "Raft protocol error: {}", message)
             }
-            RaftError::Internal { message } => {
+            ConsensusError::Internal { message } => {
                 write!(f, "Internal error: {}", message)
             }
         }
     }
 }
 
-impl std::error::Error for RaftError {}
+impl std::error::Error for ConsensusError {}
 
 // Conversion from openraft errors
-impl From<openraft::error::RaftError<NodeId>> for RaftError {
+impl From<openraft::error::RaftError<NodeId>> for ConsensusError {
     fn from(err: openraft::error::RaftError<NodeId>) -> Self {
-        RaftError::Protocol {
+        ConsensusError::Protocol {
             message: err.to_string(),
         }
     }

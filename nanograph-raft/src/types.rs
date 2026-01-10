@@ -15,8 +15,9 @@
 //
 
 //! Core types for Raft-based distributed consensus
-
-use nanograph_kvt::{NodeId, ShardId};
+use crate::config::ClusterMetadata;
+use nanograph_core::types::{ClusterId, NodeId, RegionId, ServerId, ShardId, Timestamp};
+use nanograph_kvt::{ShardMetadata, ShardStatus};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -25,7 +26,9 @@ use std::net::SocketAddr;
 #[derive(Clone, Debug)]
 pub struct NodeInfo {
     /// Unique node identifier
-    pub id: NodeId,
+    pub node: NodeId,
+
+    pub region: RegionId,
 
     /// Network address for Raft communication
     pub raft_addr: SocketAddr,
@@ -253,10 +256,6 @@ impl Default for PlacementStrategy {
     }
 }
 
-// Re-export types from nanograph-kvt to avoid duplication
-// The Raft layer uses the same metadata structures as the KVT layer
-pub use nanograph_kvt::{ClusterMetadata, ShardMetadata, ShardStatus};
-
 /// Raft-specific cluster state that extends the base ClusterMetadata
 #[derive(Clone, Debug)]
 pub struct RaftClusterState {
@@ -318,13 +317,12 @@ impl RaftClusterState {
 
 impl Default for RaftClusterState {
     fn default() -> Self {
-        use nanograph_kvt::ClusterId;
         Self::new(ClusterMetadata {
             id: ClusterId::new(0),
             name: String::new(),
             version: 0,
-            created_at: chrono::Utc::now(),
-            last_modified: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            last_modified: Timestamp::now(),
         })
     }
 }

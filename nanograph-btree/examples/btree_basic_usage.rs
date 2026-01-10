@@ -41,7 +41,7 @@ fn main() -> Result<(), BTreeError> {
     println!("\n--- Iterating Over All Entries (Sorted) ---");
     println!("Note: Direct iteration requires using the iterator module");
     println!("For this example, we'll demonstrate with individual gets");
-    
+
     // Get all keys we know about
     let keys: Vec<&[u8]> = vec![b"apple", b"apricot", b"banana", b"cherry", b"date"];
     for key in &keys {

@@ -158,12 +158,8 @@
 //! ```
 
 mod config;
-mod database;
-mod iterator;
+mod kviter;
 mod kvstore;
-mod manager;
-mod metacache;
-mod metadata;
 pub mod metrics;
 mod result;
 mod transaction;
@@ -171,21 +167,14 @@ mod types;
 
 // Re-export all public types
 pub use self::config::{
-    ClusterConfig, NamespaceConfig, RegionConfig, ServerConfig, ShardConfig, TableConfig,
+    NamespaceConfig, NamespaceMetadata, ShardConfig, ShardMetadata, ShardState, ShardStatus,
+    StorageEngineType, TableConfig, TableMetadata, TableSharding,
 };
-pub use self::iterator::KeyValueIterator;
+pub use self::kviter::KeyValueIterator;
 pub use self::kvstore::KeyValueShardStore;
-pub use self::manager::{KeyValueShardManager, StorageEngineType};
-pub use self::metacache::MetadataCache;
-pub use self::metadata::{
-    ClusterMetadata, NamespaceMetadata, RegionMetadata, ServerMetadata, ShardMetadata, ShardStatus,
-    TableMetadata,
-};
 pub use self::metrics::EngineMetrics;
 pub use self::result::{KeyValueError, KeyValueResult};
 pub use self::transaction::Transaction;
-pub use self::transaction::{Timestamp, TransactionId};
-pub use self::types::{
-    ClusterId, EngineStats, HashFunction, KeyRange, NamespaceId, NodeId, ObjectId, Partitioner,
-    RegionId, ServerId, ShardId, ShardIndex, ShardStats, StatValue, TableId,
-};
+pub use self::transaction::TransactionId;
+pub use self::types::{HashFunction, KeyRange, Partitioner};
+pub use nanograph_core::types::{ShardId, ShardIndex, TableId, Timestamp};

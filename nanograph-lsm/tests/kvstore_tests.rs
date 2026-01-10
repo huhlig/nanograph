@@ -17,7 +17,7 @@
 //! KeyValueStore trait integration tests for LSM
 
 use futures::StreamExt;
-use nanograph_kvt::{KeyRange, KeyValueShardStore, ShardId, ShardIndex, StatValue, TableId};
+use nanograph_kvt::{KeyRange, KeyValueShardStore, ShardId, ShardIndex, TableId};
 use nanograph_lsm::LSMKeyValueStore;
 use std::ops::Bound;
 use std::sync::Arc;

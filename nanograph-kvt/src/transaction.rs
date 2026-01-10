@@ -14,36 +14,14 @@
 // limitations under the License.
 //
 
-use crate::types::{KeyRange, ShardId};
-use crate::{KeyValueIterator, KeyValueResult};
+use crate::{KeyRange, KeyValueIterator, KeyValueResult};
 use async_trait::async_trait;
-use chrono::Utc;
+use nanograph_core::types::{ShardId, Timestamp};
 use std::sync::Arc;
 
 /// Transaction identifier for Multiversion Concurrency Control (MVCC)
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct TransactionId(pub u64);
-
-/// Millisecond Timestamp for Multiversion Concurrency Control (MVCC)
-#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub struct Timestamp(pub i64);
-
-impl Timestamp {
-    /// Current Timestamp in Milliseconds
-    pub fn now() -> Timestamp {
-        Timestamp(Utc::now().timestamp_millis())
-    }
-    /// Epoch Timestamp in Milliseconds
-    pub fn epoch() -> Timestamp {
-        Timestamp(0)
-    }
-}
-
-impl std::fmt::Display for Timestamp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Timestamp({}ms)", self.0)
-    }
-}
 
 /// Transaction interface for ACID operations
 ///

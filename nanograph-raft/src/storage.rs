@@ -16,9 +16,10 @@
 
 //! Storage adapter for openraft integration
 
-use crate::error::{RaftError, Result};
+use crate::error::{ConsensusError, ConsensusResult};
 use crate::types::{Operation, OperationResponse};
-use nanograph_kvt::{KeyValueShardStore, NodeId, ShardId};
+use nanograph_core::types::NodeId;
+use nanograph_kvt::{KeyValueShardStore, ShardId};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -118,16 +119,18 @@ impl RaftStorageAdapter {
     }
 
     /// Apply an operation to the storage engine
-    pub async fn apply_operation(&self, operation: &Operation) -> Result<OperationResponse> {
+    pub async fn apply_operation(
+        &self,
+        operation: &Operation,
+    ) -> ConsensusResult<OperationResponse> {
         match operation {
             Operation::Put { key, value } => {
                 let storage = self.storage.write().await;
-                storage
-                    .put(self.shard_id, key, value)
-                    .await
-                    .map_err(|e| RaftError::Storage {
+                storage.put(self.shard_id, key, value).await.map_err(|e| {
+                    ConsensusError::Storage {
                         message: e.to_string(),
-                    })?;
+                    }
+                })?;
 
                 Ok(OperationResponse {
                     success: true,
@@ -141,7 +144,7 @@ impl RaftStorageAdapter {
                 storage
                     .delete(self.shard_id, key)
                     .await
-                    .map_err(|e| RaftError::Storage {
+                    .map_err(|e| ConsensusError::Storage {
                         message: e.to_string(),
                     })?;
 
@@ -169,20 +172,20 @@ impl RaftStorageAdapter {
     }
 
     /// Append log entries
-    pub async fn append_entries(&self, entries: Vec<LogEntry>) -> Result<()> {
+    pub async fn append_entries(&self, entries: Vec<LogEntry>) -> ConsensusResult<()> {
         let mut log = self.log_entries.write().await;
         log.extend(entries);
         Ok(())
     }
 
     /// Get log entry at index
-    pub async fn get_log_entry(&self, index: u64) -> Result<Option<LogEntry>> {
+    pub async fn get_log_entry(&self, index: u64) -> ConsensusResult<Option<LogEntry>> {
         let log = self.log_entries.read().await;
         Ok(log.iter().find(|e| e.index == index).cloned())
     }
 
     /// Get log entries in range [start, end)
-    pub async fn get_log_entries(&self, start: u64, end: u64) -> Result<Vec<LogEntry>> {
+    pub async fn get_log_entries(&self, start: u64, end: u64) -> ConsensusResult<Vec<LogEntry>> {
         let log = self.log_entries.read().await;
         Ok(log
             .iter()
@@ -192,58 +195,58 @@ impl RaftStorageAdapter {
     }
 
     /// Get last log index
-    pub async fn last_log_index(&self) -> Result<u64> {
+    pub async fn last_log_index(&self) -> ConsensusResult<u64> {
         let log = self.log_entries.read().await;
         Ok(log.last().map(|e| e.index).unwrap_or(0))
     }
 
     /// Get last log term
-    pub async fn last_log_term(&self) -> Result<u64> {
+    pub async fn last_log_term(&self) -> ConsensusResult<u64> {
         let log = self.log_entries.read().await;
         Ok(log.last().map(|e| e.term).unwrap_or(0))
     }
 
     /// Truncate log from index onwards
-    pub async fn truncate_log(&self, from_index: u64) -> Result<()> {
+    pub async fn truncate_log(&self, from_index: u64) -> ConsensusResult<()> {
         let mut log = self.log_entries.write().await;
         log.retain(|e| e.index < from_index);
         Ok(())
     }
 
     /// Get current term
-    pub async fn current_term(&self) -> Result<u64> {
+    pub async fn current_term(&self) -> ConsensusResult<u64> {
         let state = self.raft_state.read().await;
         Ok(state.term)
     }
 
     /// Set current term
-    pub async fn set_term(&self, term: u64) -> Result<()> {
+    pub async fn set_term(&self, term: u64) -> ConsensusResult<()> {
         let mut state = self.raft_state.write().await;
         state.term = term;
         Ok(())
     }
 
     /// Get voted for
-    pub async fn voted_for(&self) -> Result<Option<NodeId>> {
+    pub async fn voted_for(&self) -> ConsensusResult<Option<NodeId>> {
         let state = self.raft_state.read().await;
         Ok(state.voted_for)
     }
 
     /// Set voted for
-    pub async fn set_voted_for(&self, node_id: Option<NodeId>) -> Result<()> {
+    pub async fn set_voted_for(&self, node_id: Option<NodeId>) -> ConsensusResult<()> {
         let mut state = self.raft_state.write().await;
         state.voted_for = node_id;
         Ok(())
     }
 
     /// Get commit index
-    pub async fn commit_index(&self) -> Result<u64> {
+    pub async fn commit_index(&self) -> ConsensusResult<u64> {
         let state = self.raft_state.read().await;
         Ok(state.commit_index)
     }
 
     /// Set commit index and apply committed entries
-    pub async fn set_commit_index(&self, index: u64) -> Result<()> {
+    pub async fn set_commit_index(&self, index: u64) -> ConsensusResult<()> {
         let mut state = self.raft_state.write().await;
         state.commit_index = index;
 
@@ -265,7 +268,7 @@ impl RaftStorageAdapter {
     }
 
     /// Create a snapshot of current state
-    pub async fn create_snapshot(&self) -> Result<ShardSnapshot> {
+    pub async fn create_snapshot(&self) -> ConsensusResult<ShardSnapshot> {
         let state = self.raft_state.read().await;
         let last_applied = state.last_applied;
         let term = state.term;
@@ -291,7 +294,7 @@ impl RaftStorageAdapter {
     }
 
     /// Install a snapshot
-    pub async fn install_snapshot(&self, snapshot: ShardSnapshot) -> Result<()> {
+    pub async fn install_snapshot(&self, snapshot: ShardSnapshot) -> ConsensusResult<()> {
         // Truncate log up to snapshot
         self.truncate_log(snapshot.meta.last_included_index + 1)
             .await?;
