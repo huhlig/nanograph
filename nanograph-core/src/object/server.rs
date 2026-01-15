@@ -259,9 +259,40 @@ impl ServerUpdate {
     }
 }
 
+
 /// Metadata for a server.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ServerMetadata {
+    /// Unique identifier for the server.
+    pub id: NodeId,
+    /// Name of the server.
+    pub name: String,
+    /// Timestamp when the Server was created.
+    pub created_at: Timestamp,
+    /// Timestamp when the server metadata was last modified.
+    pub last_modified: Timestamp,
+    /// Configuration Options for the Server.
+    pub options: HashMap<String, String>,
+    /// Server Metadata (Informative).
+    pub metadata: HashMap<String, String>,
+}
+
+impl From<ServerRecord> for ServerMetadata {
+    fn from(record: ServerRecord) -> Self {
+        Self {
+            id: record.id,
+            name: record.name,
+            created_at: record.created_at,
+            last_modified: record.last_modified,
+            options: record.options,
+            metadata: record.metadata,
+        }
+    }
+}
+
+/// Metadata Record for a server.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ServerRecord {
     /// Unique identifier for the server.
     pub id: NodeId,
     /// Name of the server.

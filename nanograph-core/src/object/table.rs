@@ -279,6 +279,45 @@ pub struct TableMetadata {
     pub name: String,
     /// Path of the table within the namespace hierarchy
     pub path: String,
+    /// Timestamp when the table was created
+    pub created_at: Timestamp,
+    /// Type of storage engine used by the table
+    pub engine_type: StorageEngineType,
+    /// Timestamp when the table was last modified
+    pub last_modified: Timestamp,
+    /// Distributed table Config (Single or Multiple)
+    pub sharding: TableSharding,
+    /// Additional engine-specific options
+    pub options: HashMap<String, String>,
+    /// Table Metadata (Informative)
+    pub metadata: HashMap<String, String>,
+}
+
+impl From<TableRecord> for TableMetadata {
+    fn from(record: TableRecord) -> Self {
+        Self {
+            id: record.id,
+            name: record.name,
+            path: record.path,
+            created_at: record.created_at,
+            engine_type: record.engine_type,
+            last_modified: record.last_modified,
+            sharding: record.sharding,
+            options: record.options,
+            metadata: record.metadata,
+        }
+    }
+}
+
+/// Metadata for a table.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TableRecord {
+    /// Unique identifier for the table
+    pub id: TableId,
+    /// Name of the table
+    pub name: String,
+    /// Path of the table within the namespace hierarchy
+    pub path: String,
     /// Version of the Table Record
     pub version: u64,
     /// Timestamp when the table was created
@@ -372,7 +411,7 @@ impl ShardUpdate {
 
 /// Metadata for a shard.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ShardMetadata {
+pub struct ShardRecord {
     /// Unique identifier for the shard (TableId + ShardIndex)
     pub id: ShardId,
     /// Name of the shard

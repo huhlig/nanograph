@@ -157,6 +157,39 @@ pub struct FunctionMetadata {
     pub name: String,
     /// Path of the function within the namespace hierarchy
     pub path: String,
+    /// Timestamp when the function was created
+    pub created_at: Timestamp,
+    /// Timestamp when the function was last modified
+    pub last_modified: Timestamp,
+    /// Additional engine-specific options
+    pub options: HashMap<String, String>,
+    /// Function Metadata (Informative)
+    pub metadata: HashMap<String, String>,
+}
+
+impl From<FunctionRecord> for FunctionMetadata {
+    fn from(value: FunctionRecord) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+            path: value.path,
+            created_at: value.created_at,
+            last_modified: value.last_modified,
+            options: value.options,
+            metadata: value.metadata,
+        }
+    }
+}
+
+/// Metadata for a function.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionRecord {
+    /// Unique identifier for the function
+    pub id: FunctionId,
+    /// Name of the function
+    pub name: String,
+    /// Path of the function within the namespace hierarchy
+    pub path: String,
     /// Version of the Function Record
     pub version: u64,
     /// Timestamp when the function was created

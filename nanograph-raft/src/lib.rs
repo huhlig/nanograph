@@ -163,7 +163,7 @@ pub use self::types::{
     RaftClusterState, ReadConsistency, ReplicationConfig, ResourceCapacity,
 };
 pub use nanograph_core::object::{
-    ClusterCreate, ClusterId, ClusterMetadata, ClusterUpdate, ContainerId, NodeId, RegionCreate,
-    RegionId, RegionMetadata, RegionUpdate, ServerCreate, ServerId, ServerMetadata, ServerUpdate,
+    ClusterCreate, ClusterId, ClusterRecord, ClusterUpdate, ContainerId, NodeId, RegionCreate,
+    RegionId, RegionRecord, RegionUpdate, ServerCreate, ServerId, ServerRecord, ServerUpdate,
     ShardId,
 };

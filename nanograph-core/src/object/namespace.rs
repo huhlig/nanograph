@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-use crate::object::ObjectId;
+use crate::object::{ObjectId, TablespaceId};
 use crate::types::{PropertyUpdate, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -190,6 +190,28 @@ pub struct NamespaceMetadata {
     pub id: NamespaceId,
     /// Name of the Namespace
     pub name: String,
+    /// Path of the namespace within the namespace hierarchy
+    pub path: String,
+    /// Timestamp when the namespace was created
+    pub created_at: Timestamp,
+    /// Timestamp when the namespace was last modified
+    pub last_modified: Timestamp,
+    /// Default Tablespace for the Namespace
+    pub default_tablespace: Option<TablespaceId>,
+    /// Configuration Options for the Namespace
+    pub options: HashMap<String, String>,
+    /// Namespace Metadata (Informative)
+    pub metadata: HashMap<String, String>,
+}
+
+
+/// Metadata for a Namespace.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NamespaceRecord {
+    /// Unique identifier for the Namespace
+    pub id: NamespaceId,
+    /// Name of the Namespace
+    pub name: String,
     /// Version of the Namespace Record
     pub version: u64,
     /// Path of the namespace within the namespace hierarchy
@@ -198,6 +220,8 @@ pub struct NamespaceMetadata {
     pub created_at: Timestamp,
     /// Timestamp when the namespace was last modified
     pub last_modified: Timestamp,
+    /// Default Tablespace for the Namespace
+    pub default_tablespace: Option<TablespaceId>,
     /// Configuration Options for the Namespace
     pub options: HashMap<String, String>,
     /// Namespace Metadata (Informative)

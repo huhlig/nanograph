@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-use crate::object::{NamespaceId, TenantId};
+use crate::object::{NamespaceId, TablespaceId, TenantId};
 use crate::types::{PropertyUpdate, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -190,6 +190,45 @@ pub struct DatabaseMetadata {
     pub tenant: TenantId,
     /// Name of the Database
     pub name: String,
+    /// Timestamp when the schema was created
+    pub created_at: Timestamp,
+    /// Timestamp when the schema was last modified
+    pub last_modified: Timestamp,
+    /// Root Namespace of Database
+    pub root_namespace: NamespaceId,
+    /// Default Tablespace for the Database
+    pub default_tablespace: Option<TablespaceId>,
+    /// Configuration Options for the Cluster
+    pub options: HashMap<String, String>,
+    /// Cluster Metadata (Informative)
+    pub metadata: HashMap<String, String>,
+}
+
+impl From<DatabaseRecord> for DatabaseMetadata {
+    fn from(value: DatabaseRecord) -> Self {
+        Self {
+            id: value.id,
+            tenant: value.tenant,
+            name: value.name,
+            created_at: value.created_at,
+            last_modified: value.last_modified,
+            root_namespace: value.root_namespace,
+            default_tablespace: value.default_tablespace,
+            options: value.options,
+            metadata: value.metadata,
+        }
+    }
+}
+
+/// Metadata for a Database.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DatabaseRecord {
+    /// Unique identifier for the Database
+    pub id: DatabaseId,
+    /// Tenant Id
+    pub tenant: TenantId,
+    /// Name of the Database
+    pub name: String,
     /// Version of the Database Record
     pub version: u64,
     /// Timestamp when the schema was created
@@ -198,6 +237,8 @@ pub struct DatabaseMetadata {
     pub last_modified: Timestamp,
     /// Root Namespace of Database
     pub root_namespace: NamespaceId,
+    /// Default Tablespace for the Database
+    pub default_tablespace: Option<TablespaceId>,
     /// Configuration Options for the Cluster
     pub options: HashMap<String, String>,
     /// Cluster Metadata (Informative)

@@ -15,8 +15,8 @@
 //
 
 use nanograph_core::object::{
-    ClusterId, DatabaseId, FunctionId, NamespaceId, RegionId, ServerId, ShardId, TableId, TenantId,
-    UserId,
+    ClusterId, DatabaseId, FunctionId, NamespaceId, RegionId, ServerId, ShardId, SystemGroupId,
+    SystemRoleId, TableId, TenantGroupId, TenantId, TenantRoleId, UserId,
 };
 use nanograph_kvt::{KeyValueError, KeyValueResult};
 
@@ -79,11 +79,44 @@ impl SystemKeys {
         let d = database_id.0.to_be_bytes();
         [p[0], t[0], t[1], t[2], t[3], d[0], d[1], d[2], d[3]]
     }
-    /// Generate a key for a superuser.
-    pub fn user_key(user_id: UserId) -> [u8; 5] {
+    /// Generate a key for a system user record.
+    pub fn system_user_key(user_id: UserId) -> [u8; 5] {
         let p = [0xFA];
         let u = user_id.0.to_be_bytes();
         [p[0], u[0], u[1], u[2], u[3]]
+    }
+    /// Generate a key for a system user record.
+    pub fn system_role_key(role_id: SystemRoleId) -> [u8; 5] {
+        let p = [0xF9];
+        let r = role_id.0.to_be_bytes();
+        [p[0], r[0], r[1], r[2], r[3]]
+    }
+    /// Generate a key for a system user record.
+    pub fn system_group_key(group_id: SystemGroupId) -> [u8; 5] {
+        let p = [0xF8];
+        let g = group_id.0.to_be_bytes();
+        [p[0], g[0], g[1], g[2], g[3]]
+    }
+    /// Generate a key for a tenant_user_record.
+    pub fn tenant_user_key(tenant_id: TenantId, user_id: UserId) -> [u8; 9] {
+        let p = [0xF7];
+        let t = tenant_id.0.to_be_bytes();
+        let u = user_id.0.to_be_bytes();
+        [p[0], t[0], t[1], t[2], t[3], u[0], u[1], u[2], u[3]]
+    }
+    /// Generate a key for a tenant_user_record.
+    pub fn tenant_role_key(tenant_id: TenantId, role_id: TenantRoleId) -> [u8; 9] {
+        let p = [0xF6];
+        let t = tenant_id.0.to_be_bytes();
+        let r = role_id.0.to_be_bytes();
+        [p[0], t[0], t[1], t[2], t[3], r[0], r[1], r[2], r[3]]
+    }
+    /// Generate a key for a tenant_user_record.
+    pub fn tenant_group_key(tenant_id: TenantId, group_id: TenantGroupId) -> [u8; 9] {
+        let p = [0xF5];
+        let t = tenant_id.0.to_be_bytes();
+        let g = group_id.0.to_be_bytes();
+        [p[0], t[0], t[1], t[2], t[3], g[0], g[1], g[2], g[3]]
     }
 }
 

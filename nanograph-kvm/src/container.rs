@@ -17,8 +17,8 @@
 use crate::cache::ContainerMetadataCache;
 use crate::context::KeyValueDatabaseContext;
 use nanograph_core::object::{
-    ContainerId, NamespaceCreate, NamespaceId, NamespaceMetadata, NamespaceUpdate, ObjectId,
-    ObjectMetadata, ObjectType, ShardId, TableCreate, TableId, TableMetadata, TableUpdate,
+    ContainerId, NamespaceCreate, NamespaceId, NamespaceRecord, NamespaceUpdate, ObjectId,
+    ObjectMetadata, ObjectType, ShardId, TableCreate, TableId, TableRecord, TableUpdate,
 };
 use nanograph_kvt::{KeyValueError, KeyValueResult};
 
@@ -125,7 +125,7 @@ impl ContainerHandle {
     /// An iterator over all namespace metadata records
     pub async fn get_namespaces(
         &self,
-    ) -> KeyValueResult<impl IntoIterator<Item = NamespaceMetadata>> {
+    ) -> KeyValueResult<impl IntoIterator<Item =NamespaceRecord>> {
         self.context.get_namespaces(&self.container_id).await
     }
 
@@ -141,7 +141,7 @@ impl ContainerHandle {
     pub async fn get_namespaces_by_prefix(
         &self,
         prefix: &str,
-    ) -> KeyValueResult<impl IntoIterator<Item = NamespaceMetadata>> {
+    ) -> KeyValueResult<impl IntoIterator<Item =NamespaceRecord>> {
         self.context
             .get_namespaces_by_prefix(&self.container_id, prefix)
             .await
@@ -160,7 +160,7 @@ impl ContainerHandle {
     pub async fn get_namespace(
         &self,
         namespace: &NamespaceId,
-    ) -> KeyValueResult<Option<NamespaceMetadata>> {
+    ) -> KeyValueResult<Option<NamespaceRecord>> {
         self.context
             .get_namespace(&self.container_id, namespace)
             .await
@@ -191,7 +191,7 @@ impl ContainerHandle {
     pub async fn create_namespace(
         &self,
         config: NamespaceCreate,
-    ) -> KeyValueResult<NamespaceMetadata> {
+    ) -> KeyValueResult<NamespaceRecord> {
         self.context
             .create_namespace(&self.container_id, config)
             .await
@@ -211,7 +211,7 @@ impl ContainerHandle {
         &self,
         namespace: &NamespaceId,
         config: NamespaceUpdate,
-    ) -> KeyValueResult<NamespaceMetadata> {
+    ) -> KeyValueResult<NamespaceRecord> {
         self.context
             .update_namespace(&self.container_id, namespace, config)
             .await
@@ -242,7 +242,7 @@ impl ContainerHandle {
     /// # Returns
     ///
     /// An iterator over all table metadata records
-    pub async fn get_tables(&self) -> KeyValueResult<impl IntoIterator<Item = TableMetadata>> {
+    pub async fn get_tables(&self) -> KeyValueResult<impl IntoIterator<Item =TableRecord>> {
         self.context.get_tables(&self.container_id).await
     }
 
@@ -285,7 +285,7 @@ impl ContainerHandle {
     pub async fn get_tables_by_prefix(
         &self,
         prefix: &str,
-    ) -> KeyValueResult<impl IntoIterator<Item = TableMetadata>> {
+    ) -> KeyValueResult<impl IntoIterator<Item =TableRecord>> {
         self.context
             .get_tables_by_prefix(&self.container_id, prefix)
             .await
@@ -301,7 +301,7 @@ impl ContainerHandle {
     ///
     /// * `Ok(Some(metadata))` - The table exists
     /// * `Ok(None)` - The table does not exist
-    pub async fn get_table(&self, table: &TableId) -> KeyValueResult<Option<TableMetadata>> {
+    pub async fn get_table(&self, table: &TableId) -> KeyValueResult<Option<TableRecord>> {
         self.context.get_table(&self.container_id, table).await
     }
 
@@ -346,7 +346,7 @@ impl ContainerHandle {
         &self,
         table: &TableId,
         config: TableUpdate,
-    ) -> KeyValueResult<TableMetadata> {
+    ) -> KeyValueResult<TableRecord> {
         self.context
             .update_table(&self.container_id, table, config)
             .await

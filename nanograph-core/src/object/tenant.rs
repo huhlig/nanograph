@@ -14,6 +14,7 @@
 // limitations under the License.
 //
 
+use crate::object::{TablespaceId, UserId};
 use crate::types::{PropertyUpdate, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -187,12 +188,47 @@ pub struct TenantMetadata {
     pub id: TenantId,
     /// Name of the Tenant
     pub name: String,
+    /// Timestamp when the schema was created
+    pub created_at: Timestamp,
+    /// Timestamp when the schema was last modified
+    pub last_modified: Timestamp,
+    /// Default Tablespace for the Tenant
+    pub default_tablespace: Option<TablespaceId>,
+    /// Configuration Options for the Cluster
+    pub options: HashMap<String, String>,
+    /// Cluster Metadata (Informative)
+    pub metadata: HashMap<String, String>,
+}
+
+impl From<TenantRecord> for TenantMetadata {
+    fn from(rec: TenantRecord) -> Self {
+        Self {
+            id: rec.id,
+            name: rec.name,
+            created_at: rec.created_at,
+            last_modified: rec.last_modified,
+            default_tablespace: rec.default_tablespace,
+            options: rec.options,
+            metadata: rec.metadata,
+        }
+    }
+}
+
+/// Metadata for a tenant.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TenantRecord {
+    /// Unique identifier for the Tenant
+    pub id: TenantId,
+    /// Name of the Tenant
+    pub name: String,
     /// Version of the Tenant Record
     pub version: u64,
     /// Timestamp when the schema was created
     pub created_at: Timestamp,
     /// Timestamp when the schema was last modified
     pub last_modified: Timestamp,
+    /// Default Tablespace for the Tenant
+    pub default_tablespace: Option<TablespaceId>,
     /// Configuration Options for the Cluster
     pub options: HashMap<String, String>,
     /// Cluster Metadata (Informative)

@@ -20,14 +20,14 @@ use crate::container::ContainerHandle;
 use crate::context::KeyValueDatabaseContext;
 use nanograph_core::object::ContainerId;
 use nanograph_core::object::{
-    ClusterId, DatabaseCreate, DatabaseId, DatabaseMetadata, DatabaseUpdate, NodeId, RegionId,
-    ShardId, TablespaceCreate, TablespaceId, TablespaceMetadata, TablespaceUpdate, TenantCreate,
-    TenantId, TenantMetadata, TenantUpdate,
+    ClusterId, DatabaseCreate, DatabaseId, DatabaseRecord, DatabaseUpdate, NodeId, RegionId,
+    ShardId, TablespaceCreate, TablespaceId, TablespaceRecord, TablespaceUpdate, TenantCreate,
+    TenantId, TenantRecord, TenantUpdate,
 };
 use nanograph_kvt::KeyValueResult;
 use nanograph_raft::{
-    ClusterCreate, ClusterMetadata, ClusterUpdate, ConsensusRouter, RegionCreate, RegionMetadata,
-    RegionUpdate, ServerCreate, ServerMetadata, ServerUpdate,
+    ClusterCreate, ClusterRecord, ClusterUpdate, ConsensusRouter, RegionCreate, RegionRecord,
+    RegionUpdate, ServerCreate, ServerRecord, ServerUpdate,
 };
 
 use std::sync::{Arc, RwLock};
@@ -246,7 +246,7 @@ impl KeyValueDatabaseManager {
     /// # Returns
     ///
     /// The metadata for this cluster including name, version, and configuration
-    pub async fn get_cluster(&self) -> KeyValueResult<ClusterMetadata> {
+    pub async fn get_cluster(&self) -> KeyValueResult<ClusterRecord> {
         self.context.get_cluster().await
     }
     /// Update the cluster metadata.
@@ -264,45 +264,45 @@ impl KeyValueDatabaseManager {
     }
 
     /// Get Metadata about All Regions
-    pub async fn get_regions(&self) -> KeyValueResult<impl IntoIterator<Item = RegionMetadata>> {
+    pub async fn get_regions(&self) -> KeyValueResult<impl IntoIterator<Item =RegionRecord>> {
         self.context.get_regions().await
     }
 
     /// Get Metadata about Region
-    pub async fn get_region(&self, region: RegionId) -> KeyValueResult<Option<RegionMetadata>> {
+    pub async fn get_region(&self, region: RegionId) -> KeyValueResult<Option<RegionRecord>> {
         self.context.get_region(region).await
     }
     /// Add a new region to the cluster
-    pub async fn add_region(&self, config: RegionCreate) -> KeyValueResult<RegionMetadata> {
+    pub async fn add_region(&self, config: RegionCreate) -> KeyValueResult<RegionRecord> {
         self.context.add_region(config).await
     }
     pub async fn update_region(
         &self,
         region: &RegionId,
         config: RegionUpdate,
-    ) -> KeyValueResult<RegionMetadata> {
+    ) -> KeyValueResult<RegionRecord> {
         self.context.update_region(region, config).await
     }
     pub async fn remove_region(&self, region: &RegionId) -> KeyValueResult<()> {
         self.context.remove_region(region).await
     }
 
-    pub async fn get_servers(&self) -> KeyValueResult<impl IntoIterator<Item = ServerMetadata>> {
+    pub async fn get_servers(&self) -> KeyValueResult<impl IntoIterator<Item =ServerRecord>> {
         self.context.get_servers().await
     }
 
     pub async fn get_servers_by_region(
         &self,
         region: &RegionId,
-    ) -> KeyValueResult<impl IntoIterator<Item = ServerMetadata>> {
+    ) -> KeyValueResult<impl IntoIterator<Item =ServerRecord>> {
         self.context.get_servers_by_region(region).await
     }
 
-    pub async fn get_server(&self, server: &NodeId) -> KeyValueResult<Option<ServerMetadata>> {
+    pub async fn get_server(&self, server: &NodeId) -> KeyValueResult<Option<ServerRecord>> {
         self.context.get_server(server).await
     }
 
-    pub async fn add_server(&self, config: ServerCreate) -> KeyValueResult<ServerMetadata> {
+    pub async fn add_server(&self, config: ServerCreate) -> KeyValueResult<ServerRecord> {
         self.context.add_server(config).await
     }
 
@@ -310,7 +310,7 @@ impl KeyValueDatabaseManager {
         &self,
         server: &NodeId,
         config: ServerUpdate,
-    ) -> KeyValueResult<ServerMetadata> {
+    ) -> KeyValueResult<ServerRecord> {
         self.context.update_server(server, config).await
     }
     pub async fn remove_server(&self, server: &NodeId) -> KeyValueResult<()> {
@@ -357,7 +357,7 @@ impl KeyValueDatabaseManager {
     /// # Returns
     ///
     /// An iterator over all tenant metadata records
-    pub async fn get_tenants(&self) -> KeyValueResult<impl IntoIterator<Item = TenantMetadata>> {
+    pub async fn get_tenants(&self) -> KeyValueResult<impl IntoIterator<Item =TenantRecord>> {
         self.context.get_tenants().await
     }
 
@@ -371,7 +371,7 @@ impl KeyValueDatabaseManager {
     ///
     /// * `Ok(Some(metadata))` - The tenant exists
     /// * `Ok(None)` - The tenant does not exist
-    pub async fn get_tenant(&self, tenant: &TenantId) -> KeyValueResult<Option<TenantMetadata>> {
+    pub async fn get_tenant(&self, tenant: &TenantId) -> KeyValueResult<Option<TenantRecord>> {
         self.context.get_tenant(tenant).await
     }
 
@@ -384,7 +384,7 @@ impl KeyValueDatabaseManager {
     /// # Returns
     ///
     /// The created tenant metadata
-    pub async fn create_tenant(&self, config: TenantCreate) -> KeyValueResult<TenantMetadata> {
+    pub async fn create_tenant(&self, config: TenantCreate) -> KeyValueResult<TenantRecord> {
         self.context.create_tenant(config).await
     }
 
@@ -392,7 +392,7 @@ impl KeyValueDatabaseManager {
         &self,
         tenant: &TenantId,
         config: TenantUpdate,
-    ) -> KeyValueResult<TenantMetadata> {
+    ) -> KeyValueResult<TenantRecord> {
         self.context.update_tenant(tenant, config).await
     }
     pub async fn delete_tenant(&self, tenant: &TenantId) -> KeyValueResult<()> {
@@ -411,7 +411,7 @@ impl KeyValueDatabaseManager {
     pub async fn get_databases(
         &self,
         tenant: &TenantId,
-    ) -> KeyValueResult<impl IntoIterator<Item = DatabaseMetadata>> {
+    ) -> KeyValueResult<impl IntoIterator<Item =DatabaseRecord>> {
         self.context.get_databases(tenant).await
     }
 
@@ -419,7 +419,7 @@ impl KeyValueDatabaseManager {
         &self,
         tenant: &TenantId,
         database: &DatabaseId,
-    ) -> KeyValueResult<Option<DatabaseMetadata>> {
+    ) -> KeyValueResult<Option<DatabaseRecord>> {
         self.context.get_database(tenant, database).await
     }
 
@@ -437,7 +437,7 @@ impl KeyValueDatabaseManager {
         &self,
         tenant: &TenantId,
         config: DatabaseCreate,
-    ) -> KeyValueResult<DatabaseMetadata> {
+    ) -> KeyValueResult<DatabaseRecord> {
         self.context.create_database(tenant, config).await
     }
 
@@ -446,7 +446,7 @@ impl KeyValueDatabaseManager {
         tenant: &TenantId,
         database: &DatabaseId,
         config: DatabaseUpdate,
-    ) -> KeyValueResult<DatabaseMetadata> {
+    ) -> KeyValueResult<DatabaseRecord> {
         self.context.update_database(tenant, database, config).await
     }
     pub async fn delete_database(
@@ -463,14 +463,14 @@ impl KeyValueDatabaseManager {
 
     pub async fn get_tablespaces(
         &self,
-    ) -> KeyValueResult<impl IntoIterator<Item = TablespaceMetadata>> {
+    ) -> KeyValueResult<impl IntoIterator<Item =TablespaceRecord>> {
         self.context.get_tablespaces().await
     }
 
     pub async fn get_tablespace(
         &self,
         tablespace: &TablespaceId,
-    ) -> KeyValueResult<Option<TablespaceMetadata>> {
+    ) -> KeyValueResult<Option<TablespaceRecord>> {
         self.context.get_tablespace(tablespace).await
     }
 
@@ -493,7 +493,7 @@ impl KeyValueDatabaseManager {
     pub async fn create_tablespace(
         &self,
         config: TablespaceCreate,
-    ) -> KeyValueResult<TablespaceMetadata> {
+    ) -> KeyValueResult<TablespaceRecord> {
         self.context.create_tablespace(config).await
     }
 
@@ -501,7 +501,7 @@ impl KeyValueDatabaseManager {
         &self,
         tablespace: &TablespaceId,
         config: TablespaceUpdate,
-    ) -> KeyValueResult<TablespaceMetadata> {
+    ) -> KeyValueResult<TablespaceRecord> {
         self.context.update_tablespace(tablespace, config).await
     }
 

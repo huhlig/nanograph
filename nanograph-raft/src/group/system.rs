@@ -18,9 +18,9 @@
 
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::types::{MetadataChange, NodeInfo, RaftClusterState};
-use nanograph_core::object::{ClusterMetadata, StorageEngineType};
+use nanograph_core::object::{ClusterRecord, StorageEngineType};
 use nanograph_core::{
-    object::{NodeId, ShardId, ShardMetadata, ShardStatus},
+    object::{NodeId, ShardId, ShardRecord, ShardStatus},
     types::Timestamp,
 };
 use std::sync::Arc;
@@ -61,7 +61,7 @@ impl SystemShardRaftGroup {
     }
 
     /// Get current cluster metadata (read-only)
-    pub async fn get_metadata(&self) -> ClusterMetadata {
+    pub async fn get_metadata(&self) -> ClusterRecord {
         let state = self.state.read().await;
         state.cluster.clone()
     }
@@ -137,7 +137,7 @@ impl SystemShardRaftGroup {
             } => {
                 info!("Creating shard {} with replicas {:?}", shard_id, replicas);
 
-                let shard_metadata = ShardMetadata {
+                let shard_metadata = ShardRecord {
                     id: shard_id,
                     name: format!("shard_{}", shard_id.as_u64()),
                     version: 0,

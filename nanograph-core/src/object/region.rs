@@ -196,6 +196,39 @@ pub struct RegionMetadata {
     pub id: RegionId,
     /// Name of the region
     pub name: String,
+    /// Identifier of the cluster this region belongs to
+    pub cluster: ClusterId,
+    /// Timestamp when the Region was created
+    pub created_at: Timestamp,
+    /// Timestamp when the schema was last modified
+    pub last_modified: Timestamp,
+    /// Configuration Options for the Region
+    pub options: HashMap<String, String>,
+    /// Region Metadata (Informative)
+    pub metadata: HashMap<String, String>,
+}
+
+impl From<RegionRecord> for RegionMetadata {
+    fn from(record: RegionRecord) -> Self {
+        Self {
+            id: record.id,
+            name: record.name,
+            cluster: record.cluster,
+            created_at: record.created_at,
+            last_modified: record.last_modified,
+            options: record.options,
+            metadata: record.metadata,
+        }
+    }
+}
+
+/// Metadata for a region.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RegionRecord {
+    /// Unique identifier for the region
+    pub id: RegionId,
+    /// Name of the region
+    pub name: String,
     /// Version of the Region Record
     pub version: u64,
     /// Identifier of the cluster this region belongs to

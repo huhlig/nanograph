@@ -15,8 +15,8 @@
 //
 
 use nanograph_core::object::{
-    ContainerId, FunctionId, FunctionMetadata, NamespaceId, NamespaceMetadata, NodeId, ShardId,
-    ShardMetadata, TableId, TableMetadata,
+    ContainerId, FunctionId, FunctionRecord, NamespaceId, NamespaceRecord, NodeId, ShardId,
+    ShardRecord, TableId, TableRecord,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -33,13 +33,13 @@ pub struct ContainerMetadataCache {
     /// Container Metadata Shard ID
     shard: ShardId,
     /// Namespaces in the system
-    namespaces: HashMap<NamespaceId, NamespaceMetadata>,
+    namespaces: HashMap<NamespaceId, NamespaceRecord>,
     /// Functions in the system
-    functions: HashMap<FunctionId, FunctionMetadata>,
+    functions: HashMap<FunctionId, FunctionRecord>,
     /// Tables in the system
-    tables: HashMap<TableId, TableMetadata>,
+    tables: HashMap<TableId, TableRecord>,
     /// Shards in the system
-    shards: HashMap<ShardId, ShardMetadata>,
+    shards: HashMap<ShardId, ShardRecord>,
     /// Shard Assignment Cache (shard -> replica nodes)
     shard_assignments: BTreeMap<ShardId, Vec<NodeId>>,
 }
@@ -71,17 +71,17 @@ impl ContainerMetadataCache {
     // --- Namespace Records ---
 
     /// Returns an iterator over all namespace records.
-    pub fn list_namespace_records(&self) -> impl Iterator<Item = &NamespaceMetadata> {
+    pub fn list_namespace_records(&self) -> impl Iterator<Item = &NamespaceRecord> {
         self.namespaces.values()
     }
 
     /// Returns a reference to the metadata for a specific namespace if it exists.
-    pub fn get_namespace_record(&self, record_id: &NamespaceId) -> Option<&NamespaceMetadata> {
+    pub fn get_namespace_record(&self, record_id: &NamespaceId) -> Option<&NamespaceRecord> {
         self.namespaces.get(record_id)
     }
 
     /// Sets or updates a namespace record.
-    pub fn set_namespace_record(&mut self, record: NamespaceMetadata) {
+    pub fn set_namespace_record(&mut self, record: NamespaceRecord) {
         self.namespaces.insert(record.id, record);
     }
 
@@ -98,17 +98,17 @@ impl ContainerMetadataCache {
     // --- Function Records ---
 
     /// Returns an iterator over all function records.
-    pub fn list_function_records(&self) -> impl Iterator<Item = &FunctionMetadata> {
+    pub fn list_function_records(&self) -> impl Iterator<Item = &FunctionRecord> {
         self.functions.values()
     }
 
     /// Returns a reference to the metadata for a specific function if it exists.
-    pub fn get_function_record(&self, record_id: &FunctionId) -> Option<&FunctionMetadata> {
+    pub fn get_function_record(&self, record_id: &FunctionId) -> Option<&FunctionRecord> {
         self.functions.get(record_id)
     }
 
     /// Sets or updates a function record.
-    pub fn set_function_record(&mut self, record: FunctionMetadata) {
+    pub fn set_function_record(&mut self, record: FunctionRecord) {
         self.functions.insert(record.id, record);
     }
 
@@ -125,17 +125,17 @@ impl ContainerMetadataCache {
     // --- Table Records ---
 
     /// Returns an iterator over all table records.
-    pub fn list_table_records(&self) -> impl Iterator<Item = &TableMetadata> {
+    pub fn list_table_records(&self) -> impl Iterator<Item = &TableRecord> {
         self.tables.values()
     }
 
     /// Returns a reference to the metadata for a specific table if it exists.
-    pub fn get_table_record(&self, record_id: &TableId) -> Option<&TableMetadata> {
+    pub fn get_table_record(&self, record_id: &TableId) -> Option<&TableRecord> {
         self.tables.get(record_id)
     }
 
     /// Sets or updates a table record.
-    pub fn set_table_record(&mut self, table: TableMetadata) {
+    pub fn set_table_record(&mut self, table: TableRecord) {
         self.tables.insert(table.id, table);
     }
 
@@ -152,17 +152,17 @@ impl ContainerMetadataCache {
     // --- Shard Records ---
 
     /// Returns an iterator over all shard records.
-    pub fn list_shard_records(&self) -> impl Iterator<Item = &ShardMetadata> {
+    pub fn list_shard_records(&self) -> impl Iterator<Item = &ShardRecord> {
         self.shards.values()
     }
 
     /// Returns a reference to the metadata for a specific shard if it exists.
-    pub fn get_shard_record(&self, shard_id: &ShardId) -> Option<&ShardMetadata> {
+    pub fn get_shard_record(&self, shard_id: &ShardId) -> Option<&ShardRecord> {
         self.shards.get(shard_id)
     }
 
     /// Sets or updates a shard record.
-    pub fn set_shard_record(&mut self, record: ShardMetadata) {
+    pub fn set_shard_record(&mut self, record: ShardRecord) {
         self.shards.insert(record.id.clone(), record);
     }
 
@@ -241,13 +241,14 @@ mod tests {
     fn test_namespace_records() {
         let mut cache = create_test_cache();
         let ns_id = NamespaceId::from(200);
-        let ns = NamespaceMetadata {
+        let ns = NamespaceRecord {
             id: ns_id,
             name: "test_ns".to_string(),
             version: 1,
             path: "/test_ns".to_string(),
             created_at: Timestamp::now(),
             last_modified: Timestamp::now(),
+            default_tablespace: None,
             options: HashMap::new(),
             metadata: HashMap::new(),
         };
@@ -269,7 +270,7 @@ mod tests {
     fn test_function_records() {
         let mut cache = create_test_cache();
         let func_id = FunctionId::from(300);
-        let func = FunctionMetadata {
+        let func = FunctionRecord {
             id: func_id,
             name: "test_func".to_string(),
             path: "/test_func".to_string(),
@@ -297,7 +298,7 @@ mod tests {
     fn test_table_records() {
         let mut cache = create_test_cache();
         let table_id = TableId::from(400);
-        let table = TableMetadata {
+        let table = TableRecord {
             id: table_id,
             name: "test_table".to_string(),
             path: "/test_table".to_string(),
@@ -329,7 +330,7 @@ mod tests {
         let table_id = TableId::from(500);
         let shard_index = ShardIndex::from(1);
         let shard_id = ShardId::from_parts(table_id, shard_index);
-        let shard = ShardMetadata {
+        let shard = ShardRecord {
             id: shard_id.clone(),
             name: "test_shard".to_string(),
             version: 1,

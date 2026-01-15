@@ -21,20 +21,20 @@ The Raft consensus layer for Nanograph provides distributed consensus capabiliti
 
 ### Features
 
-| Feature                 | Status              | Notes                                                     |
-|-------------------------|---------------------|-----------------------------------------------------------|
-| Leader Election         | 🔴 Not Implemented  | Role transitions defined, actual election pending        |
-| Log Replication         | 🟡 Partial          | Log storage complete, replication protocol pending       |
-| Read Consistency Levels | 🟡 Partial          | Framework defined, ReadIndex protocol pending            |
+| Feature                 | Status             | Notes                                                    |
+|-------------------------|--------------------|----------------------------------------------------------|
+| Leader Election         | 🔴 Not Implemented | Role transitions defined, actual election pending        |
+| Log Replication         | 🟡 Partial         | Log storage complete, replication protocol pending       |
+| Read Consistency Levels | 🟡 Partial         | Framework defined, ReadIndex protocol pending            |
 | Quorum Checking         | ✅ Implemented      | Configurable replication factor and quorum size          |
-| Metadata Replication    | 🟡 Partial          | State management complete, Raft consensus pending        |
+| Metadata Replication    | 🟡 Partial         | State management complete, Raft consensus pending        |
 | Hash-based Partitioning | ✅ Implemented      | Consistent key-to-shard routing                          |
 | Batch Operations        | ✅ Implemented      | Atomic batches within shards                             |
-| Snapshot Support        | 🟡 Partial          | Framework complete, serialization pending                |
+| Snapshot Support        | 🟡 Partial         | Framework complete, serialization pending                |
 | Dual Mode Operation     | ✅ Implemented      | Single-node and distributed modes                        |
-| Membership Changes      | 🔴 Not Implemented  | Add/remove peer placeholders only                        |
-| Hierarchical Raft       | 🔴 Not Implemented  | Region aware C-Raft for hierarchical global distribution |
-| Consensus Metrics       | 🔴 Not Implemented  | Exporting of Consensus Metrics using `metrics` crate     |
+| Membership Changes      | 🔴 Not Implemented | Add/remove peer placeholders only                        |
+| Hierarchical Raft       | 🔴 Not Implemented | Region aware C-Raft for hierarchical global distribution |
+| Consensus Metrics       | 🔴 Not Implemented | Exporting of Consensus Metrics using `metrics` crate     |
 
 ### Integration Points
 
@@ -70,49 +70,49 @@ nanograph-kvt (lib tests):      0 tests (compiles successfully)
 
 ### Critical (Blocking Production Use)
 
-1. **Raft Proposal Implementation** (`shard_group.rs:127`)
+1. **Raft Proposal Implementation**
    - Currently applies operations locally only (single-node mode)
    - Need to implement actual Raft log replication and consensus
    - Location: `ShardRaftGroup::propose_write()`
 
-2. **ReadIndex Protocol** (`shard_group.rs:154`)
+2. **ReadIndex Protocol**
    - Linearizable reads currently fall back to local reads
    - Need to implement ReadIndex to ensure reading committed data
    - Location: `ShardRaftGroup::linearizable_read()`
 
-3. **Metadata Raft Proposal** (`metadata.rs:81`)
+3. **Metadata Raft Proposal**
    - Metadata changes currently applied locally only
    - Need to implement Raft consensus for metadata changes
    - Location: `MetadataRaftGroup::propose_change()`
 
-4. **Snapshot Serialization** (`storage.rs:281`)
+4. **Snapshot Serialization**
    - Snapshot data is currently empty
    - Need to implement actual snapshot serialization from storage
    - Location: `RaftStorageAdapter::create_snapshot()`
 
-5. **Snapshot Restoration** (`storage.rs:305`)
+5. **Snapshot Restoration**
    - Snapshot installation doesn't restore storage state
    - Need to implement deserialization and state restoration
    - Location: `RaftStorageAdapter::install_snapshot()`
 
 ### Important (Needed for Full Functionality)
 
-6. **Storage Read Implementation** (`shard_group.rs:192`)
+6. **Storage Read Implementation**
    - Follower reads currently return None
    - Need to implement actual reads from storage adapter
    - Location: `ShardRaftGroup::follower_read()`
 
-7. **Peer Health Checking** (`shard_group.rs:206`)
+7. **Peer Health Checking**
    - Currently assumes all peers are active
    - Need to implement actual peer health monitoring
    - Location: `ShardRaftGroup::count_active_peers()`
 
-8. **Raft Membership Changes** (`shard_group.rs:296, 307`)
+8. **Raft Membership Changes**
    - Add/remove peer operations are placeholders
    - Need to implement Raft configuration changes
    - Locations: `ShardRaftGroup::add_peer()`, `ShardRaftGroup::remove_peer()`
 
-9. **Shard Group Tests** (`shard_group.rs:316`)
+9. **Shard Group Tests**
    - Test placeholder exists but not implemented
    - Need mock storage implementation for testing
    - Location: `tests::test_shard_group_creation()`
@@ -130,22 +130,22 @@ nanograph-kvt (lib tests):      0 tests (compiles successfully)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Application Layer                        │
+│                     Application Layer                       │
 └────────────────────────────┬────────────────────────────────┘
                              │
 ┌────────────────────────────▼────────────────────────────────┐
-│              KeyValueDatabaseManager                         │
-│  ┌──────────────────┐  ┌──────────────────┐                │
-│  │  Single-node     │  │  Distributed     │                │
-│  │  Direct Access   │  │  Raft Router     │                │
-│  └──────────────────┘  └──────────────────┘                │
+│              KeyValueDatabaseManager                        │
+│  ┌──────────────────┐  ┌──────────────────┐                 │
+│  │  Single-node     │  │  Distributed     │                 │
+│  │  Direct Access   │  │  Raft Router     │                 │
+│  └──────────────────┘  └──────────────────┘                 │
 └────────────────────────────┬────────────────────────────────┘
                              │
 ┌────────────────────────────▼────────────────────────────────┐
-│                      Router Layer                            │
-│  - Hash-based key routing                                    │
-│  - Shard Raft group management                               │
-│  - Batch operation coordination                              │
+│                      Router Layer                           │
+│  - Hash-based key routing                                   │
+│  - Shard Raft group management                              │
+│  - Batch operation coordination                             │
 └────────────────────────────┬────────────────────────────────┘
                              │
         ┌────────────────────┼────────────────────┐
@@ -170,8 +170,8 @@ nanograph-kvt (lib tests):      0 tests (compiles successfully)
         └────────────────────┼────────────────────┘
                              │
 ┌────────────────────────────▼────────────────────────────────┐
-│                    Storage Layer                             │
-│              (nanograph-wal, nanograph-vfs)                  │
+│                    Storage Layer                            │
+│              (nanograph-wal, nanograph-vfs)                 │
 └─────────────────────────────────────────────────────────────┘
 ```
 

@@ -239,6 +239,42 @@ pub struct TablespaceMetadata {
     pub storage_path: String,
     /// Storage tier (Hot, Warm, Cold, Archive)
     pub tier: String,
+    /// Timestamp when the tablespace was created
+    pub created_at: Timestamp,
+    /// Timestamp when the tablespace was last modified
+    pub last_modified: Timestamp,
+    /// Configuration Options for the Tablespace
+    pub options: HashMap<String, String>,
+    /// Tablespace Metadata (Informative)
+    pub metadata: HashMap<String, String>,
+}
+
+impl From<TablespaceRecord> for TablespaceMetadata {
+    fn from(record: TablespaceRecord) -> Self {
+        Self {
+            id: record.id,
+            name: record.name,
+            storage_path: record.storage_path,
+            tier: record.tier,
+            created_at: record.created_at,
+            last_modified: record.last_modified,
+            options: record.options,
+            metadata: record.metadata,
+        }
+    }
+}
+
+/// Metadata Record for a Tablespace.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TablespaceRecord {
+    /// Unique identifier for the Tablespace
+    pub id: TablespaceId,
+    /// Name of the Tablespace
+    pub name: String,
+    /// Storage path for the tablespace
+    pub storage_path: String,
+    /// Storage tier (Hot, Warm, Cold, Archive)
+    pub tier: String,
     /// Version of the Tablespace Record
     pub version: u64,
     /// Timestamp when the tablespace was created

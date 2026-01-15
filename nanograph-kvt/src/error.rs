@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-use nanograph_core::object::ShardId;
+use nanograph_core::object::{Permission, ResourceScope, ShardId, UserId};
 use thiserror::Error;
 
 /// Result Type for KeyValue Operations
@@ -96,6 +96,16 @@ pub enum KeyValueError {
     /// Deserialization error
     #[error("Deserialization error: {0}")]
     Deserialization(String),
+
+    // Security
+    #[error(
+        "Permission denied: {user_id} does not have permission {permission} on resource {resource}"
+    )]
+    PermissionDenied {
+        user_id: UserId,
+        permission: Permission,
+        resource: ResourceScope,
+    },
 
     /// Internal error
     #[error("Internal error: {0}")]

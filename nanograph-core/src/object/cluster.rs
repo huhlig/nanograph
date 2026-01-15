@@ -186,6 +186,36 @@ pub struct ClusterMetadata {
     pub id: ClusterId,
     /// Name of the cluster.
     pub name: String,
+    /// Timestamp when the cluster was created.
+    pub created_at: Timestamp,
+    /// Timestamp when the cluster metadata was last modified.
+    pub last_modified: Timestamp,
+    /// Configuration Options for the Cluster.
+    pub options: HashMap<String, String>,
+    /// Cluster Metadata (Informative).
+    pub metadata: HashMap<String, String>,
+}
+
+impl From<ClusterRecord> for ClusterMetadata {
+    fn from(record: ClusterRecord) -> Self {
+        Self {
+            id: record.id,
+            name: record.name,
+            created_at: record.created_at,
+            last_modified: record.last_modified,
+            options: record.options,
+            metadata: record.metadata,
+        }
+    }
+}
+
+/// Metadata Record for a cluster.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ClusterRecord {
+    /// Unique identifier for the cluster.
+    pub id: ClusterId,
+    /// Name of the cluster.
+    pub name: String,
     /// Metadata version (incremented on each change).
     pub version: u64,
     /// Timestamp when the cluster was created.

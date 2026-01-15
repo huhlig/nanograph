@@ -16,7 +16,7 @@
 
 //! Core types for Raft-based distributed consensus
 use nanograph_core::{
-    object::{ClusterId, ClusterMetadata, NodeId, RegionId, ShardId, ShardMetadata, ShardStatus},
+    object::{ClusterId, ClusterRecord, NodeId, RegionId, ShardId, ShardRecord, ShardStatus},
     types::Timestamp,
 };
 use serde::{Deserialize, Serialize};
@@ -259,13 +259,13 @@ impl Default for PlacementStrategy {
 #[derive(Clone, Debug)]
 pub struct RaftClusterState {
     /// Base cluster metadata
-    pub cluster: ClusterMetadata,
+    pub cluster: ClusterRecord,
 
     /// All nodes in the Raft cluster
     pub nodes: HashMap<NodeId, NodeInfo>,
 
     /// All shards with their metadata
-    pub shards: HashMap<ShardId, ShardMetadata>,
+    pub shards: HashMap<ShardId, ShardRecord>,
 
     /// Shard assignments (shard_id -> replica nodes)
     pub shard_assignments: HashMap<ShardId, Vec<NodeId>>,
@@ -273,7 +273,7 @@ pub struct RaftClusterState {
 
 impl RaftClusterState {
     /// Create new empty Raft cluster state
-    pub fn new(cluster: ClusterMetadata) -> Self {
+    pub fn new(cluster: ClusterRecord) -> Self {
         Self {
             cluster,
             nodes: HashMap::new(),
@@ -288,7 +288,7 @@ impl RaftClusterState {
     }
 
     /// Get shard metadata by ID
-    pub fn get_shard(&self, shard_id: ShardId) -> Option<&ShardMetadata> {
+    pub fn get_shard(&self, shard_id: ShardId) -> Option<&ShardRecord> {
         self.shards.get(&shard_id)
     }
 
@@ -306,7 +306,7 @@ impl RaftClusterState {
     }
 
     /// Get all active shards
-    pub fn active_shards(&self) -> Vec<&ShardMetadata> {
+    pub fn active_shards(&self) -> Vec<&ShardRecord> {
         self.shards
             .values()
             .filter(|s| s.status == ShardStatus::Active)
@@ -316,7 +316,7 @@ impl RaftClusterState {
 
 impl Default for RaftClusterState {
     fn default() -> Self {
-        Self::new(ClusterMetadata {
+        Self::new(ClusterRecord {
             id: ClusterId::new(0),
             name: String::new(),
             version: 0,

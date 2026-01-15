@@ -14,6 +14,14 @@
 // limitations under the License.
 //
 
+//! # Nanograph System Record Types.
+//!
+//! ## Types
+//! - ???Id types are unique identifiers in the system ([`NodeId`] and [`ContainerId`] are both composite identifiers).
+//! - ???Record types are serialized within the cluster.
+//! - ???Metadata types are for external consumption and may be lacking internal information.
+//!
+//!
 mod cluster;
 mod container;
 mod database;
@@ -27,25 +35,39 @@ mod table;
 mod tablespace;
 mod tenant;
 
-pub use self::cluster::{ClusterCreate, ClusterId, ClusterMetadata, ClusterUpdate};
+pub use self::cluster::{ClusterCreate, ClusterId, ClusterMetadata, ClusterRecord, ClusterUpdate};
 pub use self::container::ContainerId;
-pub use self::database::{DatabaseCreate, DatabaseId, DatabaseMetadata, DatabaseUpdate};
-pub use self::function::{FunctionCreate, FunctionId, FunctionMetadata, FunctionUpdate};
-pub use self::namespace::{NamespaceCreate, NamespaceId, NamespaceMetadata, NamespaceUpdate};
-pub use self::node::NodeId;
-pub use self::region::{RegionCreate, RegionId, RegionMetadata, RegionUpdate};
-pub use self::security::{
-    GroupId, GroupMetadata, Permission, PermissionGrant, ResourceScope, RoleId, RoleMetadata,
-    UserCreate, UserId, UserMetadata, UserUpdate,
+pub use self::database::{
+    DatabaseCreate, DatabaseId, DatabaseMetadata, DatabaseRecord, DatabaseUpdate,
 };
-pub use self::server::{ServerCreate, ServerId, ServerMetadata, ServerUpdate};
+pub use self::function::{
+    FunctionCreate, FunctionId, FunctionMetadata, FunctionRecord, FunctionUpdate,
+};
+pub use self::namespace::{
+    NamespaceCreate, NamespaceId, NamespaceMetadata, NamespaceRecord, NamespaceUpdate,
+};
+pub use self::node::NodeId;
+pub use self::region::{RegionCreate, RegionId, RegionMetadata, RegionRecord, RegionUpdate};
+pub use self::security::{
+    Permission, PermissionGrant, ResourceScope, SecurityPrincipal,
+    SystemGroupId, SystemGroupMetadata, SystemGroupRecord,
+    SystemRoleId, SystemRoleMetadata, SystemRoleRecord,
+    SystemUserCreate, SystemUserMetadata, SystemUserRecord, SystemUserUpdate,
+    TenantGroupId, TenantGroupMetadata, TenantGroupRecord,
+    TenantRoleId, TenantRoleMetadata, TenantRoleRecord,
+    TenantUserCreate, TenantUserMetadata, TenantUserRecord, TenantUserUpdate,
+    UserId,
+};
+pub use self::server::{ServerCreate, ServerId, ServerMetadata, ServerRecord, ServerUpdate};
 pub use self::table::{
-    HashFunction, KeyRange, Partitioner, ShardCreate, ShardId, ShardIndex, ShardMetadata,
-    ShardState, ShardStatus, ShardUpdate, StorageEngineType, TableCreate, TableId, TableMetadata,
+    HashFunction, KeyRange, Partitioner, ShardCreate, ShardId, ShardIndex, ShardRecord, ShardState,
+    ShardStatus, ShardUpdate, StorageEngineType, TableCreate, TableId, TableMetadata, TableRecord,
     TableSharding, TableUpdate,
 };
-pub use self::tablespace::{TablespaceCreate, TablespaceId, TablespaceMetadata, TablespaceUpdate};
-pub use self::tenant::{TenantCreate, TenantId, TenantMetadata, TenantUpdate};
+pub use self::tablespace::{
+    TablespaceCreate, TablespaceId, TablespaceMetadata, TablespaceRecord, TablespaceUpdate,
+};
+pub use self::tenant::{TenantCreate, TenantId, TenantMetadata, TenantRecord, TenantUpdate};
 
 /// Object Identifier used by all Database Objects within a container.
 pub type ObjectId = u32;
@@ -63,7 +85,7 @@ pub enum ObjectType {
 
 #[derive(Clone, Debug)]
 pub enum ObjectMetadata {
-    Function(FunctionMetadata),
-    Namespace(NamespaceMetadata),
-    Table(TableMetadata),
+    Function(FunctionRecord),
+    Namespace(NamespaceRecord),
+    Table(TableRecord),
 }

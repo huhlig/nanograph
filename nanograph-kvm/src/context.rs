@@ -16,24 +16,29 @@
 
 use crate::cache::{ContainerMetadataCache, SystemMetadataCache};
 use crate::config::KeyValueDatabaseConfig;
+use crate::serialize;
 use crate::shardmgr::KeyValueShardManager;
 use crate::utility::{SystemKeys, deserialize};
+use nanograph_core::object::{
+    ClusterMetadata, DatabaseMetadata, RegionMetadata, ResourceScope, ServerMetadata,
+    SystemUserRecord, TenantMetadata, TenantUserCreate, TenantUserMetadata, TenantUserRecord,
+    TenantUserUpdate,
+};
 use nanograph_core::{
     object::{
-        ClusterId, ContainerId, DatabaseCreate, DatabaseId, DatabaseMetadata, DatabaseUpdate,
-        NamespaceCreate, NamespaceId, NamespaceMetadata, NamespaceUpdate, NodeId, ObjectId,
-        ObjectMetadata, ObjectType, RegionId, ServerId, ShardId, ShardIndex, ShardMetadata,
-        TableCreate, TableId, TableMetadata, TableSharding, TableUpdate, TablespaceCreate,
-        TablespaceId, TablespaceMetadata, TablespaceUpdate, TenantCreate, TenantId, TenantMetadata,
-        TenantUpdate, UserCreate, UserId, UserMetadata, UserUpdate,
+        ClusterCreate, ClusterId, ClusterRecord, ClusterUpdate, ContainerId, DatabaseCreate,
+        DatabaseId, DatabaseRecord, DatabaseUpdate, NamespaceCreate, NamespaceId, NamespaceRecord,
+        NamespaceUpdate, NodeId, ObjectId, ObjectMetadata, ObjectType, Permission, RegionCreate,
+        RegionId, RegionRecord, RegionUpdate, SecurityPrincipal, ServerCreate, ServerId,
+        ServerRecord, ServerUpdate, ShardId, ShardIndex, ShardRecord, SystemUserCreate,
+        SystemUserMetadata, SystemUserUpdate, TableCreate, TableId, TableRecord, TableSharding,
+        TableUpdate, TablespaceCreate, TablespaceId, TablespaceRecord, TablespaceUpdate,
+        TenantCreate, TenantId, TenantRecord, TenantUpdate, UserId,
     },
     types::{PropertyUpdate, Timestamp},
 };
 use nanograph_kvt::{KeyValueError, KeyValueResult};
-use nanograph_raft::{
-    ClusterCreate, ClusterMetadata, ClusterUpdate, ConsensusRouter, RegionCreate, RegionMetadata,
-    RegionUpdate, ServerCreate, ServerMetadata, ServerUpdate,
-};
+use nanograph_raft::ConsensusRouter;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -46,8 +51,8 @@ use std::sync::{Arc, RwLock};
 ///
 /// TODO: Handle Table and Shard Allocation
 pub struct KeyValueDatabaseContext {
-    /// Cluster ID,
-    cluster_id: ClusterId,
+    /// Node ID,
+    node_id: NodeId,
     /// Local Shard Storage Manager
     shard_manager: Arc<RwLock<KeyValueShardManager>>,
     /// System Metadata Cache
@@ -62,26 +67,26 @@ impl KeyValueDatabaseContext {
     /// Create a new database context in single-node mode.
     ///
     /// # What it does
-    /// Initializes a KeyValueDatabaseContext for standalone (non-distributed) operation.
+    /// Initializes a [`KeyValueDatabaseContext`] for standalone (non-distributed) operation.
     /// Creates a new shard manager, system metadata cache, and empty container metadata cache map.
     ///
     /// # How it works
-    /// 1. Creates a standalone KeyValueShardManager for local shard storage
-    /// 2. Initializes SystemMetadataCache with shard 0 for system metadata
-    /// 3. Creates empty HashMap for container-specific metadata caches
+    /// 1. Creates a standalone [`KeyValueShardManager`] for local shard storage
+    /// 2. Initializes [`SystemMetadataCache`] with shard 0 for system metadata
+    /// 3. Creates empty [`HashMap`] for container-specific metadata caches
     /// 4. Sets raft_router to None (no distributed consensus)
     ///
     /// # Parameters
-    /// - `config`: KeyValueDatabaseConfig containing node_id and other configuration
+    /// - `config`: [`KeyValueDatabaseConfig`] containing node_id and other configuration
     ///
     /// # Returns
-    /// A new KeyValueDatabaseContext configured for single-node operation
-    pub fn new_standalone(config: KeyValueDatabaseConfig) -> Self {
+    /// A new [`KeyValueDatabaseContext`] configured for single-node operation
+    pub(crate) fn new_standalone(config: KeyValueDatabaseConfig) -> Self {
         let shard_manager = Arc::new(RwLock::new(KeyValueShardManager::new_standalone()));
         let system_metacache = Arc::new(RwLock::new(SystemMetadataCache::new(ShardId::from(0))));
         let container_metacaches = Arc::new(RwLock::new(HashMap::new()));
         Self {
-            cluster_id: config.node_id.cluster_id(),
+            node_id: config.node_id,
             shard_manager,
             system_metacache,
             container_metacaches,
@@ -92,21 +97,21 @@ impl KeyValueDatabaseContext {
     /// Create a new database context in distributed mode.
     ///
     /// # What it does
-    /// Initializes a KeyValueDatabaseContext for distributed operation with Raft consensus.
+    /// Initializes a [`KeyValueDatabaseContext`] for distributed operation with Raft consensus.
     /// Similar to standalone mode but includes a Raft router for coordinating operations across nodes.
     ///
     /// # How it works
-    /// 1. Creates a standalone KeyValueShardManager (will be coordinated via Raft)
-    /// 2. Initializes SystemMetadataCache with shard 0 for system metadata
-    /// 3. Creates empty HashMap for container-specific metadata caches
+    /// 1. Creates a standalone [`KeyValueShardManager`] (will be coordinated via Raft)
+    /// 2. Initializes [`SystemMetadataCache`] with shard 0 for system metadata
+    /// 3. Creates empty [`HashMap`] for container-specific metadata caches
     /// 4. Stores the provided raft_router for distributed consensus operations
     ///
     /// # Parameters
-    /// - `config`: KeyValueDatabaseConfig containing node_id and other configuration
-    /// - `raft_router`: Arc-wrapped ConsensusRouter for distributed coordination
+    /// - `config`: [`KeyValueDatabaseConfig`] containing node_id and other configuration
+    /// - `raft_router`: Arc-wrapped [`ConsensusRouter`] for distributed coordination
     ///
     /// # Returns
-    /// A new KeyValueDatabaseContext configured for distributed operation
+    /// A new [`KeyValueDatabaseContext`] configured for distributed operation
     pub fn new_distributed(
         config: KeyValueDatabaseConfig,
         raft_router: Arc<ConsensusRouter>,
@@ -115,7 +120,7 @@ impl KeyValueDatabaseContext {
         let system_metacache = Arc::new(RwLock::new(SystemMetadataCache::new(ShardId::from(0))));
         let container_metacaches = Arc::new(RwLock::new(HashMap::new()));
         Self {
-            cluster_id: config.node_id.cluster_id(),
+            node_id: config.node_id,
             shard_manager,
             system_metacache,
             container_metacaches,
@@ -138,41 +143,38 @@ impl KeyValueDatabaseContext {
         self.raft_router.is_some()
     }
 
-    /// Get the local node ID (if in distributed mode).
+    /// Get the local [`NodeID`].
     ///
     /// # What it does
-    /// Returns the NodeId of this node in a distributed cluster.
+    /// Returns the [`NodeId`] of this node.
     ///
     /// # How it works
-    /// Queries the raft_router for the node_id if it exists.
+    /// Returns the node_id field that was set during construction from the config.
     ///
     /// # Returns
-    /// - `Some(NodeId)` if running in distributed mode
-    /// - `None` if running in standalone mode
-    pub fn node_id(&self) -> Option<NodeId> {
-        self.raft_router
-            .as_ref()
-            .map(|raft_router| raft_router.node_id())
+    /// - `NodeId` - Will likely be zero in standalone mode
+    pub fn node_id(&self) -> NodeId {
+        self.node_id
     }
 
-    /// Get the cluster ID.
+    /// Get the [`ClusterId`].
     ///
     /// # What it does
-    /// Returns the ClusterId that this context belongs to.
+    /// Returns the [`ClusterId`] that this context belongs to.
     ///
     /// # How it works
     /// Returns the cluster_id field that was set during construction from the config.
     ///
     /// # Returns
-    /// The ClusterId for this database context
+    /// The [`ClusterId`] for this database context
     pub fn cluster_id(&self) -> ClusterId {
-        self.cluster_id
+        self.node_id.cluster_id()
     }
 
     /// Get the Raft router (if in distributed mode).
     ///
     /// # What it does
-    /// Returns a reference to the ConsensusRouter for distributed operations.
+    /// Returns a reference to the [`ConsensusRouter`] for distributed operations.
     ///
     /// # How it works
     /// Returns a reference to the raft_router if it exists.
@@ -180,8 +182,8 @@ impl KeyValueDatabaseContext {
     /// # Returns
     /// - `Some(&Arc<ConsensusRouter>)` if running in distributed mode
     /// - `None` if running in standalone mode
-    pub fn consensus_router(&self) -> Option<&Arc<ConsensusRouter>> {
-        self.raft_router.as_ref()
+    pub fn consensus_router(&self) -> Option<Arc<ConsensusRouter>> {
+        self.raft_router.clone()
     }
 
     /**********************************************************************************************\
@@ -195,24 +197,27 @@ impl KeyValueDatabaseContext {
     /// when setting up a new cluster.
     ///
     /// # How it works
-    /// 1. Creates ClusterMetadata with current timestamp and version 1
+    /// 1. Creates [`ClusterRecord`] with the current timestamp and version 1
     /// 2. Stores metadata in system_metacache for fast access
     /// 3. Serializes and persists metadata to system shard (ShardId 0)
-    /// 4. Uses SystemKeys::cluster_key for the storage key
+    /// 4. Uses [`SystemKeys::cluster_key`] for the storage key
     ///
     /// # Parameters
-    /// - `config`: ClusterCreate containing name, options, and metadata
+    /// - `config`: [`ClusterCreate`] containing name, options, and metadata
     ///
     /// # Returns
     /// - `Ok(())` if cluster initialization succeeds
     /// - `Err(KeyValueError)` if lock poisoned or persistence fails
     #[tracing::instrument(skip(self))]
-    pub async fn initialize_cluster(&self, config: ClusterCreate) -> KeyValueResult<()> {
+    pub async fn initialize_cluster(
+        &self,
+        config: ClusterCreate,
+    ) -> KeyValueResult<ClusterMetadata> {
         let now = Timestamp::now();
 
         // Create cluster metadata
-        let cluster = ClusterMetadata {
-            id: self.cluster_id,
+        let cluster = ClusterRecord {
+            id: self.node_id.cluster_id(),
             name: config.name.clone(),
             version: 1,
             created_at: now,
@@ -231,7 +236,7 @@ impl KeyValueDatabaseContext {
         }
 
         // Persist to system shard
-        let key = SystemKeys::cluster_key(self.cluster_id);
+        let key = SystemKeys::cluster_key(self.node_id.cluster_id());
         let value = crate::utility::serialize(&cluster)?;
 
         let shard_manager = self
@@ -240,7 +245,7 @@ impl KeyValueDatabaseContext {
             .map_err(|_| KeyValueError::LockPoisoned)?;
         shard_manager.put(ShardId::from(0), &key, &value).await?;
 
-        Ok(())
+        Ok(ClusterMetadata::from(cluster))
     }
 
     /// Get the cluster metadata.
@@ -249,16 +254,32 @@ impl KeyValueDatabaseContext {
     /// Retrieves the metadata for this cluster, checking cache first then disk.
     ///
     /// # How it works
-    /// 1. First checks system_metacache for cached cluster record
-    /// 2. If not in cache, reads from system shard (ShardId 0) using SystemKeys::cluster_key
+    /// 1. First, checks system_metacache for the cached cluster record
+    /// 2. If not in cache, reads from system shard (ShardId 0) using [`SystemKeys::cluster_key`]
     /// 3. Deserializes the stored metadata
-    /// 4. Returns error if cluster metadata not found
+    /// 4. Returns error if the cluster metadata is not found
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::ClusterView`] on [`ResourceScope::System`]
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
     ///
     /// # Returns
     /// - `Ok(ClusterMetadata)` with the cluster information
     /// - `Err(KeyValueError)` if not found, lock poisoned, or deserialization fails
     #[tracing::instrument(skip(self))]
-    pub async fn get_cluster(&self) -> KeyValueResult<ClusterMetadata> {
+    pub async fn get_cluster(
+        &self,
+        principal: &SecurityPrincipal,
+    ) -> KeyValueResult<ClusterMetadata> {
+        if !principal.has_permission(&Permission::ClusterView) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::ClusterView,
+                resource: ResourceScope::System,
+            });
+        }
         {
             // First Check the cache
             let lock = self
@@ -266,7 +287,7 @@ impl KeyValueDatabaseContext {
                 .read()
                 .map_err(|_| KeyValueError::LockPoisoned)?;
             if let Some(record) = lock.get_cluster_record() {
-                return Ok(record.clone());
+                return Ok(ClusterMetadata::from(record.clone()));
             }
         }
         {
@@ -276,7 +297,10 @@ impl KeyValueDatabaseContext {
                 .read()
                 .map_err(|_| KeyValueError::LockPoisoned)?;
             if let Some(value) = lock
-                .get(ShardId::from(0), &SystemKeys::cluster_key(self.cluster_id))
+                .get(
+                    ShardId::from(0),
+                    &SystemKeys::cluster_key(self.node_id.cluster_id()),
+                )
                 .await?
             {
                 return Ok(deserialize(&value)?);
@@ -286,6 +310,7 @@ impl KeyValueDatabaseContext {
             "Error getting Cluster Metadata",
         )))
     }
+
     /// Update cluster metadata.
     ///
     /// # What it does
@@ -299,15 +324,30 @@ impl KeyValueDatabaseContext {
     /// 5. Stores updated metadata back to cache
     /// 6. Serializes and persists to system shard (ShardId 0)
     ///
+    /// # Access Control
+    /// - Requires [`Permission::ClusterManage`] on [`ResourceScope::System`]
+    ///
     /// # Parameters
-    /// - `config`: ClusterUpdate containing optional name and other updates
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `config`: [`ClusterUpdate`] containing optional name and other updates
     ///
     /// # Returns
     /// - `Ok(())` if update succeeds
-    /// - `Err(KeyValueError::InvalidValue)` if cluster not initialized
+    /// - `Err(KeyValueError::InvalidValue)` if cluster is not initialized
     /// - `Err(KeyValueError)` if lock poisoned or persistence fails
     #[tracing::instrument(skip(self))]
-    pub async fn update_cluster(&self, config: ClusterUpdate) -> KeyValueResult<()> {
+    pub async fn update_cluster(
+        &self,
+        principal: &SecurityPrincipal,
+        config: ClusterUpdate,
+    ) -> KeyValueResult<ClusterMetadata> {
+        if !principal.has_permission(&Permission::ClusterManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::ClusterManage,
+                resource: ResourceScope::System,
+            });
+        }
         let mut cache = self
             .system_metacache
             .write()
@@ -328,8 +368,8 @@ impl KeyValueDatabaseContext {
             drop(cache);
 
             // Persist to system shard
-            let key = SystemKeys::cluster_key(self.cluster_id);
-            let value = crate::utility::serialize(&cluster)?;
+            let key = SystemKeys::cluster_key(self.node_id.cluster_id());
+            let value = serialize(&cluster)?;
 
             let shard_manager = self
                 .shard_manager
@@ -337,7 +377,7 @@ impl KeyValueDatabaseContext {
                 .map_err(|_| KeyValueError::LockPoisoned)?;
             shard_manager.put(ShardId::from(0), &key, &value).await?;
 
-            Ok(())
+            Ok(ClusterMetadata::from(cluster))
         } else {
             Err(KeyValueError::InvalidValue(
                 "Cluster not initialized".to_string(),
@@ -353,15 +393,35 @@ impl KeyValueDatabaseContext {
     /// # How it works
     /// Reads from system_metacache and returns all cached region records.
     ///
+    /// # Access Control
+    /// - Requires [`Permission::ClusterView`] on [`ResourceScope::System`]
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    ///
     /// # Returns
-    /// An iterator over RegionMetadata for all regions
+    /// An iterator over [`RegionRecord`] for all regions
     ///
     /// # TODO
     /// - Implement proper region enumeration from disk if not in cache
     /// - Add pagination support for large numbers of regions
-    pub async fn get_regions(&self) -> KeyValueResult<impl IntoIterator<Item = RegionMetadata>> {
+    pub async fn get_regions(
+        &self,
+        principal: &SecurityPrincipal,
+    ) -> KeyValueResult<impl IntoIterator<Item = RegionMetadata>> {
+        if !principal.has_permission(&Permission::ClusterView) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::ClusterView,
+                resource: ResourceScope::System,
+            });
+        }
         let lock = self.system_metacache.read().unwrap();
-        Ok(lock.list_region_records().cloned().collect::<Vec<_>>())
+        Ok(lock
+            .list_region_records()
+            .cloned()
+            .map(RegionMetadata::from)
+            .collect::<Vec<_>>())
     }
 
     /// Get metadata about a specific region.
@@ -372,8 +432,12 @@ impl KeyValueDatabaseContext {
     /// # How it works
     /// Reads from system_metacache to find the region record.
     ///
+    /// # Access Control
+    /// - Requires [`Permission::ClusterView`] on [`ResourceScope::System`]
+    ///
     /// # Parameters
-    /// - `region`: RegionId to look up
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `region`: [`RegionId`] to look up
     ///
     /// # Returns
     /// - `Some(RegionMetadata)` if region exists
@@ -381,9 +445,24 @@ impl KeyValueDatabaseContext {
     ///
     /// # TODO
     /// - Implement fallback to disk if not in cache
-    pub async fn get_region(&self, region: RegionId) -> KeyValueResult<Option<RegionMetadata>> {
+    pub async fn get_region(
+        &self,
+        principal: &SecurityPrincipal,
+        region: RegionId,
+    ) -> KeyValueResult<Option<RegionMetadata>> {
+        if !principal.has_permission(&Permission::ClusterView) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::ClusterView,
+                resource: ResourceScope::System,
+            });
+        }
         let lock = self.system_metacache.read().unwrap();
-        Ok(lock.get_region_record(&region).cloned())
+        let region = lock
+            .get_region_record(&region)
+            .cloned()
+            .map(RegionMetadata::from);
+        Ok(region)
     }
 
     /// Get region metadata by name.
@@ -394,7 +473,11 @@ impl KeyValueDatabaseContext {
     /// # How it works
     /// Iterates through cached region records to find one matching the name.
     ///
+    /// # Access Control
+    /// - Requires [`Permission::ClusterView`] on [`ResourceScope::System`]
+    ///
     /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `name`: Region name to search for
     ///
     /// # Returns
@@ -404,9 +487,25 @@ impl KeyValueDatabaseContext {
     /// # TODO
     /// - Implement proper region lookup from disk when cache is not available
     /// - Add index for name-based lookups
-    pub async fn get_region_by_name(&self, name: &str) -> KeyValueResult<Option<RegionMetadata>> {
+    pub async fn get_region_by_name(
+        &self,
+        principal: &SecurityPrincipal,
+        name: &str,
+    ) -> KeyValueResult<Option<RegionMetadata>> {
+        if !principal.has_permission(&Permission::ClusterView) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::ClusterView,
+                resource: ResourceScope::System,
+            });
+        }
         let lock = self.system_metacache.read().unwrap();
-        Ok(lock.list_region_records().cloned().find(|r| r.name == name))
+        let region = lock
+            .list_region_records()
+            .find(|r| r.name == name)
+            .cloned()
+            .map(RegionMetadata::from);
+        Ok(region)
     }
 
     /// Add a new region to the cluster.
@@ -415,13 +514,17 @@ impl KeyValueDatabaseContext {
     /// Creates a new region with the provided configuration.
     ///
     /// # How it works
-    /// 1. Generates a new RegionId (currently hardcoded to 0)
-    /// 2. Creates RegionMetadata with current timestamp and version 1
+    /// 1. Generates a new [`RegionId`]
+    /// 2. Creates [`RegionRecord`] with current timestamp and version 1
     /// 3. Stores in system_metacache
     /// 4. Serializes and persists to system shard using SystemKeys::region_key
     ///
+    /// # Access Control
+    /// - Requires [`Permission::SystemClusterManage`] on [`ResourceScope::System`]
+    ///
     /// # Parameters
-    /// - `config`: RegionCreate containing name, cluster, options, and metadata
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `config`: [`RegionCreate`] containing name, cluster, options, and metadata
     ///
     /// # Returns
     /// - `Ok(RegionMetadata)` with the created region information
@@ -429,14 +532,25 @@ impl KeyValueDatabaseContext {
     ///
     /// # TODO
     /// - Generate proper unique region ID instead of hardcoded 0
-    pub async fn add_region(&self, config: RegionCreate) -> KeyValueResult<RegionMetadata> {
+    pub async fn add_region(
+        &self,
+        principal: &SecurityPrincipal,
+        config: RegionCreate,
+    ) -> KeyValueResult<RegionMetadata> {
+        if !principal.has_permission(&Permission::ClusterManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::ClusterManage,
+                resource: ResourceScope::System,
+            });
+        }
         let now = Timestamp::now();
 
         // TODO: Generate proper region ID
         let region_id = RegionId::from(0);
 
         // Create region metadata
-        let region = RegionMetadata {
+        let region = RegionRecord {
             id: region_id,
             name: config.name.clone(),
             version: 1,
@@ -457,7 +571,7 @@ impl KeyValueDatabaseContext {
         }
 
         // Persist to system shard
-        let key = SystemKeys::region_key(self.cluster_id, region_id);
+        let key = SystemKeys::region_key(self.node_id.cluster_id(), region_id);
         let value = crate::utility::serialize(&region)?;
 
         let shard_manager = self
@@ -466,37 +580,46 @@ impl KeyValueDatabaseContext {
             .map_err(|_| KeyValueError::LockPoisoned)?;
         shard_manager.put(ShardId::from(0), &key, &value).await?;
 
-        Ok(region)
+        Ok(RegionMetadata::from(region))
     }
-    /// TODO: Add Documentation
+
+    /// TODO: Add Documentation for update_region
     #[tracing::instrument(skip(self))]
     pub async fn update_region(
         &self,
+        principal: &SecurityPrincipal,
         region: &RegionId,
         config: RegionUpdate,
     ) -> KeyValueResult<RegionMetadata> {
+        if !principal.has_permission(&Permission::ClusterManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::ClusterManage,
+                resource: ResourceScope::System,
+            });
+        }
         let mut cache = self
             .system_metacache
             .write()
             .map_err(|_| KeyValueError::LockPoisoned)?;
 
-        if let Some(mut region_meta) = cache.get_region_record(region).cloned() {
+        if let Some(mut region_record) = cache.get_region_record(region).cloned() {
             // Update fields
             if let Some(name) = config.name {
-                region_meta.name = name;
+                region_record.name = name;
             }
 
             // Update version and timestamp
-            region_meta.version += 1;
-            region_meta.last_modified = Timestamp::now();
+            region_record.version += 1;
+            region_record.last_modified = Timestamp::now();
 
             // Store in cache
-            cache.set_region_record(region_meta.clone());
+            cache.set_region_record(region_record.clone());
             drop(cache);
 
             // Persist to system shard
-            let key = SystemKeys::region_key(self.cluster_id, *region);
-            let value = crate::utility::serialize(&region_meta)?;
+            let key = SystemKeys::region_key(self.node_id.cluster_id(), *region);
+            let value = serialize(&region_record)?;
 
             let shard_manager = self
                 .shard_manager
@@ -504,7 +627,7 @@ impl KeyValueDatabaseContext {
                 .map_err(|_| KeyValueError::LockPoisoned)?;
             shard_manager.put(ShardId::from(0), &key, &value).await?;
 
-            Ok(region_meta)
+            Ok(RegionMetadata::from(region_record))
         } else {
             Err(KeyValueError::InvalidValue(format!(
                 "Region not found: {:?}",
@@ -512,8 +635,22 @@ impl KeyValueDatabaseContext {
             )))
         }
     }
+
+    /// TODO: Add Documentation for remove_region
     #[tracing::instrument(skip(self))]
-    pub async fn remove_region(&self, region: &RegionId) -> KeyValueResult<()> {
+    pub async fn remove_region(
+        &self,
+        principal: &SecurityPrincipal,
+        region: &RegionId,
+    ) -> KeyValueResult<()> {
+        // Check permissions
+        if !principal.has_permission(&Permission::ClusterManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::ClusterManage,
+                resource: ResourceScope::System,
+            });
+        }
         // Remove from cache
         {
             let mut cache = self
@@ -523,9 +660,10 @@ impl KeyValueDatabaseContext {
             cache.clear_region_record(region);
         }
 
-        // Delete from system shard
-        let key = SystemKeys::region_key(self.cluster_id, *region);
+        // Generate Key
+        let key = SystemKeys::region_key(self.node_id.cluster_id(), *region);
 
+        // Delete record from system shard
         let shard_manager = self
             .shard_manager
             .read()
@@ -535,25 +673,67 @@ impl KeyValueDatabaseContext {
         Ok(())
     }
 
+    /// TODO: Add Documentation for get_servers
     #[tracing::instrument(skip(self))]
-    pub async fn get_servers(&self) -> KeyValueResult<impl IntoIterator<Item = ServerMetadata>> {
+    pub async fn get_servers(
+        &self,
+        principal: &SecurityPrincipal,
+    ) -> KeyValueResult<impl IntoIterator<Item = ServerMetadata>> {
+        if !principal.has_permission(&Permission::ClusterView) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::ClusterView,
+                resource: ResourceScope::System,
+            });
+        }
         // TODO: Implement Proper Get Server Logic
         let lock = self.system_metacache.read().unwrap();
-        Ok(lock.list_server_records().cloned().collect::<Vec<_>>())
+        let servers = lock
+            .list_server_records()
+            .cloned()
+            .map(ServerMetadata::from)
+            .collect::<Vec<_>>();
+        Ok(servers)
     }
 
     #[tracing::instrument(skip(self))]
     pub async fn get_servers_by_region(
         &self,
-        region_id: &RegionId,
+        principal: &SecurityPrincipal,
+        region: &RegionId,
     ) -> KeyValueResult<impl IntoIterator<Item = ServerMetadata>> {
+        if !principal.has_permission(&Permission::ClusterView) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::ClusterView,
+                resource: ResourceScope::System,
+            });
+        }
         // TODO: Implement Proper Get Server By Region Logic
         let lock = self.system_metacache.read().unwrap();
-        Ok(lock.list_server_records().cloned().collect::<Vec<_>>())
+        let servers = lock
+            .list_server_records()
+            .filter(|record| record.id.region_id() == *region)
+            .cloned()
+            .map(ServerMetadata::from)
+            .collect::<Vec<ServerMetadata>>();
+        Ok(servers)
     }
 
+    /// TODO: Add Documentation for get_server
     #[tracing::instrument(skip(self))]
-    pub async fn get_server(&self, server: &NodeId) -> KeyValueResult<Option<ServerMetadata>> {
+    pub async fn get_server(
+        &self,
+        principal: &SecurityPrincipal,
+        server: &NodeId,
+    ) -> KeyValueResult<Option<ServerMetadata>> {
+        if !principal.has_permission(&Permission::ClusterView) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::ClusterView,
+                resource: ResourceScope::System,
+            });
+        }
         // Check cache first
         {
             let cache = self
@@ -561,19 +741,23 @@ impl KeyValueDatabaseContext {
                 .read()
                 .map_err(|_| KeyValueError::LockPoisoned)?;
             if let Some(server_meta) = cache.get_server_record(&server.server_id()) {
-                return Ok(Some(server_meta.clone()));
+                return Ok(Some(ServerMetadata::from(server_meta.clone())));
             }
         }
 
         // Read from disk
-        let key = SystemKeys::server_key(self.cluster_id, server.region_id(), server.server_id());
+        let key = SystemKeys::server_key(
+            self.node_id.cluster_id(),
+            server.region_id(),
+            server.server_id(),
+        );
         let shard_manager = self
             .shard_manager
             .read()
             .map_err(|_| KeyValueError::LockPoisoned)?;
 
         if let Some(value) = shard_manager.get(ShardId::from(0), &key).await? {
-            let server_meta: ServerMetadata = deserialize(&value)?;
+            let server_meta: ServerRecord = deserialize(&value)?;
 
             // Update cache
             let mut cache = self
@@ -582,21 +766,34 @@ impl KeyValueDatabaseContext {
                 .map_err(|_| KeyValueError::LockPoisoned)?;
             cache.set_server_record(server_meta.clone());
 
-            Ok(Some(server_meta))
+            Ok(Some(ServerMetadata::from(server_meta.clone())))
         } else {
             Ok(None)
         }
     }
 
+    /// TODO: Add Documentation for add_server
     #[tracing::instrument(skip(self))]
-    pub async fn add_server(&self, config: ServerCreate) -> KeyValueResult<ServerMetadata> {
+    pub async fn add_server(
+        &self,
+        principal: &SecurityPrincipal,
+        config: ServerCreate,
+    ) -> KeyValueResult<ServerMetadata> {
+        // Check Permissions
+        if !principal.has_permission(&Permission::ClusterManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::ClusterManage,
+                resource: ResourceScope::System,
+            });
+        }
         let now = Timestamp::now();
 
         // Generate NodeId from region and cluster
         let node_id = NodeId::from_parts(config.cluster, config.region, ServerId::from(0));
 
         // Create server metadata
-        let server = ServerMetadata {
+        let server = ServerRecord {
             id: node_id,
             name: config.name.clone(),
             version: 1,
@@ -616,7 +813,8 @@ impl KeyValueDatabaseContext {
         }
 
         // Persist to system shard
-        let key = SystemKeys::server_key(self.cluster_id, config.region, ServerId::from(0));
+        let key =
+            SystemKeys::server_key(self.node_id.cluster_id(), config.region, ServerId::from(0));
         let value = crate::utility::serialize(&server)?;
 
         let shard_manager = self
@@ -625,38 +823,50 @@ impl KeyValueDatabaseContext {
             .map_err(|_| KeyValueError::LockPoisoned)?;
         shard_manager.put(ShardId::from(0), &key, &value).await?;
 
-        Ok(server)
+        Ok(ServerMetadata::from(server))
     }
 
+    /// TODO: Add documentation for update_server
     #[tracing::instrument(skip(self))]
     pub async fn update_server(
         &self,
+        principal: &SecurityPrincipal,
         server: &NodeId,
         config: ServerUpdate,
     ) -> KeyValueResult<ServerMetadata> {
+        if !principal.has_permission(&Permission::ClusterManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::ClusterManage,
+                resource: ResourceScope::System,
+            });
+        }
         let mut cache = self
             .system_metacache
             .write()
             .map_err(|_| KeyValueError::LockPoisoned)?;
 
-        if let Some(mut server_meta) = cache.get_server_record(&server.server_id()).cloned() {
+        if let Some(mut server_record) = cache.get_server_record(&server.server_id()).cloned() {
             // Update fields
             if let Some(name) = config.name {
-                server_meta.name = name;
+                server_record.name = name;
             }
 
             // Update version and timestamp
-            server_meta.version += 1;
-            server_meta.last_modified = Timestamp::now();
+            server_record.version += 1;
+            server_record.last_modified = Timestamp::now();
 
             // Store in cache
-            cache.set_server_record(server_meta.clone());
+            cache.set_server_record(server_record.clone());
             drop(cache);
 
             // Persist to system shard
-            let key =
-                SystemKeys::server_key(self.cluster_id, server.region_id(), server.server_id());
-            let value = crate::utility::serialize(&server_meta)?;
+            let key = SystemKeys::server_key(
+                self.node_id.cluster_id(),
+                server.region_id(),
+                server.server_id(),
+            );
+            let value = serialize(&server_record)?;
 
             let shard_manager = self
                 .shard_manager
@@ -664,7 +874,7 @@ impl KeyValueDatabaseContext {
                 .map_err(|_| KeyValueError::LockPoisoned)?;
             shard_manager.put(ShardId::from(0), &key, &value).await?;
 
-            Ok(server_meta)
+            Ok(ServerMetadata::from(server_record))
         } else {
             Err(KeyValueError::InvalidValue(format!(
                 "Server not found: {:?}",
@@ -672,6 +882,7 @@ impl KeyValueDatabaseContext {
             )))
         }
     }
+
     /// Remove a server from the cluster.
     ///
     /// # What it does
@@ -679,10 +890,14 @@ impl KeyValueDatabaseContext {
     ///
     /// # How it works
     /// 1. Removes server record from system_metacache
-    /// 2. Deletes persisted metadata from system shard using SystemKeys::server_key
+    /// 2. Deletes persisted metadata from system shard using [`SystemKeys::server_key`]
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::ClusterManage`] on [`ResourceScope::System`]
     ///
     /// # Parameters
-    /// - `server`: NodeId to remove
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `server`: [`NodeId`] to remove
     ///
     /// # Returns
     /// - `Ok(())` if removal succeeds
@@ -692,7 +907,18 @@ impl KeyValueDatabaseContext {
     /// - Add validation to prevent deletion if server is hosting shards
     /// - Implement graceful server removal with shard migration
     #[tracing::instrument(skip(self))]
-    pub async fn remove_server(&self, server: &NodeId) -> KeyValueResult<()> {
+    pub async fn remove_server(
+        &self,
+        principal: &SecurityPrincipal,
+        server: &NodeId,
+    ) -> KeyValueResult<()> {
+        if !principal.has_permission(&Permission::ClusterManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::ClusterManage,
+                resource: ResourceScope::System,
+            });
+        }
         // Remove from cache
         {
             let mut cache = self
@@ -703,7 +929,7 @@ impl KeyValueDatabaseContext {
         }
 
         // Delete from system shard
-        let key = SystemKeys::server_key(self.cluster_id, server.region_id(), server.server_id());
+        let key = SystemKeys::server_key(self.cluster_id(), server.region_id(), server.server_id());
 
         let shard_manager = self
             .shard_manager
@@ -722,19 +948,40 @@ impl KeyValueDatabaseContext {
     /// # How it works
     /// Reads from system_metacache and returns all cached user records.
     ///
+    /// # Access Control
+    /// - Requires [`Permission::SecurityManage`] on [`ResourceScope::System`]
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    ///
     /// # Returns
-    /// An iterator over UserMetadata for all users
+    /// An iterator over [`SystemUserMetadata`] for all users
     ///
     /// # TODO
     /// - Implement pagination support for large numbers of users
     /// - Add disk fallback if not in cache
     #[tracing::instrument(skip(self))]
-    pub async fn get_users(&self) -> KeyValueResult<impl IntoIterator<Item = UserMetadata>> {
+    pub async fn get_system_users(
+        &self,
+        principal: &SecurityPrincipal,
+    ) -> KeyValueResult<impl IntoIterator<Item = SystemUserMetadata>> {
+        if !principal.has_permission(&Permission::SecurityManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::SecurityManage,
+                resource: ResourceScope::System,
+            });
+        }
         let cache = self
             .system_metacache
             .read()
             .map_err(|_| KeyValueError::LockPoisoned)?;
-        Ok(cache.list_user_records().cloned().collect::<Vec<_>>())
+        let users = cache
+            .list_system_user_records()
+            .cloned()
+            .map(SystemUserMetadata::from)
+            .collect::<Vec<_>>();
+        Ok(users)
     }
 
     /// Get metadata for a specific user.
@@ -748,44 +995,59 @@ impl KeyValueDatabaseContext {
     /// 3. Deserializes the stored metadata
     /// 4. Updates cache with the retrieved metadata
     ///
+    /// # Access Control
+    /// - Requires [`Permission::SystemSecurityManage`] on [`ResourceScope::System`]
+    ///
     /// # Parameters
-    /// - `user`: UserId to look up
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `user`: [`UserId`] to look up
     ///
     /// # Returns
-    /// - `Some(UserMetadata)` if user exists
+    /// - `Some(SystemUserMetadata)` if user exists
     /// - `None` if user not found
     /// - `Err(KeyValueError)` if lock poisoned or deserialization fails
     #[tracing::instrument(skip(self))]
-    pub async fn get_user(&self, user: UserId) -> KeyValueResult<Option<UserMetadata>> {
+    pub async fn get_system_user(
+        &self,
+        principal: &SecurityPrincipal,
+        user: UserId,
+    ) -> KeyValueResult<Option<SystemUserMetadata>> {
+        if !principal.has_permission(&Permission::SecurityManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::SecurityManage,
+                resource: ResourceScope::System,
+            });
+        }
         // Check cache first
         {
             let cache = self
                 .system_metacache
                 .read()
                 .map_err(|_| KeyValueError::LockPoisoned)?;
-            if let Some(user_meta) = cache.get_user_record(&user) {
-                return Ok(Some(user_meta.clone()));
+            if let Some(user_meta) = cache.get_system_user_record(&user) {
+                return Ok(Some(SystemUserMetadata::from(user_meta.clone())));
             }
         }
 
         // Read from disk
-        let key = SystemKeys::user_key(user);
+        let key = SystemKeys::system_user_key(user);
         let shard_manager = self
             .shard_manager
             .read()
             .map_err(|_| KeyValueError::LockPoisoned)?;
 
         if let Some(value) = shard_manager.get(ShardId::from(0), &key).await? {
-            let user_meta: UserMetadata = deserialize(&value)?;
+            let user_record: SystemUserRecord = deserialize(&value)?;
 
             // Update cache
             let mut cache = self
                 .system_metacache
                 .write()
                 .map_err(|_| KeyValueError::LockPoisoned)?;
-            cache.set_user_record(user_meta.clone());
+            cache.set_system_user_record(user_record.clone());
 
-            Ok(Some(user_meta))
+            Ok(Some(SystemUserMetadata::from(user_record)))
         } else {
             Ok(None)
         }
@@ -800,7 +1062,11 @@ impl KeyValueDatabaseContext {
     /// Iterates through cached user records to find one matching the login name.
     /// Currently uses the 'name' field as the login identifier.
     ///
+    /// # Access Control
+    /// - Requires [`Permission::SystemSecurityManage`] on [`ResourceScope::System`]
+    ///
     /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `username`: Username to search for
     ///
     /// # Returns
@@ -812,19 +1078,28 @@ impl KeyValueDatabaseContext {
     /// - Add index for login-based lookups
     /// - Implement disk fallback if not in cache
     #[tracing::instrument(skip(self))]
-    pub async fn get_user_by_username(
+    pub async fn get_system_user_by_username(
         &self,
+        principal: &SecurityPrincipal,
         username: &str,
-    ) -> KeyValueResult<Option<UserMetadata>> {
+    ) -> KeyValueResult<Option<SystemUserMetadata>> {
+        if !principal.has_permission(&Permission::SecurityManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::SecurityManage,
+                resource: ResourceScope::System,
+            });
+        }
         // Search in cache by name (UserMetadata doesn't have a login field, using name as identifier)
         let cache = self
             .system_metacache
             .read()
             .map_err(|_| KeyValueError::LockPoisoned)?;
         let user = cache
-            .list_user_records()
+            .list_system_user_records()
             .find(|u| u.username == username)
-            .cloned();
+            .cloned()
+            .map(SystemUserMetadata::from);
         Ok(user)
     }
 
@@ -834,13 +1109,17 @@ impl KeyValueDatabaseContext {
     /// Creates a new user with the provided configuration.
     ///
     /// # How it works
-    /// 1. Generates a new UserId (currently hardcoded to 0)
-    /// 2. Creates UserMetadata with current timestamp, version 1, and empty groups/roles/grants
+    /// 1. Generates a new [`UserId`]
+    /// 2. Creates [`UserMetadata`] with current timestamp, version 1, and empty groups/roles/grants
     /// 3. Stores in system_metacache
-    /// 4. Serializes and persists to system shard using SystemKeys::user_key
+    /// 4. Serializes and persists to system shard using [`SystemKeys::user_key`]
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::SystemSecurityManage`] on [`ResourceScope::System`]
     ///
     /// # Parameters
-    /// - `config`: UserCreate containing name, options, and metadata
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `config`: [`SystemUserCreate`] containing name, options, and metadata
     ///
     /// # Returns
     /// - `Ok(UserMetadata)` with the created user information
@@ -851,14 +1130,25 @@ impl KeyValueDatabaseContext {
     /// - Add password hashing support (currently password_hash is None)
     /// - Implement email validation
     #[tracing::instrument(skip(self))]
-    pub async fn create_user(&self, config: UserCreate) -> KeyValueResult<UserMetadata> {
+    pub async fn create_system_user(
+        &self,
+        principal: &SecurityPrincipal,
+        config: SystemUserCreate,
+    ) -> KeyValueResult<SystemUserMetadata> {
+        if !principal.has_permission(&Permission::SecurityManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::SecurityManage,
+                resource: ResourceScope::System,
+            });
+        }
         let now = Timestamp::now();
 
         // TODO: Generate proper user ID
         let user_id = UserId::from(0);
 
         // Create user metadata
-        let user = UserMetadata {
+        let user = SystemUserRecord {
             id: user_id,
             username: config.username.clone(),
             version: 1,
@@ -869,7 +1159,6 @@ impl KeyValueDatabaseContext {
             grants: Vec::new(), // Start with no permission grants - grant via roles/groups
             enabled: true,
             password_hash: None, // TODO: Add password hashing
-            email: None,
             options: config.options.clone(),
             metadata: config.metadata.clone(),
         };
@@ -880,11 +1169,11 @@ impl KeyValueDatabaseContext {
                 .system_metacache
                 .write()
                 .map_err(|_| KeyValueError::LockPoisoned)?;
-            cache.set_user_record(user.clone());
+            cache.set_system_user_record(user.clone());
         }
 
         // Persist to system shard
-        let key = SystemKeys::user_key(user_id);
+        let key = SystemKeys::system_user_key(user_id);
         let value = crate::utility::serialize(&user)?;
 
         let shard_manager = self
@@ -893,7 +1182,7 @@ impl KeyValueDatabaseContext {
             .map_err(|_| KeyValueError::LockPoisoned)?;
         shard_manager.put(ShardId::from(0), &key, &value).await?;
 
-        Ok(user)
+        Ok(SystemUserMetadata::from(user))
     }
 
     /// Update an existing user's metadata.
@@ -910,39 +1199,51 @@ impl KeyValueDatabaseContext {
     /// 6. Stores updated metadata back to cache
     /// 7. Serializes and persists to system shard
     ///
+    /// # Access Control
+    /// - Requires [`Permission::SystemSecurityManage`] on [`ResourceScope::System`]
+    ///
     /// # Parameters
-    /// - `user`: UserId to update
-    /// - `config`: UserUpdate containing optional name, options, and metadata updates
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `user`: [`UserId`] to update
+    /// - `config`: [`SystemUserUpdate`] containing optional name, options, and metadata updates
     ///
     /// # Returns
     /// - `Ok(UserMetadata)` with updated user information
     /// - `Err(KeyValueError::InvalidValue)` if user not found
     /// - `Err(KeyValueError)` if lock poisoned or persistence fails
     #[tracing::instrument(skip(self))]
-    pub async fn update_user(
+    pub async fn update_system_user(
         &self,
+        principal: &SecurityPrincipal,
         user: &UserId,
-        config: UserUpdate,
-    ) -> KeyValueResult<UserMetadata> {
+        config: SystemUserUpdate,
+    ) -> KeyValueResult<SystemUserMetadata> {
+        if !principal.has_permission(&Permission::SecurityManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::SecurityManage,
+                resource: ResourceScope::System,
+            });
+        }
         let mut cache = self
             .system_metacache
             .write()
             .map_err(|_| KeyValueError::LockPoisoned)?;
 
-        if let Some(mut user_meta) = cache.get_user_record(user).cloned() {
+        if let Some(mut user_record) = cache.get_system_user_record(user).cloned() {
             // Update fields
             if let Some(username) = config.username {
-                user_meta.username = username;
+                user_record.username = username;
             }
 
             // Apply option updates
             for opt_update in &config.options {
                 match opt_update {
                     PropertyUpdate::Set(key, value) => {
-                        user_meta.options.insert(key.clone(), value.clone());
+                        user_record.options.insert(key.clone(), value.clone());
                     }
                     PropertyUpdate::Clear(key) => {
-                        user_meta.options.remove(key);
+                        user_record.options.remove(key);
                     }
                 }
             }
@@ -951,25 +1252,25 @@ impl KeyValueDatabaseContext {
             for meta_update in &config.metadata {
                 match meta_update {
                     PropertyUpdate::Set(key, value) => {
-                        user_meta.metadata.insert(key.clone(), value.clone());
+                        user_record.metadata.insert(key.clone(), value.clone());
                     }
                     PropertyUpdate::Clear(key) => {
-                        user_meta.metadata.remove(key);
+                        user_record.metadata.remove(key);
                     }
                 }
             }
 
             // Update version and timestamp
-            user_meta.version += 1;
-            user_meta.last_modified = Timestamp::now();
+            user_record.version += 1;
+            user_record.last_modified = Timestamp::now();
 
             // Store in cache
-            cache.set_user_record(user_meta.clone());
+            cache.set_system_user_record(user_record.clone());
             drop(cache);
 
             // Persist to system shard
-            let key = SystemKeys::user_key(*user);
-            let value = crate::utility::serialize(&user_meta)?;
+            let key = SystemKeys::system_user_key(*user);
+            let value = crate::utility::serialize(&user_record)?;
 
             let shard_manager = self
                 .shard_manager
@@ -977,7 +1278,7 @@ impl KeyValueDatabaseContext {
                 .map_err(|_| KeyValueError::LockPoisoned)?;
             shard_manager.put(ShardId::from(0), &key, &value).await?;
 
-            Ok(user_meta)
+            Ok(SystemUserMetadata::from(user_record))
         } else {
             Err(KeyValueError::InvalidValue(format!(
                 "User not found: {:?}",
@@ -995,8 +1296,12 @@ impl KeyValueDatabaseContext {
     /// 1. Removes user record from system_metacache
     /// 2. Deletes persisted metadata from system shard using SystemKeys::user_key
     ///
+    /// # Access Control
+    /// - Requires [`Permission::SystemSecurityManage`] on [`ResourceScope::System`]
+    ///
     /// # Parameters
-    /// - `user`: UserId to remove
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `user`: [`UserId`] to remove
     ///
     /// # Returns
     /// - `Ok(())` if removal succeeds
@@ -1006,18 +1311,29 @@ impl KeyValueDatabaseContext {
     /// - Add validation to check for user's active sessions
     /// - Implement cascade deletion or transfer of user-owned resources
     #[tracing::instrument(skip(self))]
-    pub async fn remove_user(&self, user: &UserId) -> KeyValueResult<()> {
+    pub async fn remove_system_user(
+        &self,
+        principal: &SecurityPrincipal,
+        user: &UserId,
+    ) -> KeyValueResult<()> {
+        if !principal.has_permission(&Permission::SecurityManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::SecurityManage,
+                resource: ResourceScope::System,
+            });
+        }
         // Remove from cache
         {
             let mut cache = self
                 .system_metacache
                 .write()
                 .map_err(|_| KeyValueError::LockPoisoned)?;
-            cache.clear_user_record(user);
+            cache.clear_system_user_record(user);
         }
 
         // Delete from system shard
-        let key = SystemKeys::user_key(*user);
+        let key = SystemKeys::system_user_key(*user);
 
         let shard_manager = self
             .shard_manager
@@ -1031,18 +1347,46 @@ impl KeyValueDatabaseContext {
     /**********************************************************************************************\
      * Container Management                                                                       *
     \**********************************************************************************************/
-    /// TODO Add Documentation
+    /// TODO: Add Documentation for get_tenants
+    /// TODO: Read from disk if not in cache
     #[tracing::instrument(skip(self))]
-    pub async fn get_tenants(&self) -> KeyValueResult<impl IntoIterator<Item = TenantMetadata>> {
+    pub async fn get_tenants(
+        &self,
+        principal: &SecurityPrincipal,
+    ) -> KeyValueResult<impl IntoIterator<Item = TenantMetadata>> {
+        if !principal.has_permission(&Permission::TenantView) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TenantView,
+                resource: ResourceScope::System,
+            });
+        }
         let cache = self
             .system_metacache
             .read()
             .map_err(|_| KeyValueError::LockPoisoned)?;
-        Ok(cache.list_tenant_records().cloned().collect::<Vec<_>>())
+        let tenants = cache
+            .list_tenant_records()
+            .cloned()
+            .map(TenantMetadata::from)
+            .collect::<Vec<_>>();
+        Ok(tenants)
     }
 
+    /// TODO: Add Documentation for get_tenant
     #[tracing::instrument(skip(self))]
-    pub async fn get_tenant(&self, tenant: &TenantId) -> KeyValueResult<Option<TenantMetadata>> {
+    pub async fn get_tenant(
+        &self,
+        principal: &SecurityPrincipal,
+        tenant: &TenantId,
+    ) -> KeyValueResult<Option<TenantMetadata>> {
+        if !principal.has_permission(&Permission::TenantView) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TenantView,
+                resource: ResourceScope::System,
+            });
+        }
         // Check cache first
         {
             let cache = self
@@ -1050,7 +1394,7 @@ impl KeyValueDatabaseContext {
                 .read()
                 .map_err(|_| KeyValueError::LockPoisoned)?;
             if let Some(tenant_meta) = cache.get_tenant_record(tenant) {
-                return Ok(Some(tenant_meta.clone()));
+                return Ok(Some(TenantMetadata::from(tenant_meta.clone())));
             }
         }
 
@@ -1062,7 +1406,7 @@ impl KeyValueDatabaseContext {
             .map_err(|_| KeyValueError::LockPoisoned)?;
 
         if let Some(value) = shard_manager.get(ShardId::from(0), &key).await? {
-            let tenant_meta: TenantMetadata = deserialize(&value)?;
+            let tenant_meta: TenantRecord = deserialize(&value)?;
 
             // Update cache
             let mut cache = self
@@ -1071,14 +1415,26 @@ impl KeyValueDatabaseContext {
                 .map_err(|_| KeyValueError::LockPoisoned)?;
             cache.set_tenant_record(tenant_meta.clone());
 
-            Ok(Some(tenant_meta))
+            Ok(Some(TenantMetadata::from(tenant_meta)))
         } else {
             Ok(None)
         }
     }
 
+    /// TODO: Add Documentation for get_tenant_by_name
     #[tracing::instrument(skip(self))]
-    pub async fn get_tenant_by_name(&self, name: &str) -> KeyValueResult<Option<TenantId>> {
+    pub async fn get_tenant_by_name(
+        &self,
+        principal: &SecurityPrincipal,
+        name: &str,
+    ) -> KeyValueResult<Option<TenantMetadata>> {
+        if !principal.has_permission(&Permission::TenantView) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TenantView,
+                resource: ResourceScope::System,
+            });
+        }
         // Search in cache
         let cache = self
             .system_metacache
@@ -1087,24 +1443,38 @@ impl KeyValueDatabaseContext {
         let tenant = cache
             .list_tenant_records()
             .find(|t| t.name == name)
-            .map(|t| t.id);
+            .cloned()
+            .map(TenantMetadata::from);
         Ok(tenant)
     }
 
+    /// TODO: Add Documentation for create_tenant
     #[tracing::instrument(skip(self))]
-    pub async fn create_tenant(&self, config: TenantCreate) -> KeyValueResult<TenantMetadata> {
+    pub async fn create_tenant(
+        &self,
+        principal: &SecurityPrincipal,
+        config: TenantCreate,
+    ) -> KeyValueResult<TenantMetadata> {
+        if !principal.has_permission(&Permission::SystemTenantManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::SystemTenantManage,
+                resource: ResourceScope::System,
+            });
+        }
         let now = Timestamp::now();
 
         // TODO: Generate proper tenant ID
         let tenant_id = TenantId::from(0);
 
         // Create tenant metadata
-        let tenant = TenantMetadata {
+        let tenant = TenantRecord {
             id: tenant_id,
             name: config.name.clone(),
             version: 1,
             created_at: now,
             last_modified: now,
+            default_tablespace: None,
             options: config.options.clone(),
             metadata: config.metadata.clone(),
         };
@@ -1120,7 +1490,7 @@ impl KeyValueDatabaseContext {
 
         // Persist to system shard
         let key = SystemKeys::tenant_key(tenant_id);
-        let value = crate::utility::serialize(&tenant)?;
+        let value = serialize(&tenant)?;
 
         let shard_manager = self
             .shard_manager
@@ -1128,34 +1498,43 @@ impl KeyValueDatabaseContext {
             .map_err(|_| KeyValueError::LockPoisoned)?;
         shard_manager.put(ShardId::from(0), &key, &value).await?;
 
-        Ok(tenant)
+        Ok(TenantMetadata::from(tenant))
     }
 
+    /// TODO: Add Documentation for update_tenant
     #[tracing::instrument(skip(self))]
     pub async fn update_tenant(
         &self,
+        principal: &SecurityPrincipal,
         tenant: &TenantId,
         config: TenantUpdate,
     ) -> KeyValueResult<TenantMetadata> {
+        if !principal.has_permission(&Permission::SystemTenantManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::SystemTenantManage,
+                resource: ResourceScope::System,
+            });
+        }
         let mut cache = self
             .system_metacache
             .write()
             .map_err(|_| KeyValueError::LockPoisoned)?;
 
-        if let Some(mut tenant_meta) = cache.get_tenant_record(tenant).cloned() {
+        if let Some(mut tenant_record) = cache.get_tenant_record(tenant).cloned() {
             // Update fields
             if let Some(name) = config.name {
-                tenant_meta.name = name;
+                tenant_record.name = name;
             }
 
             // Apply option updates
             for opt_update in &config.options {
                 match opt_update {
                     PropertyUpdate::Set(key, value) => {
-                        tenant_meta.options.insert(key.clone(), value.clone());
+                        tenant_record.options.insert(key.clone(), value.clone());
                     }
                     PropertyUpdate::Clear(key) => {
-                        tenant_meta.options.remove(key);
+                        tenant_record.options.remove(key);
                     }
                 }
             }
@@ -1164,25 +1543,25 @@ impl KeyValueDatabaseContext {
             for meta_update in &config.metadata {
                 match meta_update {
                     PropertyUpdate::Set(key, value) => {
-                        tenant_meta.metadata.insert(key.clone(), value.clone());
+                        tenant_record.metadata.insert(key.clone(), value.clone());
                     }
                     PropertyUpdate::Clear(key) => {
-                        tenant_meta.metadata.remove(key);
+                        tenant_record.metadata.remove(key);
                     }
                 }
             }
 
             // Update version and timestamp
-            tenant_meta.version += 1;
-            tenant_meta.last_modified = Timestamp::now();
+            tenant_record.version += 1;
+            tenant_record.last_modified = Timestamp::now();
 
             // Store in cache
-            cache.set_tenant_record(tenant_meta.clone());
+            cache.set_tenant_record(tenant_record.clone());
             drop(cache);
 
             // Persist to system shard
             let key = SystemKeys::tenant_key(*tenant);
-            let value = crate::utility::serialize(&tenant_meta)?;
+            let value = crate::utility::serialize(&tenant_record)?;
 
             let shard_manager = self
                 .shard_manager
@@ -1190,7 +1569,7 @@ impl KeyValueDatabaseContext {
                 .map_err(|_| KeyValueError::LockPoisoned)?;
             shard_manager.put(ShardId::from(0), &key, &value).await?;
 
-            Ok(tenant_meta)
+            Ok(TenantMetadata::from(tenant_record))
         } else {
             Err(KeyValueError::InvalidValue(format!(
                 "Tenant not found: {:?}",
@@ -1199,8 +1578,20 @@ impl KeyValueDatabaseContext {
         }
     }
 
+    /// TODO: Add Documentation for remove_tenant
     #[tracing::instrument(skip(self))]
-    pub async fn delete_tenant(&self, tenant: &TenantId) -> KeyValueResult<()> {
+    pub async fn delete_tenant(
+        &self,
+        principal: &SecurityPrincipal,
+        tenant: &TenantId,
+    ) -> KeyValueResult<()> {
+        if !principal.has_permission(&Permission::SystemTenantManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::SystemTenantManage,
+                resource: ResourceScope::System,
+            });
+        }
         // TODO: Check if any databases exist for this tenant
         // TODO: Prevent deletion if databases exist
 
@@ -1225,61 +1616,567 @@ impl KeyValueDatabaseContext {
         Ok(())
     }
 
+    /// Get metadata about all users with tenant permissions.
+    ///
+    /// # What it does
+    /// Returns an iterator over all tenant user metadata records.
+    /// Will not return a user if that user does not have the
+    /// [`Permission::TenantUser`] on [`ResourceScope::Tenant`].
+    ///
+    /// # How it works
+    /// Reads from system_metacache and returns all cached user records.
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::TenantSecurityManage`] on [`ResourceScope::Tenant`]
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `tenant`: [`TenantId`] for tenant scope
+    ///
+    /// # Returns
+    /// An iterator over [`UserMetadata`] for all tenant users
+    ///
+    /// # TODO
+    /// - Return TenantUserMetadata instead of UserMetadata
+    /// - Implement pagination support for large numbers of users
+    /// - Add disk fallback if not in cache
+    #[tracing::instrument(skip(self))]
+    pub async fn get_tenant_users(
+        &self,
+        principal: &SecurityPrincipal,
+        tenant: &TenantId,
+    ) -> KeyValueResult<impl IntoIterator<Item = TenantUserMetadata>> {
+        if !principal.has_permission(&Permission::TenantSecurityManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TenantSecurityManage,
+                resource: ResourceScope::Tenant(tenant.clone()),
+            });
+        }
+
+        Ok(Vec::default())
+    }
+
+    /// Get metadata for a specific user with permissions to the specified tenant.
+    ///
+    /// # What it does
+    /// Retrieves metadata for a single user by ID, checking cache first then disk.
+    /// Will not return a user if that user does not have the
+    /// [`Permission::TenantUser`] on [`ResourceScope::Tenant`].
+    ///
+    /// # How it works
+    /// 1. Checks system_metacache for a cached user record
+    /// 2. If not in cache, reads from system shard using SystemKeys::user_key
+    /// 3. Deserializes the stored metadata
+    /// 4. Updates cache with the retrieved metadata
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::TenantSecurityManage`] on [`ResourceScope::Tenant`]
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `user`: [`UserId`] to look up
+    ///
+    /// # Returns
+    /// - `Some(UserMetadata)` if user exists
+    /// - `None` if user not found
+    /// - `Err(KeyValueError)` if lock poisoned or deserialization fails
+    ///
+    /// # TODO
+    /// - Return TenantUserMetadata instead of UserMetadata
+    /// - Implement pagination support for large numbers of users
+    /// - Add disk fallback if not in cache
+    #[tracing::instrument(skip(self))]
+    pub async fn get_tenant_user(
+        &self,
+        principal: &SecurityPrincipal,
+        tenant: &TenantId,
+        user: &UserId,
+    ) -> KeyValueResult<Option<TenantUserMetadata>> {
+        if !principal.has_permission(&Permission::TenantSecurityManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TenantSecurityManage,
+                resource: ResourceScope::Tenant(tenant.clone()),
+            });
+        }
+        let mut system_cache = self
+            .system_metacache
+            .write()
+            .map_err(|_| KeyValueError::LockPoisoned)?;
+        let shard_manager = self
+            .shard_manager
+            .read()
+            .map_err(|_| KeyValueError::LockPoisoned)?;
+
+        let system_user_record =
+            if let Some(system_user_record) = system_cache.get_system_user_record(user).cloned() {
+                system_user_record
+            } else {
+                let system_user_key = SystemKeys::system_user_key(*user);
+                let system_user_value = shard_manager
+                    .get(ShardId::from(0), &system_user_key)
+                    .await?;
+                if let Some(value) = system_user_value {
+                    let system_user_record: SystemUserRecord = deserialize(&value)?;
+                    system_cache.set_system_user_record(system_user_record.clone());
+                    system_user_record
+                } else {
+                    return Ok(None);
+                }
+            };
+        let tenant_user_record = if let Some(tenant_user_record) =
+            system_cache.get_tenant_user_record(tenant, user).cloned()
+        {
+            tenant_user_record
+        } else {
+            let tenant_user_key = SystemKeys::tenant_user_key(*tenant, *user);
+            if let Some(value) = shard_manager
+                .get(ShardId::from(0), &tenant_user_key)
+                .await?
+            {
+                let tenant_user_record: TenantUserRecord = deserialize(&value)?;
+                system_cache.set_tenant_user_record(tenant_user_record.clone());
+                tenant_user_record
+            } else {
+                return Ok(None);
+            }
+        };
+
+        Ok(Some(TenantUserMetadata::from((
+            system_user_record,
+            tenant_user_record,
+        ))))
+    }
+
+    /// Get a tenant users metadata by login name.
+    ///
+    /// # What it does
+    /// Finds a user by their username string. Will not return a user if that user does not have
+    /// the [`Permission::TenantUser`] on [`ResourceScope::Tenant`].
+    ///
+    /// # How it works
+    /// Iterates through cached user records to find one matching the login name.
+    /// Currently uses the 'name' field as the login identifier.
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::TenantSecurityManage`] on [`ResourceScope::Tenant`]
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `username`: Username to search for
+    ///
+    /// # Returns
+    /// - `Some(UserMetadata)` if user with that login exists
+    /// - `None` if no matching user found
+    ///
+    /// # TODO
+    /// - Return TenantUserMetadata instead of UserMetadata
+    /// - Add index for login-based lookups
+    /// - Implement disk fallback if not in cache
+    #[tracing::instrument(skip(self))]
+    pub async fn get_tenant_user_by_username(
+        &self,
+        principal: &SecurityPrincipal,
+        tenant: &TenantId,
+        username: &str,
+    ) -> KeyValueResult<Option<TenantUserMetadata>> {
+        if !principal.has_permission(&Permission::TenantSecurityManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TenantSecurityManage,
+                resource: ResourceScope::Tenant(tenant.clone()),
+            });
+        }
+        // TODO: Implement Cache Fetch and Disk Fallback
+        Ok(None)
+    }
+
+    /// Create a new user with tenant permissions and a tenant profile.
+    ///
+    /// # What it does
+    /// Creates a new user with the provided configuration OR adds tenant permissions to an existing
+    /// user. Successfully added tenants will have the [`Permission::TenantUser`] on
+    /// [`ResourceScope::Tenant`].
+    ///
+    /// # How it works
+    /// 1. Generates a new [`UserId`]
+    /// 2. Creates [`UserMetadata`] with current timestamp, version 1, and empty groups/roles/grants
+    /// 3. Stores in system_metacache
+    /// 4. Serializes and persists to system shard using [`SystemKeys::user_key`]
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::TenantSecurityManage`] on [`ResourceScope::Tenant`]
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `config`: [`SystemUserCreate`] containing name, options, and metadata
+    ///
+    /// # Returns
+    /// - `Ok(UserMetadata)` with the created user information
+    /// - `Err(KeyValueError)` if lock poisoned or persistence fails
+    ///
+    /// # TODO
+    /// - Determine when to bind a tenant user to a system user vs create a new user
+    /// - Generate proper unique user ID instead of hardcoded 0
+    /// - Add password hashing support (currently password_hash is None)
+    /// - Implement email validation
+    #[tracing::instrument(skip(self))]
+    pub async fn create_tenant_user(
+        &self,
+        principal: &SecurityPrincipal,
+        tenant: &TenantId,
+        config: TenantUserCreate,
+    ) -> KeyValueResult<TenantUserMetadata> {
+        if !principal.has_permission(&Permission::TenantSecurityManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TenantSecurityManage,
+                resource: ResourceScope::Tenant(tenant.clone()),
+            });
+        }
+        let now = Timestamp::now();
+
+        // TODO: First lookup system user and use existing record if it exists.
+
+        // TODO: Generate proper user ID
+        let user_id = UserId::from(0);
+
+        // Create System User metadata
+        let system_user_record = SystemUserRecord {
+            id: user_id,
+            username: config.username.clone(),
+            version: 1,
+            created_at: now,
+            last_modified: now,
+            groups: Vec::new(),
+            roles: Vec::new(),
+            grants: Vec::new(), // Start with no permission grants - grant via roles/groups
+            enabled: true,
+            password_hash: None, // TODO: Add password hashing
+            options: config.options.clone(),
+            metadata: config.metadata.clone(),
+        };
+
+        // Create tenant user metadata
+        let tenant_user_record = TenantUserRecord {
+            user: user_id,
+            tenant: tenant.clone(),
+            version: 1,
+            created_at: now,
+            last_modified: now,
+            groups: vec![],
+            roles: vec![],
+            options: config.options.clone(),
+            metadata: config.metadata.clone(),
+        };
+
+        // Store in cache
+        {
+            let mut cache = self
+                .system_metacache
+                .write()
+                .map_err(|_| KeyValueError::LockPoisoned)?;
+            cache.set_system_user_record(system_user_record.clone());
+            cache.set_tenant_user_record(tenant_user_record.clone());
+        }
+
+        // Persist to system shard
+        let system_user_key = SystemKeys::system_user_key(user_id);
+        let tenant_user_key = SystemKeys::system_user_key(user_id);
+        let system_user_value = serialize(&system_user_record)?;
+        let tenant_user_value = serialize(&tenant_user_record)?;
+        {
+            let shard_manager = self
+                .shard_manager
+                .read()
+                .map_err(|_| KeyValueError::LockPoisoned)?;
+            shard_manager
+                .put(ShardId::from(0), &system_user_key, &system_user_value)
+                .await?;
+            shard_manager
+                .put(ShardId::from(0), &tenant_user_key, &tenant_user_value)
+                .await?;
+        }
+        Ok(TenantUserMetadata::from((
+            system_user_record,
+            tenant_user_record,
+        )))
+    }
+
+    /// Update an existing tenant's user metadata.
+    ///
+    /// # What it does
+    /// Updates user's tenant metadata with new values from the config.
+    /// Only works on users with [`Permission::TenantUser`] on [`ResourceScope::Tenant`].
+    ///
+    /// # How it works
+    /// 1. Acquires write lock on system_metacache
+    /// 2. Retrieves existing user record
+    /// 3. Updates name if provided in config
+    /// 4. Applies PropertyUpdate operations to options and metadata maps
+    /// 5. Increments version and updates last_modified timestamp
+    /// 6. Stores updated metadata back to cache
+    /// 7. Serializes and persists to system shard
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::TenantSecurityManage`] on [`ResourceScope::Tenant`]
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `user`: [`UserId`] to update
+    /// - `config`: [`SystemUserUpdate`] containing optional name, options, and metadata updates
+    ///
+    /// # Returns
+    /// - `Ok(UserMetadata)` with updated user information
+    /// - `Err(KeyValueError::InvalidValue)` if user not found
+    /// - `Err(KeyValueError)` if lock poisoned or persistence fails
+    ///
+    /// # TODO
+    /// -
+    #[tracing::instrument(skip(self))]
+    pub async fn update_tenant_user(
+        &self,
+        principal: &SecurityPrincipal,
+        tenant: &TenantId,
+        user: &UserId,
+        config: TenantUserUpdate,
+    ) -> KeyValueResult<TenantUserMetadata> {
+        if !principal.has_permission(&Permission::TenantSecurityManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TenantSecurityManage,
+                resource: ResourceScope::Tenant(tenant.clone()),
+            });
+        }
+        let mut cache = self
+            .system_metacache
+            .write()
+            .map_err(|_| KeyValueError::LockPoisoned)?;
+
+        if let Some(mut system_user_record) = cache.get_system_user_record(user).cloned() {
+            // Apply option updates
+            for opt_update in &config.options {
+                match opt_update {
+                    PropertyUpdate::Set(key, value) => {
+                        system_user_record
+                            .options
+                            .insert(key.clone(), value.clone());
+                    }
+                    PropertyUpdate::Clear(key) => {
+                        system_user_record.options.remove(key);
+                    }
+                }
+            }
+
+            // Apply metadata updates
+            for meta_update in &config.metadata {
+                match meta_update {
+                    PropertyUpdate::Set(key, value) => {
+                        system_user_record
+                            .metadata
+                            .insert(key.clone(), value.clone());
+                    }
+                    PropertyUpdate::Clear(key) => {
+                        system_user_record.metadata.remove(key);
+                    }
+                }
+            }
+
+            // Update version and timestamp
+            system_user_record.version += 1;
+            system_user_record.last_modified = Timestamp::now();
+
+            // Store in cache
+            cache.set_system_user_record(system_user_record.clone());
+            drop(cache);
+
+            // Persist to system shard
+            let key = SystemKeys::system_user_key(*user);
+            let value = serialize(&system_user_record)?;
+
+            let shard_manager = self
+                .shard_manager
+                .read()
+                .map_err(|_| KeyValueError::LockPoisoned)?;
+            shard_manager.put(ShardId::from(0), &key, &value).await?;
+
+            self.get_tenant_user(principal, tenant, user)
+                .await?
+                .ok_or_else(|| {
+                    KeyValueError::Internal(format!(
+                        "Failed to find updated user record for user {}",
+                        user
+                    ))
+                })
+        } else {
+            Err(KeyValueError::InvalidValue(format!(
+                "User not found: {:?}",
+                user
+            )))
+        }
+    }
+
+    /// Remove a user's tenant access
+    ///
+    /// # What it does
+    /// Removes a users TenantUserMetadata and removes their [`Permission::TenantUser`] on
+    /// [`ResourceScope::Tenant`]. If the user has no tenant or system permissions, they are removed
+    /// entirely.
+    ///
+    /// # How it works
+    /// 1. Removes user record from system_metacache
+    /// 2. Deletes persisted metadata from system shard using SystemKeys::user_key
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::SystemSecurityManage`] on [`ResourceScope::System`]
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `user`: [`UserId`] to remove
+    ///
+    /// # Returns
+    /// - `Ok(())` if removal succeeds
+    /// - `Err(KeyValueError)` if lock poisoned or deletion fails
+    ///
+    /// # TODO
+    /// - Should only remove user if all permissions are revoked
+    /// - Add validation to check for user's active sessions
+    /// - Implement cascade deletion or transfer of user-owned resources
+    #[tracing::instrument(skip(self))]
+    pub async fn remove_tenant_user(
+        &self,
+        principal: &SecurityPrincipal,
+        tenant: &TenantId,
+        user: &UserId,
+    ) -> KeyValueResult<()> {
+        if !principal.has_permission(&Permission::TenantSecurityManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TenantSecurityManage,
+                resource: ResourceScope::Tenant(tenant.clone()),
+            });
+        }
+        // Remove tenant user from cache
+        {
+            let mut cache = self
+                .system_metacache
+                .write()
+                .map_err(|_| KeyValueError::LockPoisoned)?;
+            cache.clear_tenant_user_record(tenant, user);
+        }
+        {
+            let tenant_user_key = SystemKeys::tenant_user_key(*tenant, *user);
+            let shard_manager = self
+                .shard_manager
+                .read()
+                .map_err(|_| KeyValueError::LockPoisoned)?;
+            shard_manager
+                .delete(ShardId::from(0), &tenant_user_key)
+                .await?;
+        }
+
+        // TODO: Remove System User if appropriate
+        let remove_system_user = false;
+        if remove_system_user {
+            {
+                let mut cache = self
+                    .system_metacache
+                    .write()
+                    .map_err(|_| KeyValueError::LockPoisoned)?;
+                cache.clear_system_user_record(user);
+            }
+            {
+                let system_user_key = SystemKeys::tenant_user_key(*tenant, *user);
+                let shard_manager = self
+                    .shard_manager
+                    .read()
+                    .map_err(|_| KeyValueError::LockPoisoned)?;
+                shard_manager
+                    .delete(ShardId::from(0), &system_user_key)
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// TODO: Add Documentation for get_databases
     #[tracing::instrument(skip(self))]
     pub async fn get_databases(
         &self,
+        principal: &SecurityPrincipal,
         tenant: &TenantId,
     ) -> KeyValueResult<impl IntoIterator<Item = DatabaseMetadata>> {
+        if !principal.has_permission(&Permission::TenantView) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TenantView,
+                resource: ResourceScope::Tenant(tenant.clone()),
+            });
+        }
         let cache = self
             .system_metacache
             .read()
             .map_err(|_| KeyValueError::LockPoisoned)?;
-        Ok(cache
+        let records = cache
             .list_database_records()
             .filter(|d| &d.tenant == tenant)
             .cloned()
-            .collect::<Vec<_>>())
+            .map(DatabaseMetadata::from)
+            .collect::<Vec<_>>();
+        Ok(records)
     }
 
+    /// TODO: Add Documentation for get_database
     #[tracing::instrument(skip(self))]
     pub async fn get_database(
         &self,
+        principal: &SecurityPrincipal,
         tenant: &TenantId,
         database: &DatabaseId,
     ) -> KeyValueResult<Option<DatabaseMetadata>> {
+        if !principal.has_permission(&Permission::TenantView) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TenantView,
+                resource: ResourceScope::Tenant(tenant.clone()),
+            });
+        }
         // Check cache first
         {
             let cache = self
                 .system_metacache
                 .read()
                 .map_err(|_| KeyValueError::LockPoisoned)?;
-            if let Some(db_meta) = cache.get_database_record(database) {
-                if &db_meta.tenant == tenant {
-                    return Ok(Some(db_meta.clone()));
+            if let Some(database_record) = cache.get_database_record(database) {
+                if &database_record.tenant == tenant {
+                    return Ok(Some(DatabaseMetadata::from(database_record.clone())));
                 }
             }
         }
-
-        // Read from disk
-        let key = SystemKeys::database_key(*tenant, *database);
-        let shard_manager = self
-            .shard_manager
-            .read()
-            .map_err(|_| KeyValueError::LockPoisoned)?;
-
-        if let Some(value) = shard_manager.get(ShardId::from(0), &key).await? {
-            let db_meta: DatabaseMetadata = deserialize(&value)?;
-
-            // Update cache
-            let mut cache = self
-                .system_metacache
-                .write()
+        {
+            // Read from disk
+            let key = SystemKeys::database_key(*tenant, *database);
+            let shard_manager = self
+                .shard_manager
+                .read()
                 .map_err(|_| KeyValueError::LockPoisoned)?;
-            cache.set_database_record(db_meta.clone());
 
-            Ok(Some(db_meta))
-        } else {
-            Ok(None)
+            if let Some(value) = shard_manager.get(ShardId::from(0), &key).await? {
+                let database_record: DatabaseRecord = deserialize(&value)?;
+
+                // Update cache
+                let mut cache = self
+                    .system_metacache
+                    .write()
+                    .map_err(|_| KeyValueError::LockPoisoned)?;
+                cache.set_database_record(database_record.clone());
+
+                Ok(Some(DatabaseMetadata::from(database_record)))
+            } else {
+                Ok(None)
+            }
         }
     }
 
@@ -1289,15 +2186,16 @@ impl KeyValueDatabaseContext {
     /// Creates a new database with the provided configuration.
     ///
     /// # How it works
-    /// 1. Generates a new DatabaseId (currently hardcoded to 0)
-    /// 2. Creates a root namespace for the database (currently hardcoded to 0)
+    /// 1. Generates a new [`DatabaseId`]
+    /// 2. Creates a root namespace for the database
     /// 3. Creates DatabaseMetadata with current timestamp and version 1
     /// 4. Stores in system_metacache
     /// 5. Serializes and persists to system shard using SystemKeys::database_key
     ///
     /// # Parameters
-    /// - `tenant`: TenantId that will own the database
-    /// - `config`: DatabaseCreate containing name, options, and metadata
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `tenant`: [`TenantId`] that will own the database
+    /// - `config`: [`DatabaseCreate`] containing name, options, and metadata
     ///
     /// # Returns
     /// - `Ok(DatabaseMetadata)` with the created database information
@@ -1310,9 +2208,17 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn create_database(
         &self,
+        principal: &SecurityPrincipal,
         tenant: &TenantId,
         config: DatabaseCreate,
     ) -> KeyValueResult<DatabaseMetadata> {
+        if !principal.has_permission(&Permission::TenantDatabaseCreate) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TenantDatabaseCreate,
+                resource: ResourceScope::Tenant(tenant.clone()),
+            });
+        }
         let now = Timestamp::now();
 
         // TODO: Generate proper database ID
@@ -1322,7 +2228,7 @@ impl KeyValueDatabaseContext {
         // TODO: Create root namespace for database
         let root_namespace = NamespaceId::from(0);
 
-        let database = DatabaseMetadata {
+        let database_record = DatabaseRecord {
             id: database_id,
             tenant: *tenant,
             name: config.name.clone(),
@@ -1330,6 +2236,7 @@ impl KeyValueDatabaseContext {
             created_at: now,
             last_modified: now,
             root_namespace,
+            default_tablespace: None,
             options: config.options.clone(),
             metadata: config.metadata.clone(),
         };
@@ -1340,12 +2247,12 @@ impl KeyValueDatabaseContext {
                 .system_metacache
                 .write()
                 .map_err(|_| KeyValueError::LockPoisoned)?;
-            cache.set_database_record(database.clone());
+            cache.set_database_record(database_record.clone());
         }
 
         // Persist to system shard
         let key = SystemKeys::database_key(*tenant, database_id);
-        let value = crate::utility::serialize(&database)?;
+        let value = crate::utility::serialize(&database_record)?;
 
         let shard_manager = self
             .shard_manager
@@ -1353,7 +2260,7 @@ impl KeyValueDatabaseContext {
             .map_err(|_| KeyValueError::LockPoisoned)?;
         shard_manager.put(ShardId::from(0), &key, &value).await?;
 
-        Ok(database)
+        Ok(DatabaseMetadata::from(database_record))
     }
 
     /// Update an existing database's metadata.
@@ -1373,9 +2280,10 @@ impl KeyValueDatabaseContext {
     /// 8. Serializes and persists to system shard
     ///
     /// # Parameters
-    /// - `tenant`: TenantId that should own the database
-    /// - `database`: DatabaseId to update
-    /// - `config`: DatabaseUpdate containing optional name, options, and metadata updates
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `tenant`: [`TenantId`] that should own the database
+    /// - `database`: [`DatabaseId`] to update
+    /// - `config`: [`DatabaseUpdate`] containing optional name, options, and metadata updates
     ///
     /// # Returns
     /// - `Ok(DatabaseMetadata)` with updated database information
@@ -1384,18 +2292,26 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn update_database(
         &self,
+        principal: &SecurityPrincipal,
         tenant: &TenantId,
         database: &DatabaseId,
         config: DatabaseUpdate,
     ) -> KeyValueResult<DatabaseMetadata> {
+        if !principal.has_permission(&Permission::DatabaseConfigManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::DatabaseConfigManage,
+                resource: ResourceScope::Database(database.clone()),
+            });
+        }
         let mut cache = self
             .system_metacache
             .write()
             .map_err(|_| KeyValueError::LockPoisoned)?;
 
-        if let Some(mut db_meta) = cache.get_database_record(database).cloned() {
+        if let Some(mut database_record) = cache.get_database_record(database).cloned() {
             // Verify tenant matches
-            if &db_meta.tenant != tenant {
+            if &database_record.tenant != tenant {
                 return Err(KeyValueError::InvalidValue(format!(
                     "Database {:?} does not belong to tenant {:?}",
                     database, tenant
@@ -1404,17 +2320,17 @@ impl KeyValueDatabaseContext {
 
             // Update fields
             if let Some(name) = config.name {
-                db_meta.name = name;
+                database_record.name = name;
             }
 
             // Apply option updates
             for opt_update in &config.options {
                 match opt_update {
                     PropertyUpdate::Set(key, value) => {
-                        db_meta.options.insert(key.clone(), value.clone());
+                        database_record.options.insert(key.clone(), value.clone());
                     }
                     PropertyUpdate::Clear(key) => {
-                        db_meta.options.remove(key);
+                        database_record.options.remove(key);
                     }
                 }
             }
@@ -1423,25 +2339,25 @@ impl KeyValueDatabaseContext {
             for meta_update in &config.metadata {
                 match meta_update {
                     PropertyUpdate::Set(key, value) => {
-                        db_meta.metadata.insert(key.clone(), value.clone());
+                        database_record.metadata.insert(key.clone(), value.clone());
                     }
                     PropertyUpdate::Clear(key) => {
-                        db_meta.metadata.remove(key);
+                        database_record.metadata.remove(key);
                     }
                 }
             }
 
             // Update version and timestamp
-            db_meta.version += 1;
-            db_meta.last_modified = Timestamp::now();
+            database_record.version += 1;
+            database_record.last_modified = Timestamp::now();
 
             // Store in cache
-            cache.set_database_record(db_meta.clone());
+            cache.set_database_record(database_record.clone());
             drop(cache);
 
             // Persist to system shard
             let key = SystemKeys::database_key(*tenant, *database);
-            let value = crate::utility::serialize(&db_meta)?;
+            let value = crate::utility::serialize(&database_record)?;
 
             let shard_manager = self
                 .shard_manager
@@ -1449,7 +2365,7 @@ impl KeyValueDatabaseContext {
                 .map_err(|_| KeyValueError::LockPoisoned)?;
             shard_manager.put(ShardId::from(0), &key, &value).await?;
 
-            Ok(db_meta)
+            Ok(DatabaseMetadata::from(database_record))
         } else {
             Err(KeyValueError::InvalidValue(format!(
                 "Database not found: {:?}",
@@ -1468,8 +2384,9 @@ impl KeyValueDatabaseContext {
     /// 2. Deletes persisted metadata from system shard using SystemKeys::database_key
     ///
     /// # Parameters
-    /// - `tenant`: TenantId that owns the database
-    /// - `database`: DatabaseId to delete
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `tenant`: [`TenantId`] that owns the database
+    /// - `database`: [`DatabaseId`] to delete
     ///
     /// # Returns
     /// - `Ok(())` if deletion succeeds
@@ -1482,9 +2399,17 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn delete_database(
         &self,
+        principal: &SecurityPrincipal,
         tenant: &TenantId,
         database: &DatabaseId,
     ) -> KeyValueResult<()> {
+        if !principal.has_permission(&Permission::TenantDatabaseDelete) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TenantDatabaseDelete,
+                resource: ResourceScope::Tenant(tenant.clone()),
+            });
+        }
         // Remove from cache
         {
             let mut cache = self
@@ -1512,13 +2437,21 @@ impl KeyValueDatabaseContext {
      * Tablespace Management                                                                      *
     \**********************************************************************************************/
 
+    /// TODO: Add Documentation for get_tablespaces
     #[tracing::instrument(skip(self))]
     pub async fn get_tablespaces(
         &self,
-    ) -> KeyValueResult<impl IntoIterator<Item = TablespaceMetadata>> {
+        principal: &SecurityPrincipal,
+    ) -> KeyValueResult<impl IntoIterator<Item = TablespaceRecord>> {
+        if !principal.has_permission(&Permission::SystemConfigManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::SystemConfigManage,
+                resource: ResourceScope::System,
+            });
+        }
         let cache = self.system_metacache.read().unwrap();
-        let tablespaces: Vec<TablespaceMetadata> =
-            cache.list_tablespace_records().cloned().collect();
+        let tablespaces: Vec<TablespaceRecord> = cache.list_tablespace_records().cloned().collect();
         Ok(tablespaces)
     }
 
@@ -1531,7 +2464,8 @@ impl KeyValueDatabaseContext {
     /// Reads from system_metacache to find the tablespace record.
     ///
     /// # Parameters
-    /// - `tablespace`: TablespaceId to look up
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `tablespace`: [`TablespaceId`] to look up
     ///
     /// # Returns
     /// - `Some(TablespaceMetadata)` if tablespace exists
@@ -1542,8 +2476,16 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn get_tablespace(
         &self,
+        principal: &SecurityPrincipal,
         tablespace: &TablespaceId,
-    ) -> KeyValueResult<Option<TablespaceMetadata>> {
+    ) -> KeyValueResult<Option<TablespaceRecord>> {
+        if !principal.has_permission(&Permission::SystemConfigManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::SystemConfigManage,
+                resource: ResourceScope::System,
+            });
+        }
         let cache = self.system_metacache.read().unwrap();
         Ok(cache.get_tablespace_record(tablespace).cloned())
     }
@@ -1557,6 +2499,7 @@ impl KeyValueDatabaseContext {
     /// Iterates through cached tablespace records to find one matching the name.
     ///
     /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `name`: Tablespace name to search for
     ///
     /// # Returns
@@ -1567,7 +2510,18 @@ impl KeyValueDatabaseContext {
     /// - Add index for name-based lookups
     /// - Implement disk fallback if not in cache
     #[tracing::instrument(skip(self))]
-    pub async fn get_tablespace_by_name(&self, name: &str) -> KeyValueResult<Option<TablespaceId>> {
+    pub async fn get_tablespace_by_name(
+        &self,
+        principal: &SecurityPrincipal,
+        name: &str,
+    ) -> KeyValueResult<Option<TablespaceId>> {
+        if !principal.has_permission(&Permission::SystemConfigManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::SystemConfigManage,
+                resource: ResourceScope::System,
+            });
+        }
         let cache = self
             .system_metacache
             .read()
@@ -1590,7 +2544,8 @@ impl KeyValueDatabaseContext {
     /// 3. Stores in system_metacache
     ///
     /// # Parameters
-    /// - `config`: TablespaceCreate containing name, storage_path, tier, options, and metadata
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `config`: [`TablespaceCreate`] containing name, storage_path, tier, options, and metadata
     ///
     /// # Returns
     /// - `Ok(TablespaceMetadata)` with the created tablespace information
@@ -1604,15 +2559,23 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn create_tablespace(
         &self,
+        principal: &SecurityPrincipal,
         config: TablespaceCreate,
-    ) -> KeyValueResult<TablespaceMetadata> {
+    ) -> KeyValueResult<TablespaceRecord> {
+        if !principal.has_permission(&Permission::SystemConfigManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::SystemConfigManage,
+                resource: ResourceScope::System,
+            });
+        }
         let now = Timestamp::now();
 
         // TODO: Get/Create actual new tablespace ID
         let tablespace_id = TablespaceId::new(0);
 
         // Create tablespace metadata
-        let tablespace = TablespaceMetadata {
+        let tablespace = TablespaceRecord {
             id: tablespace_id,
             name: config.name.clone(),
             storage_path: config.storage_path.clone(),
@@ -1647,8 +2610,9 @@ impl KeyValueDatabaseContext {
     /// 5. Stores updated metadata back to cache
     ///
     /// # Parameters
-    /// - `tablespace`: TablespaceId to update
-    /// - `config`: TablespaceUpdate containing optional name, storage_path, tier updates
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `tablespace`: [`TablespaceId`] to update
+    /// - `config`: [`TablespaceUpdate`] containing optional name, storage_path, tier updates
     ///
     /// # Returns
     /// - `Ok(TablespaceMetadata)` with updated tablespace information
@@ -1661,9 +2625,17 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn update_tablespace(
         &self,
+        principal: &SecurityPrincipal,
         tablespace: &TablespaceId,
         config: TablespaceUpdate,
-    ) -> KeyValueResult<TablespaceMetadata> {
+    ) -> KeyValueResult<TablespaceRecord> {
+        if !principal.has_permission(&Permission::SystemConfigManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::SystemConfigManage,
+                resource: ResourceScope::System,
+            });
+        }
         let mut cache = self.system_metacache.write().unwrap();
 
         if let Some(mut tablespace) = cache.get_tablespace_record(&tablespace).cloned() {
@@ -1705,7 +2677,8 @@ impl KeyValueDatabaseContext {
     /// Removes tablespace record from system_metacache.
     ///
     /// # Parameters
-    /// - `tablespace`: TablespaceId to delete
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `tablespace`: [`TablespaceId`] to delete
     ///
     /// # Returns
     /// - `Ok(())` if deletion succeeds
@@ -1716,7 +2689,18 @@ impl KeyValueDatabaseContext {
     /// - Persist deletion to system shard via Raft if in distributed mode
     /// - Update shard manager's path resolver to remove tablespace config
     #[tracing::instrument(skip(self))]
-    pub async fn delete_tablespace(&self, tablespace: &TablespaceId) -> KeyValueResult<()> {
+    pub async fn delete_tablespace(
+        &self,
+        principal: &SecurityPrincipal,
+        tablespace: &TablespaceId,
+    ) -> KeyValueResult<()> {
+        if !principal.has_permission(&Permission::SystemConfigManage) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::SystemConfigManage,
+                resource: ResourceScope::System,
+            });
+        }
         let mut cache = self.system_metacache.write().unwrap();
         cache.clear_tablespace_record(tablespace);
 
@@ -1730,12 +2714,21 @@ impl KeyValueDatabaseContext {
      * Database Management                                                                        *
     \**********************************************************************************************/
 
+    /// TODO: Add Documentation for get_objects_by_namespace
     #[tracing::instrument(skip(self))]
     pub async fn get_objects_by_namespace(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
         namespace: &NamespaceId,
     ) -> KeyValueResult<impl IntoIterator<Item = (ObjectId, ObjectType, ObjectMetadata)>> {
+        if !principal.has_permission(&Permission::NamespaceObjectView) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::NamespaceObjectView,
+                resource: ResourceScope::Namespace(namespace.clone()),
+            });
+        }
         // Get container metadata cache
         let container_caches = self
             .container_metacaches
@@ -1767,7 +2760,8 @@ impl KeyValueDatabaseContext {
     /// 2. Returns all namespace records from the container cache
     ///
     /// # Parameters
-    /// - `container`: ContainerId to get namespaces from
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container`: [`ContainerId`] to get namespaces from
     ///
     /// # Returns
     /// An iterator over NamespaceMetadata for all namespaces in the container
@@ -1778,8 +2772,17 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn get_namespaces(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
-    ) -> KeyValueResult<impl IntoIterator<Item = NamespaceMetadata>> {
+    ) -> KeyValueResult<impl IntoIterator<Item = NamespaceRecord>> {
+        // TODO: Fix Permissions
+        if !principal.has_permission(&Permission::NamespaceObjectView) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::NamespaceObjectView,
+                resource: ResourceScope::Namespace(namespace.clone()),
+            });
+        }
         // Get container metadata cache
         let container_caches = self
             .container_metacaches
@@ -1795,7 +2798,7 @@ impl KeyValueDatabaseContext {
             .map_err(|_| KeyValueError::LockPoisoned)?;
 
         // Return all namespaces from cache
-        let namespaces: Vec<NamespaceMetadata> = cache.list_namespace_records().cloned().collect();
+        let namespaces: Vec<NamespaceRecord> = cache.list_namespace_records().cloned().collect();
 
         Ok(namespaces)
     }
@@ -1810,7 +2813,8 @@ impl KeyValueDatabaseContext {
     /// 2. Filters namespace records by checking if name or path starts with prefix
     ///
     /// # Parameters
-    /// - `container`: ContainerId to search in
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container`: [`ContainerId`] to search in
     /// - `prefix`: String prefix to match against namespace names and paths
     ///
     /// # Returns
@@ -1822,9 +2826,10 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn get_namespaces_by_prefix(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
         prefix: &str,
-    ) -> KeyValueResult<impl IntoIterator<Item = NamespaceMetadata>> {
+    ) -> KeyValueResult<impl IntoIterator<Item = NamespaceRecord>> {
         // Get container metadata cache
         let container_caches = self
             .container_metacaches
@@ -1840,7 +2845,7 @@ impl KeyValueDatabaseContext {
             .map_err(|_| KeyValueError::LockPoisoned)?;
 
         // Filter namespaces by name or path prefix
-        let namespaces: Vec<NamespaceMetadata> = cache
+        let namespaces: Vec<NamespaceRecord> = cache
             .list_namespace_records()
             .filter(|ns| ns.name.starts_with(prefix) || ns.path.starts_with(prefix))
             .cloned()
@@ -1859,8 +2864,9 @@ impl KeyValueDatabaseContext {
     /// 2. Looks up namespace record by ID
     ///
     /// # Parameters
-    /// - `container`: ContainerId containing the namespace
-    /// - `namespace`: NamespaceId to look up
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container`: [`ContainerId`] containing the namespace
+    /// - `namespace`: [`NamespaceId`] to look up
     ///
     /// # Returns
     /// - `Some(NamespaceMetadata)` if namespace exists
@@ -1872,9 +2878,10 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn get_namespace(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
         namespace: &NamespaceId,
-    ) -> KeyValueResult<Option<NamespaceMetadata>> {
+    ) -> KeyValueResult<Option<NamespaceRecord>> {
         // Get container metadata cache
         let container_caches = self
             .container_metacaches
@@ -1903,7 +2910,8 @@ impl KeyValueDatabaseContext {
     /// 2. Iterates through namespace records to find one matching the path
     ///
     /// # Parameters
-    /// - `container`: ContainerId to search in
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container`: [`ContainerId`] to search in
     /// - `path`: Namespace path to search for
     ///
     /// # Returns
@@ -1916,9 +2924,10 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn get_namespace_by_path(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
         path: &str,
-    ) -> KeyValueResult<Option<NamespaceMetadata>> {
+    ) -> KeyValueResult<Option<NamespaceRecord>> {
         // Get container metadata cache
         let container_caches = self
             .container_metacaches
@@ -1955,8 +2964,9 @@ impl KeyValueDatabaseContext {
     /// 5. Stores in container cache
     ///
     /// # Parameters
-    /// - `container`: ContainerId to create namespace in
-    /// - `config`: NamespaceCreate containing name, options, and metadata
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container`: [`ContainerId`] to create namespace in
+    /// - `config`: [`NamespaceCreate`] containing name, options, and metadata
     ///
     /// # Returns
     /// - `Ok(NamespaceMetadata)` with the created namespace information
@@ -1973,9 +2983,10 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn create_namespace(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
         config: NamespaceCreate,
-    ) -> KeyValueResult<NamespaceMetadata> {
+    ) -> KeyValueResult<NamespaceRecord> {
         // Get container metadata cache
         let container_caches = self
             .container_metacaches
@@ -1994,7 +3005,7 @@ impl KeyValueDatabaseContext {
         let namespace_id = NamespaceId::new(0);
 
         // Create namespace metadata
-        let namespace_meta = NamespaceMetadata {
+        let namespace_meta = NamespaceRecord {
             id: namespace_id,
             name: config.name.clone(),
             version: 0,
@@ -2015,15 +3026,15 @@ impl KeyValueDatabaseContext {
         Ok(namespace_meta)
     }
 
-    /// Update a namespace
-    /// TODO: Figure out best API for namespaces
+    /// TODO: Add Documentation for update_namespace
     #[tracing::instrument(skip(self))]
     pub async fn update_namespace(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
         namespace: &NamespaceId,
         config: NamespaceUpdate,
-    ) -> KeyValueResult<NamespaceMetadata> {
+    ) -> KeyValueResult<NamespaceRecord> {
         // Get container metadata cache
         let container_caches = self
             .container_metacaches
@@ -2090,11 +3101,11 @@ impl KeyValueDatabaseContext {
         Ok(namespace_meta)
     }
 
-    /// Remove a namespace
-    /// TODO: Figure out best API for namespaces
+    /// TODO: Add Documentation for delete_namespace
     #[tracing::instrument(skip(self))]
     pub async fn delete_namespace(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
         namespace_id: &NamespaceId,
     ) -> KeyValueResult<()> {
@@ -2141,7 +3152,8 @@ impl KeyValueDatabaseContext {
     /// 2. Returns all table records from the container cache
     ///
     /// # Parameters
-    /// - `container`: ContainerId to get tables from
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container`: [`ContainerId`] to get tables from
     ///
     /// # Returns
     /// An iterator over TableMetadata for all tables in the container
@@ -2152,8 +3164,9 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn get_tables(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
-    ) -> KeyValueResult<impl IntoIterator<Item = TableMetadata>> {
+    ) -> KeyValueResult<impl IntoIterator<Item = TableRecord>> {
         // Get container metadata cache
         let container_caches = self
             .container_metacaches
@@ -2169,7 +3182,7 @@ impl KeyValueDatabaseContext {
             .map_err(|_| KeyValueError::LockPoisoned)?;
 
         // Return all tables from cache
-        let tables: Vec<TableMetadata> = cache.list_table_records().cloned().collect();
+        let tables: Vec<TableRecord> = cache.list_table_records().cloned().collect();
 
         Ok(tables)
     }
@@ -2184,11 +3197,12 @@ impl KeyValueDatabaseContext {
     /// 2. Filters table records by checking if path contains namespace identifier
     ///
     /// # Parameters
-    /// - `container`: ContainerId to search in
-    /// - `namespace`: NamespaceId to filter tables by
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container`: [`ContainerId`] to search in
+    /// - `namespace`: [`NamespaceId`] to filter tables by
     ///
     /// # Returns
-    /// An iterator over TableMetadata for tables in the namespace
+    /// An iterator over [`TableRecord`] for tables in the namespace
     ///
     /// # Errors
     /// - `Err(KeyValueError::InvalidValue)` if container not found
@@ -2200,9 +3214,10 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn get_tables_by_namespace(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
         namespace: &NamespaceId,
-    ) -> KeyValueResult<impl IntoIterator<Item = TableMetadata>> {
+    ) -> KeyValueResult<impl IntoIterator<Item = TableRecord>> {
         // Get container metadata cache
         let container_caches = self
             .container_metacaches
@@ -2219,7 +3234,7 @@ impl KeyValueDatabaseContext {
 
         // Filter tables by namespace path
         // TODO: Implement proper namespace hierarchy when namespace structure is finalized
-        let tables: Vec<TableMetadata> = cache
+        let tables: Vec<TableRecord> = cache
             .list_table_records()
             .filter(|table| {
                 // For now, match tables whose path starts with the namespace
@@ -2242,7 +3257,8 @@ impl KeyValueDatabaseContext {
     /// 2. Filters table records by checking if name or path starts with prefix
     ///
     /// # Parameters
-    /// - `container`: ContainerId to search in
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container`: [`ContainerId`] to search in
     /// - `prefix`: String prefix to match against table names and paths
     ///
     /// # Returns
@@ -2254,9 +3270,10 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn get_tables_by_prefix(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
         prefix: &str,
-    ) -> KeyValueResult<impl IntoIterator<Item = TableMetadata>> {
+    ) -> KeyValueResult<impl IntoIterator<Item = TableRecord>> {
         // Get container metadata cache
         let container_caches = self
             .container_metacaches
@@ -2272,7 +3289,7 @@ impl KeyValueDatabaseContext {
             .map_err(|_| KeyValueError::LockPoisoned)?;
 
         // Filter tables by name or path prefix
-        let tables: Vec<TableMetadata> = cache
+        let tables: Vec<TableRecord> = cache
             .list_table_records()
             .filter(|table| table.name.starts_with(prefix) || table.path.starts_with(prefix))
             .cloned()
@@ -2291,33 +3308,33 @@ impl KeyValueDatabaseContext {
     /// 2. Looks up table record by ID
     ///
     /// # Parameters
-    /// - `container_id`: ContainerId containing the table
-    /// - `table`: TableId to look up
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container`: [`ContainerId`] containing the table
+    /// - `table`: [`TableId`] to look up
     ///
     /// # Returns
-    /// - `Some(TableMetadata)` if table exists
-    /// - `None` if table not found
+    /// - `Some(TableMetadata)` if the table exists
+    /// - `None` if the table is not found
     ///
     /// # Errors
-    /// - `Err(KeyValueError::InvalidValue)` if container not found
+    /// - `Err(KeyValueError::InvalidValue)` if container is not found
     /// - `Err(KeyValueError::LockPoisoned)` if lock poisoned
     #[tracing::instrument(skip(self))]
     pub async fn get_table(
         &self,
-        container_id: &ContainerId,
+        principal: &SecurityPrincipal,
+        container: &ContainerId,
         table: &TableId,
-    ) -> KeyValueResult<Option<TableMetadata>> {
+    ) -> KeyValueResult<Option<TableRecord>> {
         // Get container metadata cache
         let container_caches = self
             .container_metacaches
             .read()
             .map_err(|_| KeyValueError::LockPoisoned)?;
 
-        let container_cache = container_caches
-            .get(&container_id.database())
-            .ok_or_else(|| {
-                KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
-            })?;
+        let container_cache = container_caches.get(&container.database()).ok_or_else(|| {
+            KeyValueError::InvalidValue(format!("Container not found: {:?}", container))
+        })?;
 
         let cache = container_cache
             .read()
@@ -2344,11 +3361,12 @@ impl KeyValueDatabaseContext {
     /// 3. In standalone mode: Not yet implemented
     ///
     /// # Parameters
-    /// - `container_id`: ContainerId to create table in
-    /// - `config`: TableCreate containing name, path, engine_type, sharding_config, options, metadata
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container_id`: [`ContainerId`] to create table in
+    /// - `config`: [`TableCreate`] containing name, path, engine_type, sharding_config, options, metadata
     ///
     /// # Returns
-    /// - `Ok(TableId)` with the created table ID (currently hardcoded to 0)
+    /// - `Ok(TableMetadata)` with the created [`TableId`] (currently hardcoded to 0)
     ///
     /// # Errors
     /// - `Err(KeyValueError::Consensus)` if Raft shard creation fails
@@ -2364,9 +3382,10 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn create_table(
         &self,
-        container_id: &ContainerId,
+        principal: &SecurityPrincipal,
+        container: &ContainerId,
         config: TableCreate,
-    ) -> KeyValueResult<TableId> {
+    ) -> KeyValueResult<TableRecord> {
         // TODO: Get/Create actual new table ID
         let table_id = TableId::new(0);
 
@@ -2380,7 +3399,7 @@ impl KeyValueDatabaseContext {
                     let replicas = vec![router.node_id()];
 
                     // Populate Shard Metadata
-                    let _shard_metadata = ShardMetadata {
+                    let _shard_metadata = ShardRecord {
                         id: shard_id,
                         name: "".to_string(),
                         version: 0,
@@ -2414,7 +3433,7 @@ impl KeyValueDatabaseContext {
                         })?;
 
                     // Add table entry to container metadata cache
-                    let _table_metadata = TableMetadata {
+                    let table_metadata = TableRecord {
                         id: table_id,
                         name: config.name.to_string(),
                         path: config.path.to_string(),
@@ -2431,8 +3450,8 @@ impl KeyValueDatabaseContext {
                     // metadata.add_table(path, table_metadata);
                     // metadata.add_shard(path, shard_metadata);
 
-                    // TODO: Return actual table ID
-                    Ok(TableId::new(0))
+                    // TODO: Return actual table metadata
+                    Ok(table_metadata)
                 }
                 // Multiple Shards with Partitioning and Replication
                 TableSharding::Multiple {
@@ -2449,7 +3468,7 @@ impl KeyValueDatabaseContext {
                         let replicas = vec![router.node_id()];
 
                         // Populate Shard Metadata
-                        let _shard_metadata = ShardMetadata {
+                        let _shard_metadata = ShardRecord {
                             id: shard_id,
                             name: "".to_string(),
                             version: 0,
@@ -2487,7 +3506,7 @@ impl KeyValueDatabaseContext {
                     }
 
                     // Add table entry to container metadata cache
-                    let _table_metadata = TableMetadata {
+                    let table_metadata = TableRecord {
                         id: table_id,
                         name: config.name.to_string(),
                         path: config.path.to_string(),
@@ -2508,7 +3527,7 @@ impl KeyValueDatabaseContext {
                     // metadata.add_table(path, table_metadata);
 
                     // TODO: Return actual table ID
-                    Ok(TableId::new(0))
+                    Ok(table_metadata)
                 }
             }
         } else {
@@ -2530,9 +3549,10 @@ impl KeyValueDatabaseContext {
     /// 6. Stores updated metadata back to cache
     ///
     /// # Parameters
-    /// - `container`: ContainerId containing the table
-    /// - `table`: TableId to update
-    /// - `config`: TableUpdate containing optional name, engine_type, sharding_config, options, metadata updates
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container`: [`ContainerId`] containing the table
+    /// - `table`: [`TableId`] to update
+    /// - `config`: [`TableUpdate`] containing optional name, engine_type, sharding_config, options, metadata updates
     ///
     /// # Returns
     /// - `Ok(TableMetadata)` with updated table information
@@ -2547,10 +3567,11 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn update_table(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
         table: &TableId,
         config: TableUpdate,
-    ) -> KeyValueResult<TableMetadata> {
+    ) -> KeyValueResult<TableRecord> {
         // Get container metadata cache
         let container_caches = self
             .container_metacaches
@@ -2631,8 +3652,9 @@ impl KeyValueDatabaseContext {
     /// 3. Removes table record from cache
     ///
     /// # Parameters
-    /// - `container`: ContainerId containing the table
-    /// - `table`: TableId to delete
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container`: [`ContainerId`] containing the table
+    /// - `table`: [`TableId`] to delete
     ///
     /// # Returns
     /// - `Ok(())` if deletion succeeds
@@ -2648,6 +3670,7 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn delete_table(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
         table: &TableId,
     ) -> KeyValueResult<()> {
@@ -2688,12 +3711,13 @@ impl KeyValueDatabaseContext {
      * Data Management                                                                            *
     \**********************************************************************************************/
 
-    /// Put a key-value pair into a table
+    /// TODO: Add Documentation for put
     /// TODO: Figure out how to handle distributed mode
     /// TODO: Figure out how to deal with tenants and containers
     #[tracing::instrument(skip(self))]
     pub async fn put(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
         table: &TableId,
         key: &[u8],
@@ -2715,10 +3739,11 @@ impl KeyValueDatabaseContext {
         }
     }
 
-    /// Get a value from a table
+    /// TODO: Add Documentation for get
     #[tracing::instrument(skip(self))]
     pub async fn get(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
         table: &TableId,
         key: &[u8],
@@ -2739,10 +3764,11 @@ impl KeyValueDatabaseContext {
         }
     }
 
-    /// Delete a key from a table
+    /// TODO: Add documentation for delete
     #[tracing::instrument(skip(self))]
     pub async fn delete(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
         table: &TableId,
         key: &[u8],
@@ -2768,6 +3794,7 @@ impl KeyValueDatabaseContext {
     #[tracing::instrument(skip(self))]
     pub async fn batch_put(
         &self,
+        principal: &SecurityPrincipal,
         container: &ContainerId,
         table: &TableId,
         pairs: &[(&[u8], &[u8])],
@@ -2821,8 +3848,8 @@ impl KeyValueDatabaseContext {
     ///    - Partitioner applies hash-based or other algorithm to distribute keys
     ///
     /// # Parameters
-    /// - `container`: ContainerId containing the table
-    /// - `table`: TableId to determine shard for
+    /// - `container`: [`ContainerId`] containing the table
+    /// - `table`: [`TableId`] to determine shard for
     /// - `key`: Key bytes to hash/partition
     ///
     /// # Returns
