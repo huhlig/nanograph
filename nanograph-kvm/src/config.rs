@@ -14,7 +14,9 @@
 // limitations under the License.
 //
 
-use crate::types::{
-    ClusterId, NamespaceId, NodeId, RegionId, ServerId, ShardId, TableId, Timestamp,
-};
-use chrono::{DateTime, Utc};
+use nanograph_core::object::NodeId;
+
+pub struct KeyValueDatabaseConfig {
+    /// Cluster Node Id (Defaults to zero)
+    pub node_id: NodeId,
+}

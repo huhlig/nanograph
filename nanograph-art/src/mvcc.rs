@@ -286,5 +286,3 @@ mod tests {
         assert_eq!(mgr.min_active_snapshot(), None);
     }
 }
-
-// Made with Bob

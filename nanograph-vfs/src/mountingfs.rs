@@ -49,6 +49,7 @@ pub struct MountableFilesystem {
 
 impl MountableFilesystem {
     /// Creates a new, empty `MountingFilesystem`.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             mounts: BTreeMap::new(),
@@ -75,10 +76,11 @@ impl MountableFilesystem {
     }
 
     /// Lists all mounted filesystems with their mount points
+    #[must_use]
     pub fn list_mounts(&self) -> Vec<String> {
         self.mounts
             .iter()
-            .map(|(k, v)| format!("{} - {:?}", k, v))
+            .map(|(k, v)| format!("{k} - {v:?}"))
             .collect()
     }
 
@@ -98,7 +100,7 @@ impl MountableFilesystem {
                     let rel = if rel.is_empty() {
                         "/".to_string()
                     } else if !rel.starts_with('/') {
-                        format!("/{}", rel)
+                        format!("/{rel}")
                     } else {
                         rel.to_string()
                     };
@@ -228,7 +230,7 @@ impl std::fmt::Debug for MountedFile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MountedFile")
             .field("path", &self.path)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -273,7 +275,7 @@ mod test {
                 inner: Arc::new(MemoryFileSystem::new()),
             }),
         );
-        run_generic_test_suite(fs);
+        run_generic_test_suite(&fs);
     }
 
     #[test]

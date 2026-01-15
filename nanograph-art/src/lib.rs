@@ -132,7 +132,8 @@
 //! # });
 //! ```
 
-pub mod error;
+pub mod config;
+mod error;
 pub mod iterator;
 pub mod kvstore;
 pub mod metrics;
@@ -144,9 +145,10 @@ pub mod tree;
 pub mod wal_record;
 
 // Re-export main types
-pub use error::{Error, Result};
-pub use iterator::{ArtIterator, ArtRangeIterator};
-pub use kvstore::ArtKeyValueStore;
-pub use persistence::ArtPersistence;
-pub use transaction::{ArtTransaction, TransactionManager};
-pub use tree::AdaptiveRadixTree;
+pub use self::config::ARTStorageConfig;
+pub use self::error::{ArtError, ArtResult};
+pub use self::iterator::{ArtIterator, ArtRangeIterator};
+pub use self::kvstore::ArtKeyValueStore;
+pub use self::persistence::ArtPersistence;
+pub use self::transaction::{ArtTransaction, TransactionManager};
+pub use self::tree::AdaptiveRadixTree;

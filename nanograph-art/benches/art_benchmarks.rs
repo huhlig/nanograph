@@ -582,5 +582,3 @@ criterion_main!(
     mixed_benches,
     node_benches
 );
-
-// Made with Bob

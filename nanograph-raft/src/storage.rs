@@ -18,8 +18,8 @@
 
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::types::{Operation, OperationResponse};
-use nanograph_core::types::NodeId;
-use nanograph_kvt::{KeyValueShardStore, ShardId};
+use nanograph_core::object::{NodeId, ShardId};
+use nanograph_kvt::KeyValueShardStore;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 

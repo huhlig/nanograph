@@ -17,15 +17,21 @@ repository.workspace = true
 # Internal Crates
 nanograph-core.workspace = true
 nanograph-vfs.workspace = true
+nanograph-wal.workspace = true
 
 # Async
 async-trait.workspace = true
 futures-core.workspace = true
 
+# Serialization
+serde.workspace = true
+
 # Logging & Metrics
+thiserror.workspace = true
 metrics.workspace = true
 tracing.workspace = true
 tracing-timing.workspace = true
+
 
 [dev-dependencies]
 criterion.workspace = true

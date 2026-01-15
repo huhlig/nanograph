@@ -20,7 +20,7 @@ pub type FileSystemResult<T> = Result<T, FileSystemError>;
 /// Errors that can occur during filesystem operations.
 #[derive(Debug)]
 pub enum FileSystemError {
-    /// Path is not valid in this FileSystem
+    /// Path is not valid in this `FileSystem`
     InvalidPath(String),
     /// Attempt to create an object that already exists.
     PathExists,

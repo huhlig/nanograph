@@ -26,11 +26,11 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed status.
 
 Choose the right engine for your workload:
 
-| Engine | Best For | Key Features |
-|--------|----------|--------------|
-| **ART** | Short keys, prefix queries | O(k) operations, adaptive nodes, memory-efficient |
+| Engine     | Best For                        | Key Features                                                 |
+|------------|---------------------------------|--------------------------------------------------------------|
+| **ART**    | Short keys, prefix queries      | O(k) operations, adaptive nodes, memory-efficient            |
 | **B+Tree** | Range scans, balanced workloads | Full MVCC, predictable performance, excellent cache locality |
-| **LSM** | Write-heavy, large datasets | Compression, bloom filters, tiered storage |
+| **LSM**    | Write-heavy, large datasets     | Compression, bloom filters, tiered storage                   |
 
 See [docs/BACKEND_COMPARISON.md](docs/BACKEND_COMPARISON.md) for detailed comparison.
 
@@ -65,8 +65,8 @@ nanograph/
 ├── nanograph-wal/          # Write-Ahead Log
 ├── nanograph-util/         # Utilities (compression, encryption)
 ├── docs/                   # Documentation
-│   ├── ADR/               # Architecture Decision Records (27 ADRs)
-│   ├── DEV/               # Development guides
+│   ├── ADR/                # Architecture Decision Records (27 ADRs)
+│   ├── DEV/                # Development guides
 │   ├── BACKEND_COMPARISON.md
 │   ├── DEPLOYMENT.md
 │   └── GLOSSARY.md
@@ -120,17 +120,20 @@ cargo run --example lsm_usage -p nanograph-lsm
 ## 📚 Documentation
 
 ### Getting Started
+
 - [PROJECT_STATUS.md](PROJECT_STATUS.md) - Current project status and roadmap
 - [CONTRIBUTING.md](CONTRIBUTING.md) - Development guidelines
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) - Deployment guide
 
 ### Architecture
+
 - [docs/PROJECT_REQUIREMENTS.md](docs/PROJECT_REQUIREMENTS.md) - Product requirements
 - [docs/DEV/IMPLEMENTATION_PLAN.md](docs/DEV/IMPLEMENTATION_PLAN.md) - Implementation roadmap
 - [docs/BACKEND_COMPARISON.md](docs/BACKEND_COMPARISON.md) - Storage engine comparison
 - [docs/ADR/](docs/ADR/) - Architecture Decision Records (27 ADRs)
 
 ### Component Documentation
+
 - [nanograph-art/IMPLEMENTATION_STATUS.md](nanograph-art/IMPLEMENTATION_STATUS.md) - ART status
 - [nanograph-btree/COMPLETION_STATUS.md](nanograph-btree/COMPLETION_STATUS.md) - B+Tree status
 - [nanograph-lsm/NEXT_STEPS.md](nanograph-lsm/NEXT_STEPS.md) - LSM roadmap
@@ -141,30 +144,35 @@ cargo run --example lsm_usage -p nanograph-lsm
 ## 🎯 Roadmap
 
 ### ✅ Phase 1: Core Storage (COMPLETE)
+
 - 3 production-ready storage engines
 - VFS abstraction
 - WAL infrastructure
 - KeyValueStore trait
 
-### ✅ Phase 2: Distributed Consensus (COMPLETE)
+### ⏳ Phase 2: Distributed Consensus (IN-PROGRESS)
+
 - Raft integration
 - Sharding and routing
 - Distributed operations
 - Dual-mode operation
 
 ### ⏳ Phase 3: Multi-Model Support (NEXT)
+
 - Document model
 - Graph model
 - Indexing infrastructure
 - Unified query interface
 
 ### 📅 Phase 4: Vector & AI (PLANNED)
+
 - Vector storage and indexing
 - Embedding pipeline
 - Semantic search
 - Hybrid queries
 
 ### 📅 Phase 5: Production Hardening (PLANNED)
+
 - Performance optimization
 - Security hardening
 - Comprehensive benchmarks
@@ -176,22 +184,23 @@ cargo run --example lsm_usage -p nanograph-lsm
 
 All components have comprehensive test coverage:
 
-| Component | Tests | Pass Rate | Status |
-|-----------|-------|-----------|--------|
-| nanograph-art | 19 | 100% | ✅ |
-| nanograph-btree | 49 | 100% | ✅ |
-| nanograph-lsm | 15+ | 100% | ✅ |
-| nanograph-raft | 20 | 100% | ✅ |
-| nanograph-vfs | All | 100% | ✅ |
-| nanograph-wal | All | 100% | ✅ |
-| nanograph-util | All | 100% | ✅ |
-| **Total** | **103+** | **100%** | **✅** |
+| Component       | Tests    | Pass Rate | Status |
+|-----------------|----------|-----------|--------|
+| nanograph-art   | 19       | 100%      | ✅      |
+| nanograph-btree | 49       | 100%      | ✅      |
+| nanograph-lsm   | 15+      | 100%      | ✅      |
+| nanograph-raft  | 20       | 100%      | ✅      |
+| nanograph-vfs   | All      | 100%      | ✅      |
+| nanograph-wal   | All      | 100%      | ✅      |
+| nanograph-util  | All      | 100%      | ✅      |
+| **Total**       | **103+** | **100%**  | **✅**  |
 
 ---
 
 ## 🤝 Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
+
 - Development workflow
 - Code review process
 - Testing guidelines
@@ -206,25 +215,29 @@ This project is licensed under [Apache License, Version 2.0](http://www.apache.o
 
 ### Contribution
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be licensed as above, without any additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as
+defined in the Apache-2.0 license, shall be licensed as above, without any additional terms or conditions.
 
 ---
 
 ## 🌟 Key Highlights
 
 ### Performance
+
 - **Sub-10ms** local reads
 - **O(k)** operations with ART (k = key length)
 - **O(log n)** operations with B+Tree and LSM
 - **Linear scalability** with sharding
 
 ### Reliability
+
 - **ACID transactions** with snapshot isolation
 - **Raft consensus** for strong consistency
 - **Write-ahead logging** for durability
 - **100% test pass rate** across all components
 
 ### Flexibility
+
 - **3 storage engines** for different workloads
 - **Dual-mode operation** (single-node and distributed)
 - **Multiple consistency levels** (Linearizable, Lease, Follower)
@@ -243,7 +256,8 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 
 **Status**: 🟢 Phase 1-2 Complete, Phase 3 Ready to Start
 
-This project is under active development. Phase 1 (Core Storage) and Phase 2 (Distributed Consensus) are complete and production-ready. Phase 3 (Multi-Model Support) is next.
+This project is under active development. Phase 1 (Core Storage) and Phase 2 (Distributed Consensus) are complete and
+production-ready. Phase 3 (Multi-Model Support) is next.
 
 ---
 

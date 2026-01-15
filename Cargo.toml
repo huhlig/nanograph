@@ -44,23 +44,22 @@ async-trait = { version = "0.1" }
 futures = { version = "0.3" }
 futures-core = { version = "0.3", features = ["default"] }
 tokio = { version = "1", features = ["full"] }
+tokio-test = { version = "0.4" }
 
 # Integrity
-crc32c = { version = "0.6" }
+crc = { version = "3" }
+rand = { version = "0.9", features = ["small_rng"] }
 xxhash-rust = { version = "0.8", features = ["xxh32"] }
 
-# Compression
+# Compression & Encryption
+aes-gcm = { version = "0.10" }
+chacha20poly1305 = { version = "0.10" }
 lz4 = { version = "1.28" }
 zstd = { version = "0.13" }
 snap = { version = "1.1" }
 
-# Encryption
-aes-gcm = { version = "0.10" }
-chacha20poly1305 = { version = "0.10" }
-rand = { version = "0.9", features = ["small_rng"] }
-
 # Error handling
-thiserror = "2.0"
+thiserror = { version = "2", features = ["default"] }
 
 # Consensus
 openraft = { version = "0.9" }
@@ -70,6 +69,7 @@ chrono = { version = "0.4", features = ["default", "now"] }
 
 # Serialization
 byteorder = { version = "1.5", features = ["default"] }
+postcard = { version = "1", features = ["use-crc", "use-std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["default"] }
 
@@ -80,6 +80,6 @@ tracing-timing = { version = "0.7", features = ["default"] }
 tracing-subscriber = { version = "0.3", features = ["default"] }
 
 # Testing & Benchmarking
-criterion = { version = "0.8", features = ["html_reports", "csv_output", "plotters"] }
+criterion = { version = "0.8", features = ["html_reports", "csv_output", "plotters", "async_tokio"] }
 tracing-test = { version = "0.2" }
 tempfile = { version = "3.24" }

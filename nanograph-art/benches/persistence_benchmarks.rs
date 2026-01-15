@@ -16,10 +16,11 @@
 
 //! Persistence and I/O benchmarks for Adaptive Radix Tree
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use futures::StreamExt;
 use nanograph_art::{AdaptiveRadixTree, ArtKeyValueStore};
 use nanograph_kvt::{KeyValueShardStore, ShardIndex, TableId};
+use std::hint::black_box;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::runtime::Runtime;
@@ -467,5 +468,3 @@ criterion_main!(
     batch_benches,
     memory_benches
 );
-
-// Made with Bob

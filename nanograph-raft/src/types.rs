@@ -15,9 +15,10 @@
 //
 
 //! Core types for Raft-based distributed consensus
-use crate::config::ClusterMetadata;
-use nanograph_core::types::{ClusterId, NodeId, RegionId, ServerId, ShardId, Timestamp};
-use nanograph_kvt::{ShardMetadata, ShardStatus};
+use nanograph_core::{
+    object::{ClusterId, ClusterMetadata, NodeId, RegionId, ShardId, ShardMetadata, ShardStatus},
+    types::Timestamp,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -27,8 +28,6 @@ use std::net::SocketAddr;
 pub struct NodeInfo {
     /// Unique node identifier
     pub node: NodeId,
-
-    pub region: RegionId,
 
     /// Network address for Raft communication
     pub raft_addr: SocketAddr,
@@ -323,6 +322,8 @@ impl Default for RaftClusterState {
             version: 0,
             created_at: Timestamp::now(),
             last_modified: Timestamp::now(),
+            options: Default::default(),
+            metadata: Default::default(),
         })
     }
 }

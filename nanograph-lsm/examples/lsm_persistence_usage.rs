@@ -205,5 +205,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  • Bloom filters speed up negative lookups");
     Ok(())
 }
-
-// Made with Bob

@@ -122,6 +122,6 @@ mod test {
             inner: Arc::new(MemoryFileSystem::new()),
         });
         let fs = VirtualFileSystem::new(inner);
-        run_generic_test_suite(fs);
+        run_generic_test_suite(&fs);
     }
 }

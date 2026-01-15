@@ -317,5 +317,3 @@ fn test_default() {
     let tree: AdaptiveRadixTree<i32> = AdaptiveRadixTree::default();
     assert!(tree.is_empty());
 }
-
-// Made with Bob

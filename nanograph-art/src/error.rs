@@ -14,33 +14,39 @@
 // limitations under the License.
 //
 
+use nanograph_kvt::ShardId;
 use thiserror::Error;
 
-/// Result type for ART operations
-pub type Result<T> = std::result::Result<T, Error>;
+pub type ArtResult<T> = Result<T, ArtError>;
 
-/// Error types for Adaptive Radix Tree operations
 #[derive(Debug, Error)]
-pub enum Error {
-    /// Key not found in the tree
-    #[error("Key not found")]
-    KeyNotFound,
-
-    /// Key already exists in the tree
-    #[error("Key already exists")]
-    KeyExists,
-
-    /// Invalid key (e.g., empty key)
-    #[error("Invalid key: {0}")]
+pub enum ArtError {
+    #[error("Invalid Key: {0}")]
     InvalidKey(String),
 
-    /// Node capacity exceeded
     #[error("Node capacity exceeded")]
     NodeCapacityExceeded,
 
-    /// Internal error
-    #[error("Internal error: {0}")]
+    #[error("Shard not found: {0}")]
+    ShardNotFound(ShardId),
+
+    #[error("Storage Corruption: {0}")]
+    StorageCorruption(String),
+
+    #[error("Internal Error: {0}")]
     Internal(String),
 }
 
-// Made with Bob
+impl From<ArtError> for nanograph_kvt::KeyValueError {
+    fn from(err: ArtError) -> Self {
+        match err {
+            ArtError::InvalidKey(v) => nanograph_kvt::KeyValueError::InvalidKey(v),
+            ArtError::NodeCapacityExceeded => {
+                nanograph_kvt::KeyValueError::Internal("Node capacity exceeded".to_string())
+            }
+            ArtError::ShardNotFound(e) => nanograph_kvt::KeyValueError::ShardNotFound(e),
+            ArtError::StorageCorruption(e) => nanograph_kvt::KeyValueError::StorageCorruption(e),
+            other => nanograph_kvt::KeyValueError::Internal(other.to_string()),
+        }
+    }
+}

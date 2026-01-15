@@ -19,7 +19,7 @@
 //! This module provides versioned leaf nodes that support snapshot isolation.
 
 use crate::mvcc::VersionChain;
-use crate::node::NodeId;
+use crate::node::BTreeNodeId;
 use serde::{Deserialize, Serialize};
 
 /// MVCC-enabled leaf node in the B+Tree
@@ -29,24 +29,24 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MvccLeafNode {
     /// Node ID
-    pub id: NodeId,
+    pub id: BTreeNodeId,
 
     /// Key-value entries with version chains (sorted by key)
     pub entries: Vec<(Vec<u8>, VersionChain)>,
 
     /// Link to the next leaf node (for range scans)
-    pub next: Option<NodeId>,
+    pub next: Option<BTreeNodeId>,
 
     /// Link to the previous leaf node (for reverse scans)
-    pub prev: Option<NodeId>,
+    pub prev: Option<BTreeNodeId>,
 
     /// Parent node ID
-    pub parent: Option<NodeId>,
+    pub parent: Option<BTreeNodeId>,
 }
 
 impl MvccLeafNode {
     /// Create a new empty MVCC leaf node
-    pub fn new(id: NodeId) -> Self {
+    pub fn new(id: BTreeNodeId) -> Self {
         Self {
             id,
             entries: Vec::new(),
@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_mvcc_leaf_insert_and_get() {
-        let mut leaf = MvccLeafNode::new(NodeId::new(1));
+        let mut leaf = MvccLeafNode::new(BTreeNodeId::new(1));
 
         // Insert a value
         assert_eq!(leaf.insert(b"key1".to_vec(), b"value1".to_vec(), 1), None);
@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_mvcc_leaf_update() {
-        let mut leaf = MvccLeafNode::new(NodeId::new(1));
+        let mut leaf = MvccLeafNode::new(BTreeNodeId::new(1));
 
         // Insert and commit first version
         leaf.insert(b"key1".to_vec(), b"v1".to_vec(), 1);
@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_mvcc_leaf_delete() {
-        let mut leaf = MvccLeafNode::new(NodeId::new(1));
+        let mut leaf = MvccLeafNode::new(BTreeNodeId::new(1));
 
         // Insert and commit
         leaf.insert(b"key1".to_vec(), b"value1".to_vec(), 1);
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_mvcc_leaf_rollback() {
-        let mut leaf = MvccLeafNode::new(NodeId::new(1));
+        let mut leaf = MvccLeafNode::new(BTreeNodeId::new(1));
 
         // Insert and commit first version
         leaf.insert(b"key1".to_vec(), b"v1".to_vec(), 1);
@@ -315,7 +315,7 @@ mod tests {
 
     #[test]
     fn test_mvcc_leaf_conflict_detection() {
-        let mut leaf = MvccLeafNode::new(NodeId::new(1));
+        let mut leaf = MvccLeafNode::new(BTreeNodeId::new(1));
 
         // Insert and commit at ts=2
         leaf.insert(b"key1".to_vec(), b"value1".to_vec(), 1);
@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn test_mvcc_leaf_gc() {
-        let mut leaf = MvccLeafNode::new(NodeId::new(1));
+        let mut leaf = MvccLeafNode::new(BTreeNodeId::new(1));
 
         // Create multiple versions
         for i in 1..=5 {

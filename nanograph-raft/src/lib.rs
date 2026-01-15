@@ -148,23 +148,22 @@
 
 mod config;
 mod error;
-mod metadata;
+mod group;
 mod router;
-mod shard_group;
 mod storage;
 mod types;
 
 // Re-export public API
-pub use config::{
-    ClusterConfig, ClusterMetadata, RegionConfig, RegionMetadata, ServerConfig, ServerMetadata,
-};
-pub use error::{ConsensusError, ConsensusResult};
-pub use metadata::MetadataRaftGroup;
-pub use nanograph_core::types::{NodeId, RegionId, ServerId, ShardId};
-pub use router::ConsensusRouter;
-pub use shard_group::{RaftRole, ShardRaftGroup};
-pub use storage::{LogEntry, RaftStorageAdapter, ShardSnapshot, SnapshotMeta};
-pub use types::{
+pub use self::error::{ConsensusError, ConsensusResult};
+pub use self::group::{ContainerShardRaftGroup, SystemShardRaftGroup, TableShardRaftGroup};
+pub use self::router::ConsensusRouter;
+pub use self::storage::{LogEntry, RaftStorageAdapter, ShardSnapshot, SnapshotMeta};
+pub use self::types::{
     MetadataChange, NodeInfo, NodeStatus, Operation, OperationResponse, PlacementStrategy,
     RaftClusterState, ReadConsistency, ReplicationConfig, ResourceCapacity,
+};
+pub use nanograph_core::object::{
+    ClusterCreate, ClusterId, ClusterMetadata, ClusterUpdate, ContainerId, NodeId, RegionCreate,
+    RegionId, RegionMetadata, RegionUpdate, ServerCreate, ServerId, ServerMetadata, ServerUpdate,
+    ShardId,
 };

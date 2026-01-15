@@ -16,8 +16,10 @@
 
 //! Error types for Raft consensus operations
 
-use nanograph_core::types::NodeId;
-use nanograph_kvt::{ShardId, Timestamp};
+use nanograph_core::{
+    object::{NodeId, ShardId},
+    types::Timestamp,
+};
 
 /// Result type for Raft operations
 pub type ConsensusResult<T> = Result<T, ConsensusError>;

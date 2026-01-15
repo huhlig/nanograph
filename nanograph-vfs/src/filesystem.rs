@@ -20,7 +20,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
 use std::sync::Arc;
 
-/// API definition all KBase [`FileSystem`] implementations must adhere to.
+/// API definition all Nanograph [`FileSystem`] implementations must adhere to.
 ///
 /// This trait defines the core operations for a virtual filesystem, including
 /// file and directory manipulation, metadata queries, and entry management.
@@ -57,7 +57,7 @@ pub trait FileSystem: Debug + Sync + Send + 'static {
     fn create_directory_all(&self, path: &str) -> FileSystemResult<()>;
 
     /// Returns an iterator over the names of entries within a Folder.
-    fn list_directory<'a>(&self, path: &str) -> FileSystemResult<Vec<String>>;
+    fn list_directory(&self, path: &str) -> FileSystemResult<Vec<String>>;
 
     /// Removes the folder at this path.
     ///
@@ -99,7 +99,7 @@ pub trait DynamicFileSystem: Debug + Sync + Send + 'static {
     /// Creates a new, empty folder entry at the provided path, creating all parents as needed.
     fn create_directory_all(&self, path: &str) -> FileSystemResult<()>;
     /// Returns an iterator over the names of entries within a Folder.
-    fn list_directory<'a>(&self, path: &str) -> FileSystemResult<Vec<String>>;
+    fn list_directory(&self, path: &str) -> FileSystemResult<Vec<String>>;
     /// Removes the folder at this path.
     fn remove_directory(&self, path: &str) -> FileSystemResult<()>;
     /// Removes the folder at this path and all children.
@@ -400,19 +400,16 @@ pub struct Path {
 
 impl Path {
     /// Creates a new relative path.
+    #[must_use]
     pub fn new() -> Self {
-        Self {
-            scheme: None,
-            absolute: false,
-            ups: 0,
-            segments: Vec::new(),
-        }
+        Self::default()
     }
 
     /// Parses a path string into a [`Path`] object.
     ///
     /// The string can optionally include a scheme (e.g., `mem://path/to/file`).
     /// If no scheme is present, the path is parsed as a relative or absolute path.
+    #[must_use]
     pub fn parse(input: &str) -> Self {
         let (scheme, rest) = if let Some(pos) = input.find("://") {
             (Some(input[..pos].to_string()), &input[pos + 3..])
@@ -445,6 +442,7 @@ impl Path {
     }
 
     /// Creates a new absolute root path.
+    #[must_use]
     pub fn root() -> Self {
         Self {
             scheme: None,
@@ -473,7 +471,7 @@ impl Path {
             "" | "." => {}
 
             ".." => {
-                if let Some(_) = self.segments.pop() {
+                if self.segments.pop().is_some() {
                     // consumed a segment
                 } else if !self.absolute {
                     self.ups += 1;
@@ -515,6 +513,7 @@ impl Path {
     /// let p3 = Path::parse("../e");
     /// assert_eq!(p1.join(&p3).to_string(), "/a/e");
     /// ```
+    #[must_use]
     pub fn join(&self, other: &Path) -> Path {
         if other.scheme.is_some() && other.scheme != self.scheme {
             panic!("Cannot join paths with different schemes");
@@ -539,6 +538,7 @@ impl Path {
 
     /// Returns a new `Path` with all segments fully normalized,
     /// collapsing `.` and `..`, and removing redundant `ups` where possible.
+    #[must_use]
     pub fn resolve(&self) -> Path {
         let mut resolved = if self.absolute {
             Path::root()
@@ -546,7 +546,7 @@ impl Path {
             Path::new()
         };
 
-        resolved.scheme = self.scheme.clone();
+        resolved.scheme.clone_from(&self.scheme);
 
         for _ in 0..self.ups {
             resolved.push("..");
@@ -561,10 +561,11 @@ impl Path {
 
     /// Returns an iterator over normalized segments
     pub fn segments(&self) -> impl Iterator<Item = &str> {
-        self.segments.iter().map(|s| s.as_str())
+        self.segments.iter().map(String::as_str)
     }
 
     /// Returns a new [`Path`] representing the parent path
+    #[must_use]
     pub fn parent(&self) -> Path {
         if !self.segments.is_empty() {
             // Remove last segment
@@ -586,7 +587,7 @@ impl Path {
 impl std::fmt::Display for Path {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(scheme) = &self.scheme {
-            write!(f, "{}://", scheme)?;
+            write!(f, "{scheme}://")?;
         }
 
         if self.absolute {
@@ -607,6 +608,17 @@ impl std::fmt::Display for Path {
 impl From<&str> for Path {
     fn from(s: &str) -> Self {
         Self::parse(s)
+    }
+}
+
+impl Default for Path {
+    fn default() -> Self {
+        Self {
+            scheme: None,
+            absolute: false,
+            ups: 0,
+            segments: Vec::new(),
+        }
     }
 }
 
@@ -652,10 +664,10 @@ mod tests {
 
         for (input, scheme, absolute, ups, segments) in cases {
             let p = Path::parse(input);
-            assert_eq!(p.scheme, scheme.map(|s| s.to_string()), "Input: {}", input);
-            assert_eq!(p.absolute, absolute, "Input: {}", input);
-            assert_eq!(p.ups, ups, "Input: {}", input);
-            assert_eq!(p.segments, segments, "Input: {}", input);
+            assert_eq!(p.scheme, scheme.map(ToString::to_string), "Input: {input}");
+            assert_eq!(p.absolute, absolute, "Input: {input}");
+            assert_eq!(p.ups, ups, "Input: {input}");
+            assert_eq!(p.segments, segments, "Input: {input}");
         }
     }
 
@@ -718,7 +730,7 @@ mod tests {
     fn test_path_join_mismatched_schemes() {
         let p1 = Path::parse("mem:///abc");
         let p2 = Path::parse("file:///def");
-        p1.join(&p2);
+        let _ = p1.join(&p2);
     }
 
     #[test]

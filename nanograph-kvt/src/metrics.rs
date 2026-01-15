@@ -142,7 +142,8 @@
 //! }
 //! ```
 
-use nanograph_core::types::{ShardId, Timestamp};
+use nanograph_core::object::ShardId;
+use nanograph_core::types::Timestamp;
 use std::collections::HashMap;
 
 /// Helper trait for storage engines to register their metrics

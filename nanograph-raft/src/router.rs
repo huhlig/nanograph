@@ -18,20 +18,19 @@
 //!
 //! Routes operations to the correct shard based on key hashing.
 
+use crate::NodeInfo;
 use crate::error::{ConsensusError, ConsensusResult};
-use crate::metadata::MetadataRaftGroup;
-use crate::shard_group::ShardRaftGroup;
+use crate::group::{ContainerShardRaftGroup, SystemShardRaftGroup, TableShardRaftGroup};
 use crate::storage::RaftStorageAdapter;
 use crate::types::{Operation, ReadConsistency, ReplicationConfig};
-use nanograph_core::types::{NodeId, RegionId};
-use nanograph_kvt::{KeyValueShardStore, ShardId};
+use nanograph_core::object::{ContainerId, NodeId, ShardId};
+use nanograph_kvt::KeyValueShardStore;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
-use crate::NodeInfo;
 
 /// Router for distributed operations
 ///
@@ -47,14 +46,17 @@ pub struct ConsensusRouter {
     /// Replication configuration
     config: ReplicationConfig,
 
-    /// Metadata Raft group
-    metadata: Arc<MetadataRaftGroup>,
-
     /// Peer Nodes
     peers: Arc<RwLock<HashMap<NodeId, NodeInfo>>>,
 
-    /// Shard Raft groups (shard_id -> group)
-    shards: Arc<RwLock<HashMap<ShardId, Arc<ShardRaftGroup>>>>,
+    /// Metadata Raft group
+    system_metadata: Arc<SystemShardRaftGroup>,
+
+    /// Container Metadata Raft groups (container_id -> group)
+    container_metadata: Arc<RwLock<HashMap<ContainerId, Arc<ContainerShardRaftGroup>>>>,
+
+    /// Table Shard Raft groups (shard_id -> group)
+    table_shards: Arc<RwLock<HashMap<ShardId, Arc<TableShardRaftGroup>>>>,
 
     /// Total number of shards in the cluster
     shard_count: Arc<RwLock<u32>>,
@@ -63,14 +65,15 @@ pub struct ConsensusRouter {
 impl ConsensusRouter {
     /// Create a new router
     pub fn new(local_node_id: NodeId, config: ReplicationConfig) -> Self {
-        info!("Creating router on node {}", local_node_id);
+        info!("Creating Consensus Router on node {}", local_node_id);
 
         Self {
             local_node_id,
             config,
-            metadata: Arc::new(MetadataRaftGroup::new(local_node_id)),
             peers: Arc::new(RwLock::new(HashMap::new())),
-            shards: Arc::new(RwLock::new(HashMap::new())),
+            system_metadata: Arc::new(SystemShardRaftGroup::new(local_node_id)),
+            container_metadata: Arc::new(RwLock::new(HashMap::new())),
+            table_shards: Arc::new(RwLock::new(HashMap::new())),
             shard_count: Arc::new(RwLock::new(1)), // Default to single shard
         }
     }
@@ -92,8 +95,8 @@ impl ConsensusRouter {
         info!("Set shard count to {}", count);
     }
 
-    /// Add a shard to this node
-    pub async fn add_shard(
+    /// Add a table shard to this node
+    pub async fn add_table_shard(
         &self,
         shard_id: ShardId,
         storage: Box<dyn KeyValueShardStore>,
@@ -103,7 +106,7 @@ impl ConsensusRouter {
 
         let storage_adapter = Arc::new(RaftStorageAdapter::new(storage, shard_id));
 
-        let shard_group = Arc::new(ShardRaftGroup::new(
+        let shard_group = Arc::new(TableShardRaftGroup::new(
             shard_id,
             self.local_node_id,
             storage_adapter,
@@ -111,27 +114,27 @@ impl ConsensusRouter {
             self.config.clone(),
         ));
 
-        let mut shards = self.shards.write().await;
+        let mut shards = self.table_shards.write().await;
         shards.insert(shard_id, shard_group);
 
         Ok(())
     }
 
     /// Remove a shard from this node
-    pub async fn remove_shard(&self, shard_id: ShardId) -> ConsensusResult<()> {
+    pub async fn remove_table_shard(&self, shard_id: ShardId) -> ConsensusResult<()> {
         info!(
             "Removing shard {} from node {}",
             shard_id, self.local_node_id
         );
 
-        let mut shards = self.shards.write().await;
+        let mut shards = self.table_shards.write().await;
         shards.remove(&shard_id);
 
         Ok(())
     }
 
     /// Get shard for a key using hash-based partitioning
-    pub async fn get_shard_for_key(&self, key: &[u8]) -> ShardId {
+    pub async fn get_table_shard_for_key(&self, key: &[u8]) -> ShardId {
         let shard_count = *self.shard_count.read().await;
 
         if shard_count == 1 {
@@ -146,8 +149,11 @@ impl ConsensusRouter {
     }
 
     /// Get shard group by ID
-    async fn get_shard_group(&self, shard_id: ShardId) -> ConsensusResult<Arc<ShardRaftGroup>> {
-        let shards = self.shards.read().await;
+    async fn get_table_shard_group(
+        &self,
+        shard_id: ShardId,
+    ) -> ConsensusResult<Arc<TableShardRaftGroup>> {
+        let shards = self.table_shards.read().await;
         shards
             .get(&shard_id)
             .cloned()
@@ -156,10 +162,10 @@ impl ConsensusRouter {
 
     /// Put a key-value pair
     pub async fn put(&self, key: Vec<u8>, value: Vec<u8>) -> ConsensusResult<()> {
-        let shard_id = self.get_shard_for_key(&key).await;
+        let shard_id = self.get_table_shard_for_key(&key).await;
         debug!("Routing PUT to shard {}", shard_id);
 
-        let shard = self.get_shard_group(shard_id).await?;
+        let shard = self.get_table_shard_group(shard_id).await?;
         let operation = Operation::Put { key, value };
 
         shard.propose_write(operation).await?;
@@ -178,19 +184,19 @@ impl ConsensusRouter {
         key: &[u8],
         consistency: ReadConsistency,
     ) -> ConsensusResult<Option<Vec<u8>>> {
-        let shard_id = self.get_shard_for_key(key).await;
+        let shard_id = self.get_table_shard_for_key(key).await;
         debug!("Routing GET to shard {} with {:?}", shard_id, consistency);
 
-        let shard = self.get_shard_group(shard_id).await?;
+        let shard = self.get_table_shard_group(shard_id).await?;
         shard.read(key, consistency).await
     }
 
     /// Delete a key
     pub async fn delete(&self, key: Vec<u8>) -> ConsensusResult<()> {
-        let shard_id = self.get_shard_for_key(&key).await;
+        let shard_id = self.get_table_shard_for_key(&key).await;
         debug!("Routing DELETE to shard {}", shard_id);
 
-        let shard = self.get_shard_group(shard_id).await?;
+        let shard = self.get_table_shard_group(shard_id).await?;
         let operation = Operation::Delete { key };
 
         shard.propose_write(operation).await?;
@@ -216,7 +222,7 @@ impl ConsensusRouter {
                 }
             };
 
-            let shard_id = self.get_shard_for_key(key).await;
+            let shard_id = self.get_table_shard_for_key(key).await;
             shard_ops.entry(shard_id).or_insert_with(Vec::new).push(op);
         }
 
@@ -224,7 +230,7 @@ impl ConsensusRouter {
         for (shard_id, ops) in shard_ops {
             debug!("Routing batch of {} ops to shard {}", ops.len(), shard_id);
 
-            let shard = self.get_shard_group(shard_id).await?;
+            let shard = self.get_table_shard_group(shard_id).await?;
             let batch_op = Operation::Batch { operations: ops };
 
             shard.propose_write(batch_op).await?;
@@ -234,19 +240,42 @@ impl ConsensusRouter {
     }
 
     /// Get metadata Raft group
-    pub fn metadata(&self) -> &MetadataRaftGroup {
-        &self.metadata
+    pub fn system_metadata(&self) -> Arc<SystemShardRaftGroup> {
+        self.system_metadata.clone()
+    }
+    pub async fn container_metadata(
+        &self,
+        container_id: ContainerId,
+    ) -> ConsensusResult<Arc<ContainerShardRaftGroup>> {
+        let lock = self.container_metadata.read().await;
+        lock.get(&container_id)
+            .cloned()
+            .ok_or_else(|| ConsensusError::ShardNotFound {
+                shard_id: ShardId::new(0),
+            })
     }
 
     /// Get all local shards
     pub async fn local_shards(&self) -> Vec<ShardId> {
-        let shards = self.shards.read().await;
+        let shards = self.table_shards.read().await;
         shards.keys().copied().collect()
     }
 
     /// Get shard group (for advanced operations)
-    pub async fn shard_group(&self, shard_id: ShardId) -> ConsensusResult<Arc<ShardRaftGroup>> {
-        self.get_shard_group(shard_id).await
+    pub async fn shard_group(
+        &self,
+        shard_id: ShardId,
+    ) -> ConsensusResult<Arc<TableShardRaftGroup>> {
+        self.get_table_shard_group(shard_id).await
+    }
+}
+
+impl std::fmt::Debug for ConsensusRouter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConsensusRouter")
+            .field("node_id", &self.local_node_id)
+            // Todo: Add More pertinent fields
+            .finish()
     }
 }
 
@@ -268,11 +297,11 @@ mod tests {
         let key1 = b"test_key_1";
         let key2 = b"test_key_2";
 
-        let shard1 = router.get_shard_for_key(key1).await;
-        let shard2 = router.get_shard_for_key(key2).await;
+        let shard1 = router.get_table_shard_for_key(key1).await;
+        let shard2 = router.get_table_shard_for_key(key2).await;
 
         // Same key should always route to same shard
-        assert_eq!(shard1, router.get_shard_for_key(key1).await);
-        assert_eq!(shard2, router.get_shard_for_key(key2).await);
+        assert_eq!(shard1, router.get_table_shard_for_key(key1).await);
+        assert_eq!(shard2, router.get_table_shard_for_key(key2).await);
     }
 }

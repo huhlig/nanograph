@@ -15,7 +15,7 @@
 //
 
 use crate::error::BTreeResult;
-use crate::node::NodeId;
+use crate::node::BTreeNodeId;
 use crate::tree::BPlusTree;
 use futures_core::Stream;
 use nanograph_kvt::KeyValueIterator;
@@ -27,7 +27,7 @@ use std::task::{Context, Poll};
 /// Cursor for resuming iteration
 #[derive(Debug, Clone)]
 pub struct IteratorCursor {
-    pub leaf_id: Option<NodeId>,
+    pub leaf_id: Option<BTreeNodeId>,
     pub index: usize,
     pub count: usize,
 }
@@ -35,7 +35,7 @@ pub struct IteratorCursor {
 /// Iterator over B+Tree entries
 pub struct BPlusTreeIterator {
     tree: Arc<BPlusTree>,
-    current_leaf: Option<NodeId>,
+    current_leaf: Option<BTreeNodeId>,
     current_entries: Vec<(Vec<u8>, Vec<u8>)>,
     current_index: usize,
     end_bound: Bound<Vec<u8>>,
@@ -77,7 +77,7 @@ impl BPlusTreeIterator {
     fn find_forward_start(
         tree: &BPlusTree,
         start_bound: &Bound<Vec<u8>>,
-    ) -> BTreeResult<(Option<NodeId>, Vec<(Vec<u8>, Vec<u8>)>, usize)> {
+    ) -> BTreeResult<(Option<BTreeNodeId>, Vec<(Vec<u8>, Vec<u8>)>, usize)> {
         match start_bound {
             Bound::Unbounded => {
                 // Start from leftmost leaf
@@ -115,7 +115,7 @@ impl BPlusTreeIterator {
     fn find_reverse_start(
         tree: &BPlusTree,
         end_bound: &Bound<Vec<u8>>,
-    ) -> BTreeResult<(Option<NodeId>, Vec<(Vec<u8>, Vec<u8>)>, usize)> {
+    ) -> BTreeResult<(Option<BTreeNodeId>, Vec<(Vec<u8>, Vec<u8>)>, usize)> {
         match end_bound {
             Bound::Unbounded => {
                 // Start from rightmost leaf - traverse to find it

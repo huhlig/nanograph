@@ -271,5 +271,3 @@ impl<V: Clone> Iterator for ArtRangeIterator<V> {
         Some(item)
     }
 }
-
-// Made with Bob

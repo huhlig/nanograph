@@ -14,6 +14,7 @@
 // limitations under the License.
 //
 
+use crate::config::LSMStorageConfig;
 use crate::engine::LSMTreeEngine;
 use crate::iterator::LSMIterator;
 use crate::options::LSMTreeOptions;
@@ -21,10 +22,10 @@ use crate::transaction::TransactionManager;
 use async_trait::async_trait;
 use nanograph_kvt::metrics::{ShardStats, StatValue};
 use nanograph_kvt::{
-    KeyRange, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId, ShardIndex, TableId,
-    Transaction,
+    KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId,
+    ShardIndex, TableId, Transaction,
 };
-use nanograph_vfs::{MemoryFileSystem, Path};
+use nanograph_vfs::{DynamicFileSystem, MemoryFileSystem, Path};
 use nanograph_wal::{WriteAheadLogConfig, WriteAheadLogManager};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -65,7 +66,7 @@ impl LSMKeyValueStore {
         engines
             .get(&shard)
             .cloned()
-            .ok_or(nanograph_kvt::KeyValueError::KeyNotFound)
+            .ok_or(KeyValueError::ShardNotFound(shard))
     }
 
     fn create_engine_for_table(&self, shard: ShardId) -> KeyValueResult<Arc<LSMTreeEngine>> {
@@ -92,6 +93,39 @@ impl LSMKeyValueStore {
 
         // Create engine with VFS
         let engine = LSMTreeEngine::new(sstable_fs, base_path, options, wal)?;
+
+        Ok(Arc::new(engine))
+    }
+
+    /// Create an engine with VFS and tablespace-resolved configuration
+    /// This is the new tablespace-aware method that will be used by the shard manager
+    pub fn create_engine_with_config(
+        &self,
+        shard: ShardId,
+        vfs: Arc<dyn DynamicFileSystem>,
+        config: LSMStorageConfig,
+    ) -> KeyValueResult<Arc<LSMTreeEngine>> {
+        // Ensure directories exist
+        vfs.create_directory_all(&config.data_dir)
+            .map_err(|e| KeyValueError::StorageCorruption(e.to_string()))?;
+        vfs.create_directory_all(&config.wal_dir)
+            .map_err(|e| KeyValueError::StorageCorruption(e.to_string()))?;
+
+        // Create WAL filesystem (can be same as data or separate)
+        let wal_fs = vfs.clone();
+        let wal_path = Path::from(config.wal_dir.as_str());
+
+        // Create WAL manager with shard ID
+        let wal_config = WriteAheadLogConfig::new(shard.0);
+        let wal = WriteAheadLogManager::new(wal_fs, wal_path, wal_config)
+            .map_err(|e| KeyValueError::StorageCorruption(e.to_string()))?;
+
+        // Create LSM options with shard ID
+        let mut options = config.options.clone();
+        options.shard_id = shard.0;
+
+        // Create engine with VFS and resolved paths
+        let engine = LSMTreeEngine::new(vfs, config.data_dir.clone(), options, wal)?;
 
         Ok(Arc::new(engine))
     }

@@ -18,7 +18,7 @@
 
 mod test_utils;
 
-use nanograph_btree::{BPlusTree, BPlusTreeNode, BTreeMetrics, NodeId, tree::BPlusTreeConfig};
+use nanograph_btree::{BPlusTree, BPlusTreeNode, BTreeMetrics, BTreeNodeId, tree::BPlusTreeConfig};
 use test_utils::*;
 
 // ============================================================================
@@ -27,9 +27,9 @@ use test_utils::*;
 
 #[test]
 fn test_node_id_creation() {
-    let id1 = NodeId::new(42);
-    let id2 = NodeId::new(42);
-    let id3 = NodeId::new(43);
+    let id1 = BTreeNodeId::new(42);
+    let id2 = BTreeNodeId::new(42);
+    let id3 = BTreeNodeId::new(43);
 
     assert_eq!(id1, id2);
     assert_ne!(id1, id3);
@@ -38,7 +38,7 @@ fn test_node_id_creation() {
 
 #[test]
 fn test_leaf_node_creation() {
-    let node_id = NodeId::new(1);
+    let node_id = BTreeNodeId::new(1);
     let node = BPlusTreeNode::new_leaf(node_id);
 
     assert!(node.is_leaf());
@@ -50,7 +50,7 @@ fn test_leaf_node_creation() {
 
 #[test]
 fn test_internal_node_creation() {
-    let node_id = NodeId::new(1);
+    let node_id = BTreeNodeId::new(1);
     let node = BPlusTreeNode::new_internal(node_id);
 
     assert!(node.is_internal());
@@ -62,7 +62,7 @@ fn test_internal_node_creation() {
 
 #[test]
 fn test_leaf_insert_and_get() {
-    let node_id = NodeId::new(1);
+    let node_id = BTreeNodeId::new(1);
     let mut node = BPlusTreeNode::new_leaf(node_id);
 
     // Insert entries
@@ -79,7 +79,7 @@ fn test_leaf_insert_and_get() {
 
 #[test]
 fn test_leaf_maintains_sorted_order() {
-    let node_id = NodeId::new(1);
+    let node_id = BTreeNodeId::new(1);
     let mut node = BPlusTreeNode::new_leaf(node_id);
 
     // Insert in random order
@@ -99,7 +99,7 @@ fn test_leaf_maintains_sorted_order() {
 
 #[test]
 fn test_leaf_update_existing_key() {
-    let node_id = NodeId::new(1);
+    let node_id = BTreeNodeId::new(1);
     let mut node = BPlusTreeNode::new_leaf(node_id);
 
     node.insert_entry(b"key1".to_vec(), b"value1".to_vec());
@@ -113,7 +113,7 @@ fn test_leaf_update_existing_key() {
 
 #[test]
 fn test_leaf_delete() {
-    let node_id = NodeId::new(1);
+    let node_id = BTreeNodeId::new(1);
     let mut node = BPlusTreeNode::new_leaf(node_id);
 
     node.insert_entry(b"key1".to_vec(), b"value1".to_vec());
@@ -133,7 +133,7 @@ fn test_leaf_delete() {
 
 #[test]
 fn test_leaf_is_full() {
-    let node_id = NodeId::new(1);
+    let node_id = BTreeNodeId::new(1);
     let mut node = BPlusTreeNode::new_leaf(node_id);
     let max_keys = 4;
 
@@ -154,7 +154,7 @@ fn test_leaf_is_full() {
 
 #[test]
 fn test_leaf_split() {
-    let node_id = NodeId::new(1);
+    let node_id = BTreeNodeId::new(1);
     let mut node = BPlusTreeNode::new_leaf(node_id);
 
     // Fill the node
@@ -164,7 +164,7 @@ fn test_leaf_split() {
         node.insert_entry(key.into_bytes(), value.into_bytes());
     }
 
-    let new_node_id = NodeId::new(2);
+    let new_node_id = BTreeNodeId::new(2);
     let (separator_key, new_node) = node.split_leaf(new_node_id).unwrap();
 
     // Verify split
@@ -188,13 +188,13 @@ fn test_leaf_split() {
 
 #[test]
 fn test_internal_node_operations() {
-    let node_id = NodeId::new(1);
+    let node_id = BTreeNodeId::new(1);
     let mut node = BPlusTreeNode::new_internal(node_id);
 
     // Add children
-    let child1 = NodeId::new(10);
-    let child2 = NodeId::new(20);
-    let child3 = NodeId::new(30);
+    let child1 = BTreeNodeId::new(10);
+    let child2 = BTreeNodeId::new(20);
+    let child3 = BTreeNodeId::new(30);
 
     // Internal nodes need at least one child before adding keys
     if let BPlusTreeNode::Internal(ref mut internal) = node {
@@ -214,22 +214,22 @@ fn test_internal_node_operations() {
 
 #[test]
 fn test_internal_node_split() {
-    let node_id = NodeId::new(1);
+    let node_id = BTreeNodeId::new(1);
     let mut node = BPlusTreeNode::new_internal(node_id);
 
     // Add initial child
     if let BPlusTreeNode::Internal(ref mut internal) = node {
-        internal.children.push(NodeId::new(100));
+        internal.children.push(BTreeNodeId::new(100));
     }
 
     // Fill the node
     for i in 0..10 {
         let key = format!("key{:02}", i);
-        let child = NodeId::new(100 + i as u64 + 1);
+        let child = BTreeNodeId::new(100 + i as u64 + 1);
         node.insert_internal_entry(key.into_bytes(), child);
     }
 
-    let new_node_id = NodeId::new(2);
+    let new_node_id = BTreeNodeId::new(2);
     let (_separator_key, new_node) = node.split_internal(new_node_id).unwrap();
 
     // Verify split

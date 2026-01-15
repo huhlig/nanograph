@@ -137,5 +137,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("For real disk persistence, use LocalFilesystem instead of MemoryFileSystem.");
     Ok(())
 }
-
-// Made with Bob

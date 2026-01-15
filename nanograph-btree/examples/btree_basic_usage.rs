@@ -85,5 +85,3 @@ fn main() -> Result<(), BTreeError> {
     println!("\n=== Example Complete ===");
     Ok(())
 }
-
-// Made with Bob

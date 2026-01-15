@@ -118,5 +118,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Example Complete ===");
     Ok(())
 }
-
-// Made with Bob

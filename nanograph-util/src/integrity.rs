@@ -16,6 +16,8 @@
 
 use crate::error::{Error, Result};
 
+const CRC: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_CKSUM);
+
 /// Integrity Algorithm for checksums and hashing
 ///
 /// This enum defines the supported integrity algorithms for the Nanograph system.
@@ -127,7 +129,7 @@ impl IntegrityAlgorithm {
     pub fn hash(self, data: &[u8]) -> IntegrityHash {
         match self {
             IntegrityAlgorithm::None => IntegrityHash::None,
-            IntegrityAlgorithm::Crc32c => IntegrityHash::Hash32(crc32c::crc32c(data)),
+            IntegrityAlgorithm::Crc32c => IntegrityHash::Hash32(CRC.checksum(data)),
             IntegrityAlgorithm::XXHash32 => {
                 IntegrityHash::Hash32(xxhash_rust::xxh32::xxh32(data, 0))
             }
@@ -278,7 +280,7 @@ pub struct IntegrityHasher {
 
 enum HasherState {
     None,
-    Crc32c(u32),
+    Crc32c(crc::Digest<'static, u32>),
     XXHash32(xxhash_rust::xxh32::Xxh32),
 }
 
@@ -295,7 +297,7 @@ impl IntegrityHasher {
     pub fn new(algorithm: IntegrityAlgorithm) -> Self {
         let state = match algorithm {
             IntegrityAlgorithm::None => HasherState::None,
-            IntegrityAlgorithm::Crc32c => HasherState::Crc32c(0),
+            IntegrityAlgorithm::Crc32c => HasherState::Crc32c(CRC.digest()),
             IntegrityAlgorithm::XXHash32 => {
                 HasherState::XXHash32(xxhash_rust::xxh32::Xxh32::new(0))
             }
@@ -317,7 +319,7 @@ impl IntegrityHasher {
         match &mut self.state {
             HasherState::None => {}
             HasherState::Crc32c(crc) => {
-                *crc = crc32c::crc32c_append(*crc, data);
+                crc.update(data);
             }
             HasherState::XXHash32(hasher) => {
                 hasher.update(data);
@@ -340,7 +342,7 @@ impl IntegrityHasher {
     pub fn finalize(self) -> IntegrityHash {
         match self.state {
             HasherState::None => IntegrityHash::None,
-            HasherState::Crc32c(crc) => IntegrityHash::Hash32(crc),
+            HasherState::Crc32c(crc) => IntegrityHash::Hash32(crc.finalize()),
             HasherState::XXHash32(hasher) => IntegrityHash::Hash32(hasher.digest()),
         }
     }

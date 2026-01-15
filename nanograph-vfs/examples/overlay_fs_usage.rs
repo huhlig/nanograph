@@ -279,5 +279,3 @@ level = "debug"
 
     Ok(())
 }
-
-// Made with Bob

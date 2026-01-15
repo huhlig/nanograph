@@ -14,6 +14,7 @@
 // limitations under the License.
 //
 
+use crate::config::BTreeStorageConfig;
 use crate::iterator::BPlusTreeIterator;
 use crate::metrics::BTreeMetrics;
 use crate::transaction::TransactionManager;
@@ -27,7 +28,7 @@ use nanograph_kvt::{
     KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId,
     ShardIndex, TableId, Transaction,
 };
-use nanograph_vfs::{MemoryFileSystem, Path};
+use nanograph_vfs::{DynamicFileSystem, MemoryFileSystem, Path};
 use nanograph_wal::{
     LogSequenceNumber, WriteAheadLogConfig, WriteAheadLogManager, WriteAheadLogRecord,
 };
@@ -87,13 +88,79 @@ impl BTreeKeyValueStore {
         }
     }
 
+    /// Create a shard with VFS and tablespace-resolved configuration
+    /// This is the new tablespace-aware method that will be used by the shard manager
+    pub fn create_shard_with_config(
+        &self,
+        shard: ShardId,
+        vfs: Arc<dyn DynamicFileSystem>,
+        config: BTreeStorageConfig,
+    ) -> KeyValueResult<()> {
+        // Ensure directories exist
+        vfs.create_directory_all(&config.data_dir)
+            .map_err(|e| KeyValueError::StorageCorruption(e.to_string()))?;
+        vfs.create_directory_all(&config.wal_dir)
+            .map_err(|e| KeyValueError::StorageCorruption(e.to_string()))?;
+
+        // Create B+Tree with custom configuration
+        let tree_config = BPlusTreeConfig {
+            max_keys: config.order * 2,
+            min_keys: config.order,
+        };
+        let tree = Arc::new(BPlusTree::new(tree_config));
+
+        // Create WAL if enabled
+        let (wal, wal_writer) = if self.wal_enabled {
+            let wal_fs = vfs.clone();
+            let wal_path = Path::from(config.wal_dir.as_str());
+            let wal_config = WriteAheadLogConfig::new(shard.0);
+
+            let wal_manager = WriteAheadLogManager::new(wal_fs, wal_path, wal_config)
+                .map_err(|e| KeyValueError::StorageCorruption(e.to_string()))?;
+
+            let writer = wal_manager
+                .writer()
+                .map_err(|e| KeyValueError::StorageCorruption(e.to_string()))?;
+
+            (
+                Some(Arc::new(wal_manager)),
+                Some(Arc::new(Mutex::new(writer))),
+            )
+        } else {
+            (None, None)
+        };
+
+        // Create shard data
+        let shard_data = Arc::new(ShardData {
+            tree: tree.clone(),
+            wal,
+            wal_writer,
+            flushed_lsn: Arc::new(RwLock::new(None)),
+        });
+
+        // Recover from WAL if it exists
+        if self.wal_enabled {
+            self.recover_from_wal(shard, &tree)?;
+        }
+
+        // Store shard data
+        let mut shards = self.shards.write().unwrap();
+        shards.insert(shard, shard_data);
+
+        // Initialize metrics
+        let mut metrics = self.metrics.write().unwrap();
+        metrics.insert(shard, Arc::new(BTreeMetrics::new()));
+
+        Ok(())
+    }
+
     /// Get the shard data
     fn get_shard(&self, shard: ShardId) -> KeyValueResult<Arc<ShardData>> {
         let shards = self.shards.read().unwrap();
         shards
             .get(&shard)
             .cloned()
-            .ok_or(KeyValueError::KeyNotFound)
+            .ok_or(KeyValueError::ShardNotFound(shard))
     }
 
     /// Get the tree for a shard

@@ -235,5 +235,3 @@ mod tests {
         assert!(decode_checkpoint(&payload).is_ok());
     }
 }
-
-// Made with Bob

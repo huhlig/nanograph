@@ -132,5 +132,3 @@ where
     let memory = 0; // Placeholder - would need platform-specific code
     (result, memory)
 }
-
-// Made with Bob

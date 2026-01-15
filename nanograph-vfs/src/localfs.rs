@@ -100,12 +100,10 @@ impl FileSystem for LocalFilesystem {
     fn list_directory(&self, path: &str) -> FileSystemResult<Vec<String>> {
         let entries = fs::read_dir(self.resolve(path)).map_err(|_| FileSystemError::PathMissing)?;
         let mut names = Vec::new();
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let file_name = entry.file_name();
-                if let Some(name) = file_name.to_str() {
-                    names.push(name.to_string());
-                }
+        for entry in entries.flatten() {
+            let file_name = entry.file_name();
+            if let Some(name) = file_name.to_str() {
+                names.push(name.to_string());
             }
         }
         Ok(names)
@@ -242,7 +240,7 @@ mod test {
         ));
         std::fs::create_dir_all(&temp_dir).unwrap();
         let fs = LocalFilesystem::new(temp_dir.clone());
-        crate::test_suite::run_generic_test_suite(fs);
+        crate::test_suite::run_generic_test_suite(&fs);
 
         // Clean up: on Windows, we might need to make sure all handles are closed before removing the dir.
         // Although the generic test suite drops files, there might be a delay or some other issue.

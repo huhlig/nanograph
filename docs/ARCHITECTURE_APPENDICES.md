@@ -74,11 +74,27 @@ must preserve these properties.
 
 ---
 
-### A.6 Operations & Upgrades
+### A.6 Multi-Tenancy & Isolation
 
-15. **Upgrades must not require full cluster downtime**
+17. **Tenant boundaries are inviolable**
+    * No operation may access data across tenant boundaries without explicit authorization.
+    * Data isolation MUST be enforced at the storage layer via key prefixing.
 
-16. **Observability is not optional**
+18. **Resource quotas are enforced**
+    * All tenant operations MUST be subject to quota checks.
+    * Quota violations MUST result in graceful degradation or rejection.
+
+19. **Tenant metadata is protected**
+    * Tenant configuration and metadata MUST be stored securely.
+    * Only authorized administrators may modify tenant settings.
+
+---
+
+### A.7 Operations & Upgrades
+
+20. **Upgrades must not require full cluster downtime**
+
+21. **Observability is not optional**
     * All critical subsystems MUST expose metrics and logs.
 
 ---
@@ -98,9 +114,11 @@ ownership, and dependency direction.
 * Table interfaces
 * Transaction primitives
 * Invariants enforcement
+* **Multi-tenancy types** (TenantId, DatabaseId, ResourcePath)
+* **Tenant metadata structures**
 
-**Related ADRs:
-** [ADR-0004](ADR/ADR-0004-Storage-File-Formats.md), [ADR-0006](ADR/ADR-0006-Key-Value-Document-Graph-Support.md), [ADR-0012](ADR/ADR-0012-Transaction-Model-and-Isolation-Levels.md)
+**Related ADRs:**
+[ADR-0004](ADR/ADR-0004-Storage-File-Formats.md), [ADR-0006](ADR/ADR-0006-Key-Value-Document-Graph-Support.md), [ADR-0012](ADR/ADR-0012-Transaction-Model-and-Isolation-Levels.md), [ADR-0025](ADR/ADR-0025-Multi-Tenancy-and-Isolation.md)
 
 ---
 

@@ -20,7 +20,6 @@ use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
 };
 use chacha20poly1305::{ChaCha20Poly1305, Key as ChaChaKey, Nonce as ChaChaNonce};
-use rand::RngCore;
 
 /// Encryption Algorithm
 ///
@@ -167,6 +166,7 @@ impl EncryptionAlgorithm {
     /// assert_eq!(key.as_bytes().len(), 32);
     /// ```
     pub fn generate_key(self) -> EncryptionKey {
+        use aes_gcm::aead::rand_core::RngCore;
         let size = self.key_size();
         let mut key = vec![0u8; size];
         if size > 0 {
@@ -190,6 +190,7 @@ impl EncryptionAlgorithm {
     /// assert_eq!(nonce.as_bytes().len(), 12);
     /// ```
     pub fn generate_nonce(self) -> Nonce {
+        use aes_gcm::aead::rand_core::RngCore;
         let size = self.nonce_size();
         let mut nonce = vec![0u8; size];
         if size > 0 {

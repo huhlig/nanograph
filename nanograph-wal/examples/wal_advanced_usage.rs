@@ -281,5 +281,3 @@ fn demonstrate_combined_features() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-
-// Made with Bob

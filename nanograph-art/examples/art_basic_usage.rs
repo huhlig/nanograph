@@ -3,9 +3,9 @@
 //! This example demonstrates the core functionality of the Adaptive Radix Tree,
 //! including insertion, retrieval, deletion, and iteration.
 
-use nanograph_art::{AdaptiveRadixTree, Error};
+use nanograph_art::{AdaptiveRadixTree, ArtError};
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), ArtError> {
     println!("=== Nanograph ART Basic Usage Example ===\n");
 
     // Create a new tree
@@ -64,5 +64,3 @@ fn main() -> Result<(), Error> {
     println!("\n=== Example Complete ===");
     Ok(())
 }
-
-// Made with Bob

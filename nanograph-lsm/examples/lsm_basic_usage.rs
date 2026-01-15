@@ -125,5 +125,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Compaction merges SSTables to maintain read performance.");
     Ok(())
 }
-
-// Made with Bob

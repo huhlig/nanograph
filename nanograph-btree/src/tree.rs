@@ -15,7 +15,7 @@
 //
 
 use crate::error::{BTreeError, BTreeResult};
-use crate::node::{BPlusTreeNode, NodeId};
+use crate::node::{BPlusTreeNode, BTreeNodeId};
 use crate::persistence::{BTreePersistence, TreeMetadata};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -46,16 +46,16 @@ pub struct BPlusTree {
     config: BPlusTreeConfig,
 
     /// Root node ID
-    root_id: RwLock<NodeId>,
+    root_id: RwLock<BTreeNodeId>,
 
     /// All nodes in the tree
-    nodes: Arc<RwLock<HashMap<NodeId, BPlusTreeNode>>>,
+    nodes: Arc<RwLock<HashMap<BTreeNodeId, BPlusTreeNode>>>,
 
     /// Next available node ID
     next_node_id: RwLock<u64>,
 
     /// ID of the leftmost leaf (for range scans)
-    leftmost_leaf: RwLock<Option<NodeId>>,
+    leftmost_leaf: RwLock<Option<BTreeNodeId>>,
 
     /// Optional persistence layer
     persistence: Option<Arc<BTreePersistence>>,
@@ -64,7 +64,7 @@ pub struct BPlusTree {
 impl BPlusTree {
     /// Create a new B+Tree without persistence
     pub fn new(config: BPlusTreeConfig) -> Self {
-        let root_id = NodeId::new(0);
+        let root_id = BTreeNodeId::new(0);
         let root = BPlusTreeNode::new_leaf(root_id);
 
         let mut nodes = HashMap::new();
@@ -102,7 +102,7 @@ impl BPlusTree {
             })
         } else {
             // Create new tree
-            let root_id = NodeId::new(0);
+            let root_id = BTreeNodeId::new(0);
             let root = BPlusTreeNode::new_leaf(root_id);
 
             let mut nodes = HashMap::new();
@@ -153,15 +153,15 @@ impl BPlusTree {
     }
 
     /// Allocate a new node ID
-    fn allocate_node_id(&self) -> NodeId {
+    fn allocate_node_id(&self) -> BTreeNodeId {
         let mut next_id = self.next_node_id.write().unwrap();
-        let id = NodeId::new(*next_id);
+        let id = BTreeNodeId::new(*next_id);
         *next_id += 1;
         id
     }
 
     /// Get a node by ID
-    fn get_node(&self, node_id: NodeId) -> BTreeResult<BPlusTreeNode> {
+    fn get_node(&self, node_id: BTreeNodeId) -> BTreeResult<BPlusTreeNode> {
         let nodes = self.nodes.read().unwrap();
         nodes
             .get(&node_id)
@@ -181,7 +181,7 @@ impl BPlusTree {
     /// Remove a node
     /// TODO: Use during node merging and rebalancing operations
     #[allow(dead_code)]
-    fn remove_node(&self, node_id: NodeId) {
+    fn remove_node(&self, node_id: BTreeNodeId) {
         let mut nodes = self.nodes.write().unwrap();
         nodes.remove(&node_id);
     }
@@ -202,7 +202,7 @@ impl BPlusTree {
     }
 
     /// Find the leaf node that should contain the given key
-    pub fn find_leaf(&self, mut node_id: NodeId, key: &[u8]) -> BTreeResult<NodeId> {
+    pub fn find_leaf(&self, mut node_id: BTreeNodeId, key: &[u8]) -> BTreeResult<BTreeNodeId> {
         loop {
             let node = self.get_node(node_id)?;
 
@@ -218,7 +218,7 @@ impl BPlusTree {
     }
 
     /// Get the root node ID (public accessor for iterator)
-    pub fn root_id(&self) -> &RwLock<NodeId> {
+    pub fn root_id(&self) -> &RwLock<BTreeNodeId> {
         &self.root_id
     }
 
@@ -272,9 +272,9 @@ impl BPlusTree {
     /// Insert a key and child pointer into a parent node
     fn insert_into_parent(
         &self,
-        parent_id: NodeId,
+        parent_id: BTreeNodeId,
         key: Vec<u8>,
-        right_child: NodeId,
+        right_child: BTreeNodeId,
     ) -> BTreeResult<()> {
         let mut parent = self.get_node(parent_id)?;
 
@@ -323,9 +323,9 @@ impl BPlusTree {
     /// Create a new root node
     fn create_new_root(
         &self,
-        left_child: NodeId,
+        left_child: BTreeNodeId,
         key: Vec<u8>,
-        right_child: NodeId,
+        right_child: BTreeNodeId,
     ) -> BTreeResult<()> {
         let new_root_id = self.allocate_node_id();
         let mut new_root = BPlusTreeNode::new_internal(new_root_id);
@@ -425,7 +425,7 @@ impl BPlusTree {
         &self,
         node: &BPlusTreeNode,
         parent: &BPlusTreeNode,
-    ) -> BTreeResult<Option<NodeId>> {
+    ) -> BTreeResult<Option<BTreeNodeId>> {
         if let BPlusTreeNode::Internal(parent_internal) = parent {
             let node_id = node.id();
             if let Some(pos) = parent_internal
@@ -446,7 +446,7 @@ impl BPlusTree {
         &self,
         node: &BPlusTreeNode,
         parent: &BPlusTreeNode,
-    ) -> BTreeResult<Option<NodeId>> {
+    ) -> BTreeResult<Option<BTreeNodeId>> {
         if let BPlusTreeNode::Internal(parent_internal) = parent {
             let node_id = node.id();
             if let Some(pos) = parent_internal
@@ -463,7 +463,11 @@ impl BPlusTree {
     }
 
     /// Update the separator key in parent for a given child node
-    fn update_separator_key(&self, parent_id: NodeId, child_id: NodeId) -> BTreeResult<()> {
+    fn update_separator_key(
+        &self,
+        parent_id: BTreeNodeId,
+        child_id: BTreeNodeId,
+    ) -> BTreeResult<()> {
         let mut parent = self.get_node(parent_id)?;
         let child = self.get_node(child_id)?;
 
@@ -506,7 +510,7 @@ impl BPlusTree {
     fn borrow_from_left(
         &self,
         node: &mut BPlusTreeNode,
-        left_sibling_id: NodeId,
+        left_sibling_id: BTreeNodeId,
     ) -> BTreeResult<()> {
         let mut left_sibling = self.get_node(left_sibling_id)?;
         let node_id = node.id();
@@ -574,7 +578,7 @@ impl BPlusTree {
     fn borrow_from_right(
         &self,
         node: &mut BPlusTreeNode,
-        right_sibling_id: NodeId,
+        right_sibling_id: BTreeNodeId,
     ) -> BTreeResult<()> {
         let mut right_sibling = self.get_node(right_sibling_id)?;
         let node_id = node.id();
@@ -645,7 +649,7 @@ impl BPlusTree {
     fn merge_with_left(
         &self,
         node: &mut BPlusTreeNode,
-        left_sibling_id: NodeId,
+        left_sibling_id: BTreeNodeId,
     ) -> BTreeResult<()> {
         let mut left_sibling = self.get_node(left_sibling_id)?;
         let node_id = node.id();
@@ -712,7 +716,7 @@ impl BPlusTree {
     fn merge_with_right(
         &self,
         node: &mut BPlusTreeNode,
-        right_sibling_id: NodeId,
+        right_sibling_id: BTreeNodeId,
     ) -> BTreeResult<()> {
         let mut right_sibling = self.get_node(right_sibling_id)?;
         let node_id = node.id();
@@ -776,7 +780,7 @@ impl BPlusTree {
     }
 
     /// Remove a child reference from parent node
-    fn remove_from_parent(&self, parent_id: NodeId, child_id: NodeId) -> BTreeResult<()> {
+    fn remove_from_parent(&self, parent_id: BTreeNodeId, child_id: BTreeNodeId) -> BTreeResult<()> {
         let mut parent = self.get_node(parent_id)?;
 
         if let BPlusTreeNode::Internal(ref mut internal) = parent {
@@ -819,7 +823,7 @@ impl BPlusTree {
     }
 
     /// Get the leftmost leaf node (for range scans)
-    pub fn get_leftmost_leaf(&self) -> BTreeResult<NodeId> {
+    pub fn get_leftmost_leaf(&self) -> BTreeResult<BTreeNodeId> {
         self.leftmost_leaf
             .read()
             .unwrap()
@@ -827,7 +831,7 @@ impl BPlusTree {
     }
 
     /// Get all entries in a leaf node
-    pub fn get_leaf_entries(&self, leaf_id: NodeId) -> BTreeResult<Vec<(Vec<u8>, Vec<u8>)>> {
+    pub fn get_leaf_entries(&self, leaf_id: BTreeNodeId) -> BTreeResult<Vec<(Vec<u8>, Vec<u8>)>> {
         let leaf = self.get_node(leaf_id)?;
 
         match leaf {
@@ -839,7 +843,7 @@ impl BPlusTree {
     }
 
     /// Get the next leaf node in the linked list
-    pub fn get_next_leaf(&self, leaf_id: NodeId) -> BTreeResult<Option<NodeId>> {
+    pub fn get_next_leaf(&self, leaf_id: BTreeNodeId) -> BTreeResult<Option<BTreeNodeId>> {
         let leaf = self.get_node(leaf_id)?;
 
         match leaf {
@@ -851,7 +855,7 @@ impl BPlusTree {
     }
 
     /// Get the previous leaf node in the linked list
-    pub fn get_prev_leaf(&self, leaf_id: NodeId) -> BTreeResult<Option<NodeId>> {
+    pub fn get_prev_leaf(&self, leaf_id: BTreeNodeId) -> BTreeResult<Option<BTreeNodeId>> {
         let leaf = self.get_node(leaf_id)?;
 
         match leaf {

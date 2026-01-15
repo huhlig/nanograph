@@ -16,3 +16,4 @@ repository.workspace = true
 [dependencies]
 # Time/Date Handling
 chrono.workspace = true
+serde.workspace = true

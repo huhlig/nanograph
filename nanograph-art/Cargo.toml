@@ -36,11 +36,11 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 
 [dev-dependencies]
-tempfile = "3.8"
-tokio = { workspace = true, features = ["full", "test-util"] }
-tokio-test = "0.4"
-criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
-futures = "0.3"
+tempfile.workspace = true
+tokio.workspace = true
+tokio-test.workspace = true
+criterion.workspace = true
+futures.workspace = true
 
 [[bench]]
 name = "art_benchmarks"

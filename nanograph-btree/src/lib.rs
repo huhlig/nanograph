@@ -170,6 +170,7 @@
 //! # }
 //! ```
 
+pub mod config;
 pub mod error;
 pub mod iterator;
 pub mod kvstore;
@@ -185,10 +186,11 @@ pub mod tree;
 pub mod wal_record;
 
 // Re-export main types
+pub use config::BTreeStorageConfig;
 pub use error::{BTreeError, BTreeResult};
 pub use kvstore::BTreeKeyValueStore;
 pub use metrics::{BTreeMetrics, BTreeMetricsSnapshot};
-pub use node::{BPlusTreeNode, InternalNode, LeafNode, NodeId};
+pub use node::{BPlusTreeNode, BTreeNodeId, InternalNode, LeafNode};
 pub use persistence::{BTreePersistence, TreeMetadata};
 pub use transaction::{BTreeTransaction, TransactionManager};
 pub use tree::{BPlusTree, BPlusTreeConfig, BTreeStats};

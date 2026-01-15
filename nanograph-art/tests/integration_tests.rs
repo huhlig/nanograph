@@ -549,5 +549,3 @@ async fn test_multiple_shards() {
         Some(b"value2".to_vec())
     );
 }
-
-// Made with Bob

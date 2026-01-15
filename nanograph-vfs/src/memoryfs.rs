@@ -47,6 +47,7 @@ pub struct MemoryFileSystem(Arc<RwLock<BTreeMap<String, MemoryEntry>>>);
 
 impl MemoryFileSystem {
     /// Creates a new, empty `MemoryFileSystem`.
+    #[must_use]
     pub fn new() -> MemoryFileSystem {
         let tree = Arc::new(RwLock::new(BTreeMap::new()));
         tree.write().expect("Poisoned Lock").insert(
@@ -80,7 +81,7 @@ impl FileSystem for MemoryFileSystem {
         if let Some(entry) = tree.get(path) {
             match entry {
                 MemoryEntry::File(_) => Ok(true),
-                _ => Ok(false),
+                MemoryEntry::Directory(_) => Ok(false),
             }
         } else {
             Ok(false)
@@ -93,7 +94,7 @@ impl FileSystem for MemoryFileSystem {
         if let Some(entry) = tree.get(path) {
             match entry {
                 MemoryEntry::Directory(_) => Ok(true),
-                _ => Ok(false),
+                MemoryEntry::File(_) => Ok(false),
             }
         } else {
             Ok(false)
@@ -276,7 +277,7 @@ impl FileSystem for MemoryFileSystem {
                         let mut dir_data = dir_entry.0.write().expect("Poisoned Lock");
                         dir_data.0.insert(p.segments().last().unwrap().to_string());
                     }
-                    _ => return Err(FileSystemError::InvalidOperation),
+                    MemoryEntry::File(_) => return Err(FileSystemError::InvalidOperation),
                 }
             } else {
                 return Err(FileSystemError::PathMissing);
@@ -307,7 +308,7 @@ impl FileSystem for MemoryFileSystem {
                     name: path.to_string(),
                     data: file.0.clone(),
                 }),
-                _ => Err(FileSystemError::InvalidOperation),
+                MemoryEntry::Directory(_) => Err(FileSystemError::InvalidOperation),
             }
         } else {
             Err(FileSystemError::PathMissing)
@@ -520,7 +521,7 @@ mod test {
     #[traced_test]
     fn test_generic() {
         use super::MemoryFileSystem;
-        crate::test_suite::run_generic_test_suite(MemoryFileSystem::new());
+        crate::test_suite::run_generic_test_suite(&MemoryFileSystem::new());
     }
 
     #[test]

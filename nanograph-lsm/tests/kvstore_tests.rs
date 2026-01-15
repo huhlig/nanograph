@@ -23,7 +23,7 @@ use std::ops::Bound;
 use std::sync::Arc;
 
 // Helper function to create a test shard
-async fn create_test_shard(store: &LSMKeyValueStore, id: u64) -> ShardId {
+async fn create_test_shard(store: &LSMKeyValueStore, id: u32) -> ShardId {
     let table_id = TableId::new(id);
     let shard_index = ShardIndex::new(0);
     store.create_shard(table_id, shard_index).await.unwrap()

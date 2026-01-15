@@ -16,7 +16,7 @@
 
 //! WAL record types for ART operations
 
-use crate::error::{Error, Result};
+use crate::error::{ArtError, ArtResult};
 
 /// WAL record types for ART operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,9 +65,9 @@ pub fn encode_put(key: &[u8], value: &[u8]) -> Vec<u8> {
 
 /// Decode a Put operation from WAL payload
 /// Returns (key, value)
-pub fn decode_put(payload: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
+pub fn decode_put(payload: &[u8]) -> ArtResult<(Vec<u8>, Vec<u8>)> {
     if payload.len() < 8 {
-        return Err(Error::Internal("WAL Put record too short".to_string()));
+        return Err(ArtError::Internal("WAL Put record too short".to_string()));
     }
 
     let mut offset = 0;
@@ -82,7 +82,7 @@ pub fn decode_put(payload: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
     offset += 4;
 
     if offset + key_len > payload.len() {
-        return Err(Error::Internal(
+        return Err(ArtError::Internal(
             "WAL Put record key length exceeds payload".to_string(),
         ));
     }
@@ -92,7 +92,7 @@ pub fn decode_put(payload: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
     offset += key_len;
 
     if offset + 4 > payload.len() {
-        return Err(Error::Internal(
+        return Err(ArtError::Internal(
             "WAL Put record missing value length".to_string(),
         ));
     }
@@ -107,7 +107,7 @@ pub fn decode_put(payload: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
     offset += 4;
 
     if offset + value_len > payload.len() {
-        return Err(Error::Internal(
+        return Err(ArtError::Internal(
             "WAL Put record value length exceeds payload".to_string(),
         ));
     }
@@ -132,16 +132,18 @@ pub fn encode_delete(key: &[u8]) -> Vec<u8> {
 
 /// Decode a Delete operation from WAL payload
 /// Returns key
-pub fn decode_delete(payload: &[u8]) -> Result<Vec<u8>> {
+pub fn decode_delete(payload: &[u8]) -> ArtResult<Vec<u8>> {
     if payload.len() < 4 {
-        return Err(Error::Internal("WAL Delete record too short".to_string()));
+        return Err(ArtError::Internal(
+            "WAL Delete record too short".to_string(),
+        ));
     }
 
     // Read key length
     let key_len = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]) as usize;
 
     if 4 + key_len > payload.len() {
-        return Err(Error::Internal(
+        return Err(ArtError::Internal(
             "WAL Delete record key length exceeds payload".to_string(),
         ));
     }
@@ -162,7 +164,7 @@ pub fn encode_checkpoint() -> Vec<u8> {
 /// Decode a Checkpoint operation from WAL payload format
 ///
 /// Checkpoint records have no payload
-pub fn decode_checkpoint(_payload: &[u8]) -> Result<()> {
+pub fn decode_checkpoint(_payload: &[u8]) -> ArtResult<()> {
     Ok(())
 }
 
@@ -226,5 +228,3 @@ mod tests {
         assert_eq!(WalRecordKind::Checkpoint.to_u16(), 3);
     }
 }
-
-// Made with Bob

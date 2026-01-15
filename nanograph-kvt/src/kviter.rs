@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-use crate::result::KeyValueResult;
+use crate::error::KeyValueResult;
 use futures_core::Stream;
 
 /// Key-Value Iterator

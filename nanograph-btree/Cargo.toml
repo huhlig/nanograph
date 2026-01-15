@@ -29,12 +29,12 @@ thiserror.workspace = true
 # Async
 async-trait.workspace = true
 futures-core.workspace = true
-futures = "0.3"
+futures.workspace = true
 tokio = { workspace = true, features = ["full"] }
 
 # Serialization
 serde = { workspace = true, features = ["derive"] }
-serde_json = "1.0"
+serde_json.workspace = true
 
 # Logging and Tracing
 metrics.workspace = true
@@ -45,8 +45,6 @@ tracing-timing.workspace = true
 tempfile = "3.8"
 tokio = { workspace = true, features = ["full", "test-util"] }
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
-proptest = "1.4"
-rand_chacha = "0.3"
 
 [[bench]]
 name = "btree_benchmarks"

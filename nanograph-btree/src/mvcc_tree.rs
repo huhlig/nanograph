@@ -21,7 +21,7 @@
 
 use crate::error::BTreeResult;
 use crate::mvcc_node::MvccLeafNode;
-use crate::node::NodeId;
+use crate::node::BTreeNodeId;
 use std::sync::{Arc, RwLock};
 
 /// Configuration for MVCC B+Tree
@@ -68,7 +68,7 @@ pub struct MvccBPlusTree {
 impl MvccBPlusTree {
     /// Create a new MVCC B+Tree
     pub fn new(config: MvccTreeConfig) -> Self {
-        let root_id = NodeId::new(0);
+        let root_id = BTreeNodeId::new(0);
         let root = MvccLeafNode::new(root_id);
 
         Self {

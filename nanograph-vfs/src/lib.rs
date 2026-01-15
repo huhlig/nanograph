@@ -22,7 +22,7 @@
 //!
 //! ## Examples
 //!
-//! ### Basic MemoryFileSystem Usage
+//! ### Basic `MemoryFileSystem` Usage
 //!
 //! ```
 //! use nanograph_vfs::{FileSystem, MemoryFileSystem, File};
@@ -84,7 +84,7 @@
 //! # }
 //! ```
 //!
-//! ### Using LocalFilesystem
+//! ### Using `LocalFilesystem`
 //!
 //! ```no_run
 //! use nanograph_vfs::{FileSystem, LocalFilesystem, File};
@@ -129,7 +129,7 @@
 //! # }
 //! ```
 //!
-//! ### Using FileSystemManager
+//! ### Using `FileSystemManager`
 //!
 //! ```
 //! use nanograph_vfs::{FileSystemManager, MemoryFileSystem, FileSystem, File};

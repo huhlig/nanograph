@@ -16,11 +16,9 @@
 
 //! Integration tests for the Raft consensus layer
 
-use nanograph_core::types::{NodeId, RegionId};
-use nanograph_kvt::ShardId;
 use nanograph_raft::{
-    ConsensusRouter, MetadataRaftGroup, NodeInfo, NodeStatus, Operation, ReadConsistency,
-    ReplicationConfig, ResourceCapacity,
+    ConsensusRouter, NodeId, NodeInfo, NodeStatus, Operation, ReadConsistency, ReplicationConfig,
+    ResourceCapacity, ShardId, SystemShardRaftGroup,
 };
 
 /// Test basic router creation and configuration
@@ -31,7 +29,7 @@ async fn test_router_creation() {
 
     let router = ConsensusRouter::new(node_id, config);
 
-    // Verify router is created with correct node ID
+    // Verify router is created with the correct node ID
     assert_eq!(router.local_shards().await.len(), 0);
 }
 
@@ -47,13 +45,13 @@ async fn test_shard_routing() {
 
     // Test that same key always routes to same shard
     let key1 = b"test_key_1";
-    let shard1_first = router.get_shard_for_key(key1).await;
-    let shard1_second = router.get_shard_for_key(key1).await;
+    let shard1_first = router.get_table_shard_for_key(key1).await;
+    let shard1_second = router.get_table_shard_for_key(key1).await;
     assert_eq!(shard1_first, shard1_second);
 
     // Test that different keys may route to different shards
     let key2 = b"test_key_2";
-    let shard2 = router.get_shard_for_key(key2).await;
+    let shard2 = router.get_table_shard_for_key(key2).await;
 
     // Both shards should be valid (0-3)
     assert!(shard1_first.as_u64() < 4);
@@ -64,7 +62,7 @@ async fn test_shard_routing() {
 #[tokio::test]
 async fn test_metadata_group_creation() {
     let node_id = NodeId::new(1);
-    let metadata_group = MetadataRaftGroup::new(node_id);
+    let metadata_group = SystemShardRaftGroup::new(node_id);
 
     // Get initial metadata
     let metadata = metadata_group.get_metadata().await;
@@ -75,7 +73,7 @@ async fn test_metadata_group_creation() {
 #[tokio::test]
 async fn test_metadata_add_node() {
     let node_id = NodeId::new(1);
-    let metadata_group = MetadataRaftGroup::new(node_id);
+    let metadata_group = SystemShardRaftGroup::new(node_id);
 
     // Simulate becoming leader
     metadata_group.on_become_leader().await;
@@ -83,7 +81,6 @@ async fn test_metadata_add_node() {
     // Add a new node
     let new_node = NodeInfo {
         node: NodeId::new(2),
-        region: RegionId::new(3),
         raft_addr: "127.0.0.1:5000".parse().unwrap(),
         api_addr: "127.0.0.1:8080".parse().unwrap(),
         status: NodeStatus::Active,
@@ -105,7 +102,7 @@ async fn test_metadata_add_node() {
 #[tokio::test]
 async fn test_metadata_create_shard() {
     let node_id = NodeId::new(1);
-    let metadata_group = MetadataRaftGroup::new(node_id);
+    let metadata_group = SystemShardRaftGroup::new(node_id);
 
     // Simulate becoming leader
     metadata_group.on_become_leader().await;
@@ -307,7 +304,7 @@ async fn test_batch_operation_grouping() {
 #[tokio::test]
 async fn test_metadata_versioning() {
     let node_id = NodeId::new(1);
-    let metadata_group = MetadataRaftGroup::new(node_id);
+    let metadata_group = SystemShardRaftGroup::new(node_id);
 
     // Simulate becoming leader
     metadata_group.on_become_leader().await;
@@ -319,7 +316,6 @@ async fn test_metadata_versioning() {
     // Add a node (should increment version)
     let new_node = NodeInfo {
         node: NodeId::new(2),
-        region: RegionId::new(1),
         raft_addr: "127.0.0.1:5000".parse().unwrap(),
         api_addr: "127.0.0.1:8080".parse().unwrap(),
         status: NodeStatus::Active,
@@ -339,7 +335,7 @@ async fn test_metadata_versioning() {
 #[tokio::test]
 async fn test_shard_assignment_update() {
     let node_id = NodeId::new(1);
-    let metadata_group = MetadataRaftGroup::new(node_id);
+    let metadata_group = SystemShardRaftGroup::new(node_id);
 
     // Simulate becoming leader
     metadata_group.on_become_leader().await;
@@ -372,7 +368,7 @@ async fn test_shard_assignment_update() {
 #[tokio::test]
 async fn test_leader_election() {
     let node_id = NodeId::new(1);
-    let metadata_group = MetadataRaftGroup::new(node_id);
+    let metadata_group = SystemShardRaftGroup::new(node_id);
 
     // Initially not leader
     // (We can't directly check is_leader on MetadataRaftGroup, but we can test the flow)
@@ -383,7 +379,6 @@ async fn test_leader_election() {
     // Should now be able to propose changes
     let new_node = NodeInfo {
         node: NodeId::new(2),
-        region: RegionId::new(1),
         raft_addr: "127.0.0.1:5000".parse().unwrap(),
         api_addr: "127.0.0.1:8080".parse().unwrap(),
         status: NodeStatus::Active,
@@ -401,7 +396,6 @@ async fn test_leader_election() {
     // Should no longer be able to propose changes (would return NotLeader error)
     let another_node = NodeInfo {
         node: NodeId::new(3),
-        region: RegionId::new(1),
         raft_addr: "127.0.0.1:5001".parse().unwrap(),
         api_addr: "127.0.0.1:8081".parse().unwrap(),
         status: NodeStatus::Active,
@@ -413,5 +407,3 @@ async fn test_leader_election() {
     let result = metadata_group.add_node(another_node).await;
     assert!(result.is_err());
 }
-
-// Made with Bob

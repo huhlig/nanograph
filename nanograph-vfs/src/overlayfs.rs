@@ -57,7 +57,7 @@ impl OverlayFilesystem {
     /// Creates a new `OverlayFilesystem` with the given layers.
     ///
     /// # Arguments
-    /// layers - Iterator of layers, each implementing DynamicFileSystem.
+    /// layers - Iterator of layers, each implementing `DynamicFileSystem`.
     ///          The first item is the top-most (writable) layer.
     pub fn new(layers: impl Iterator<Item = Arc<dyn DynamicFileSystem>>) -> OverlayFilesystem {
         OverlayFilesystem {
@@ -66,6 +66,7 @@ impl OverlayFilesystem {
     }
 
     /// Returns the layers of this overlay filesystem.
+    #[must_use]
     pub fn layers(&self) -> &[Arc<dyn DynamicFileSystem>] {
         &self.layers
     }
@@ -201,7 +202,7 @@ impl Debug for OverlayFile {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OverlayFile")
             .field("path", &self.path)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -254,23 +255,13 @@ impl File for OverlayFile {
 impl Write for OverlayFile {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         Arc::get_mut(&mut self.file)
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Cannot get mutable access to OverlayFile",
-                )
-            })?
+            .ok_or_else(|| std::io::Error::other("Cannot get mutable access to OverlayFile"))?
             .write(buf)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
         Arc::get_mut(&mut self.file)
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Cannot get mutable access to OverlayFile",
-                )
-            })?
+            .ok_or_else(|| std::io::Error::other("Cannot get mutable access to OverlayFile"))?
             .flush()
     }
 }
@@ -278,12 +269,7 @@ impl Write for OverlayFile {
 impl Read for OverlayFile {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         Arc::get_mut(&mut self.file)
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Cannot get mutable access to OverlayFile",
-                )
-            })?
+            .ok_or_else(|| std::io::Error::other("Cannot get mutable access to OverlayFile"))?
             .read(buf)
     }
 }
@@ -291,12 +277,7 @@ impl Read for OverlayFile {
 impl Seek for OverlayFile {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
         Arc::get_mut(&mut self.file)
-            .ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Cannot get mutable access to OverlayFile",
-                )
-            })?
+            .ok_or_else(|| std::io::Error::other("Cannot get mutable access to OverlayFile"))?
             .seek(pos)
     }
 }
@@ -327,7 +308,7 @@ mod test {
             ]
             .into_iter(),
         );
-        run_generic_test_suite(fs);
+        run_generic_test_suite(&fs);
     }
 
     #[test]

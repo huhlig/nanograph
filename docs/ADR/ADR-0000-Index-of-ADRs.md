@@ -38,8 +38,8 @@ This is a complete list of Architectural Decision Records for the Nanograph proj
 | [ADR-0022](ADR-0022-SDK-Design-and-Language-Bindings.md)               | SDK Design and Language Bindings                                | Proposed |
 | [ADR-0023](ADR-0023-Testing-Fault-Injection-and-Simulation-Strategy.md)| Testing, Fault Injection, and Simulation Strategy               | Proposed |
 | [ADR-0024](ADR-0024-Backup-Restore-Import-Export.md)                   | Backup, Restore, Import, Export                                 | Proposed |
-| [ADR-0025](ADR-0025-Core-API-Specifications.md)                        | Core API Specifications                                         | Proposed |
-| [ADR-0026](ADR-0026-Data-Format-Specifications.md)                     | Data Format Specifications                                      | Proposed |
+| [ADR-0025](ADR-0025-Multi-Tenancy-and-Isolation.md)                    | Multi-Tenancy and Isolation                                     | Proposed |
+| [ADR-0026](ADR-0026-Resource-Quotas-and-Limits.md)                     | Resource Quotas and Limits                                      | Proposed |
 | [ADR-0027](ADR-0027-Performance-Benchmarks-and-Testing.md)             | Performance Benchmarks and Testing                              | Proposed |
 
 

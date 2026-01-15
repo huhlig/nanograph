@@ -18,7 +18,7 @@ use crate::{DynamicFileSystem, FileSystem, FileSystemError, FileSystemResult, Pa
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-/// Unified FileSystem Type
+/// Unified `FileSystem` Type
 pub type BoxedFileSystem = Arc<dyn DynamicFileSystem>;
 
 /// A [`FileSystem`] implementation that manages and routes to other filesystems based on path schemes.
@@ -47,7 +47,8 @@ pub struct FileSystemManager {
 }
 
 impl FileSystemManager {
-    /// Create a new FileSystemManager
+    /// Create a new `FileSystemManager`
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }

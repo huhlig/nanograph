@@ -14,13 +14,14 @@
 // limitations under the License.
 //
 
-use nanograph_core::types::{NodeId, ShardId};
-use nanograph_kvt::KeyRange;
-use nanograph_kvt::KeyValueShardStore;
-use nanograph_kvt::ShardConfig;
-use nanograph_kvt::metrics::ShardStats;
-use nanograph_kvt::{KeyValueError, KeyValueResult};
-use nanograph_kvt::{KeyValueIterator, ShardState, StorageEngineType};
+use crate::tablespace::StoragePathResolver;
+use nanograph_core::object::ShardCreate;
+use nanograph_kvt::{
+    DynamicFileSystem, KeyRange, KeyValueError, KeyValueIterator, KeyValueResult,
+    KeyValueShardStore, ShardId, ShardState, StorageEngineType, TableId, TablespaceId,
+    metrics::ShardStats,
+};
+use nanograph_raft::NodeId;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -40,6 +41,12 @@ pub struct KeyValueShardManager {
     /// Shards Managed by this instance
     shards: Arc<RwLock<HashMap<ShardId, ShardState>>>,
 
+    /// Storage path resolver for tablespace-aware shard creation
+    path_resolver: Arc<StoragePathResolver>,
+
+    /// VFS instance for filesystem operations
+    vfs: Arc<dyn DynamicFileSystem>,
+
     /// Local node ID (for distributed mode)
     node_id: Option<NodeId>,
 
@@ -49,10 +56,18 @@ pub struct KeyValueShardManager {
 
 impl KeyValueShardManager {
     /// Create a new shard manager in single-node mode
-    pub fn new() -> Self {
+    pub fn new_standalone() -> Self {
+        use nanograph_vfs::LocalFilesystem;
+        use std::path::PathBuf;
+
+        let path_resolver = Arc::new(StoragePathResolver::new(TablespaceId::DEFAULT));
+        let vfs = Arc::new(LocalFilesystem::new(PathBuf::from(".")));
+
         Self {
             engines: HashMap::new(),
             shards: Arc::new(RwLock::new(HashMap::new())),
+            path_resolver,
+            vfs,
             node_id: None,
             distributed_mode: false,
         }
@@ -60,12 +75,30 @@ impl KeyValueShardManager {
 
     /// Create a new shard manager in distributed mode
     pub fn new_distributed(node_id: NodeId) -> Self {
+        use nanograph_vfs::LocalFilesystem;
+        use std::path::PathBuf;
+
+        let path_resolver = Arc::new(StoragePathResolver::new(TablespaceId::DEFAULT));
+        let vfs = Arc::new(LocalFilesystem::new(PathBuf::from(".")));
+
         Self {
             engines: HashMap::new(),
             shards: Arc::new(RwLock::new(HashMap::new())),
+            path_resolver,
+            vfs,
             node_id: Some(node_id),
             distributed_mode: true,
         }
+    }
+
+    /// Get the storage path resolver
+    pub fn path_resolver(&self) -> &Arc<StoragePathResolver> {
+        &self.path_resolver
+    }
+
+    /// Get the VFS instance
+    pub fn vfs(&self) -> &Arc<dyn DynamicFileSystem> {
+        &self.vfs
     }
 
     /// Check if running in distributed mode
@@ -117,7 +150,7 @@ impl KeyValueShardManager {
     }
 
     /// Create a new shard with the specified configuration
-    pub async fn create_shard(&self, config: ShardConfig) -> KeyValueResult<ShardId> {
+    pub async fn create_shard(&self, config: ShardCreate) -> KeyValueResult<ShardId> {
         // Get the engine for this table type
         let engine = self
             .engines
@@ -130,6 +163,61 @@ impl KeyValueShardManager {
         // Create shard in the underlying engine
         let shard_id = engine.create_shard(config.table, config.index).await?;
 
+        let shard_state = ShardState {
+            id: shard_id,
+            engine_type: config.engine_type.clone(),
+            replication_factor: config.replication_factor,
+        };
+
+        {
+            let mut shards = self.shards.write().unwrap();
+            shards.insert(shard_id, shard_state);
+        }
+
+        Ok(shard_id)
+    }
+
+    /// Create a new shard with tablespace-aware path resolution
+    /// This method uses the StoragePathResolver to determine storage paths based on tablespace configuration
+    pub async fn create_shard_with_tablespace(
+        &self,
+        config: ShardCreate,
+        table_id: TableId,
+        tablespace_id: TablespaceId,
+    ) -> KeyValueResult<ShardId> {
+        // Get the engine for this table type
+        let engine = self
+            .engines
+            .get(&config.engine_type)
+            .ok_or(KeyValueError::InvalidValue(format!(
+                "Engine type {:?} not registered",
+                config.engine_type
+            )))?;
+
+        // Create shard ID
+        let shard_id = ShardId::from_parts(config.table, config.index);
+
+        // Resolve storage paths using tablespace configuration
+        let data_path = self.path_resolver.resolve_data_path(
+            tablespace_id,
+            table_id,
+            shard_id,
+            config.engine_type.clone(),
+        )?;
+
+        let wal_path = self.path_resolver.resolve_wal_path(
+            tablespace_id,
+            table_id,
+            shard_id,
+            config.engine_type.clone(),
+        )?;
+
+        // Use the trait method to create the shard with tablespace-aware paths
+        // Cast VFS to Arc<dyn Any> for the trait method
+        let vfs_any = self.vfs.clone();
+        engine.create_shard_with_tablespace(shard_id, vfs_any, data_path, wal_path)?;
+
+        // Store shard state
         let shard_state = ShardState {
             id: shard_id,
             engine_type: config.engine_type.clone(),
@@ -285,6 +373,6 @@ impl KeyValueShardManager {
 
 impl Default for KeyValueShardManager {
     fn default() -> Self {
-        Self::new()
+        Self::new_standalone()
     }
 }

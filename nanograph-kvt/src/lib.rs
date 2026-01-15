@@ -157,24 +157,22 @@
 //! let all_range = KeyRange::all();
 //! ```
 
-mod config;
+mod error;
 mod kviter;
 mod kvstore;
 pub mod metrics;
-mod result;
 mod transaction;
 mod types;
 
 // Re-export all public types
-pub use self::config::{
-    NamespaceConfig, NamespaceMetadata, ShardConfig, ShardMetadata, ShardState, ShardStatus,
-    StorageEngineType, TableConfig, TableMetadata, TableSharding,
-};
+pub use self::error::{KeyValueError, KeyValueResult};
 pub use self::kviter::KeyValueIterator;
 pub use self::kvstore::KeyValueShardStore;
 pub use self::metrics::EngineMetrics;
-pub use self::result::{KeyValueError, KeyValueResult};
 pub use self::transaction::Transaction;
 pub use self::transaction::TransactionId;
-pub use self::types::{HashFunction, KeyRange, Partitioner};
-pub use nanograph_core::types::{ShardId, ShardIndex, TableId, Timestamp};
+pub use nanograph_core::object::{
+    KeyRange, ShardId, ShardIndex, ShardState, StorageEngineType, TableId, TablespaceId,
+};
+pub use nanograph_core::types::Timestamp;
+pub use nanograph_vfs::{DynamicFileSystem, File};

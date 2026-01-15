@@ -18,6 +18,29 @@ categories.workspace = true
 nanograph-core.workspace = true
 nanograph-kvt.workspace = true
 nanograph-raft.workspace = true
+nanograph-vfs.workspace = true
+nanograph-lsm.workspace = true
+nanograph-btree.workspace = true
+nanograph-art.workspace = true
+
+# Integrity
+crc.workspace = true
 
 # Time/Date Crates
 chrono.workspace = true
+
+# Serialization
+serde.workspace = true
+postcard.workspace = true
+
+# Async Await
+futures.workspace = true
+
+# Logging and Metrics
+metrics.workspace = true
+tracing.workspace = true
+tracing-timing.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+tokio-test.workspace = true

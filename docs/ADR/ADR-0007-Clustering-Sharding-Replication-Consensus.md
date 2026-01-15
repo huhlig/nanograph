@@ -50,36 +50,85 @@ Implement a **Raft-based sharded architecture** where:
 
 ## Architecture
 
-### Cluster Topology
+### Three-Tier Raft Group Topology
+
+Nanograph uses a **three-tier hierarchical Raft group architecture** for optimal performance and isolation:
 
 ```
-                    ┌─────────────────────────────────┐
-                    │      Metadata Raft Group        │
-                    │  (Cluster configuration,        │
-                    │   shard assignments)            │
-                    └─────────────────────────────────┘
-                                    │
-                    ┌───────────────┼───────────────┐
-                    ▼               ▼               ▼
+┌─────────────────────────────────────────────────────────────┐
+│         Tier 1: System Metadata Raft Group (1)              │
+│  Manages: Clusters, Regions, Servers, Tenants               │
+│  Shard: system_shard                                         │
+│  Update Frequency: Very Low (minutes-hours)                 │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+        ┌────────────────┼────────────────┐
+        │                │                │
+        ▼                ▼                ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│ Tier 2: DB1  │  │ Tier 2: DB2  │  │ Tier 2: DB3  │
+│ Metadata     │  │ Metadata     │  │ Metadata     │
+│ Raft Group   │  │ Raft Group   │  │ Raft Group   │
+│              │  │              │  │              │
+│ Manages:     │  │ Manages:     │  │ Manages:     │
+│ Namespaces   │  │ Namespaces   │  │ Namespaces   │
+│ Tables       │  │ Tables       │  │ Tables       │
+│ DB Users     │  │ DB Users     │  │ DB Users     │
+│              │  │              │  │              │
+│ Shard: db1   │  │ Shard: db2   │  │ Shard: db3   │
+│ Update Freq: │  │ Update Freq: │  │ Update Freq: │
+│ Low (sec-min)│  │ Low (sec-min)│  │ Low (sec-min)│
+└──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+       │                 │                 │
+   ┌───┴───┐         ┌───┴───┐         ┌───┴───┐
+   ▼       ▼         ▼       ▼         ▼       ▼
+┌─────┐ ┌─────┐   ┌─────┐ ┌─────┐   ┌─────┐ ┌─────┐
+│Tier3│ │Tier3│   │Tier3│ │Tier3│   │Tier3│ │Tier3│
+│Data │ │Data │   │Data │ │Data │   │Data │ │Data │
+│Shard│ │Shard│   │Shard│ │Shard│   │Shard│ │Shard│
+│  0  │ │  1  │   │  2  │ │  3  │   │  4  │ │  5  │
+│     │ │     │   │     │ │     │   │     │ │     │
+│User │ │User │   │User │ │User │   │User │ │User │
+│Data │ │Data │   │Data │ │Data │   │Data │ │Data │
+│     │ │     │   │     │ │     │   │     │ │     │
+│High │ │High │   │High │ │High │   │High │ │High │
+│Freq │ │Freq │   │Freq │ │Freq │   │Freq │ │Freq │
+└─────┘ └─────┘   └─────┘ └─────┘   └─────┘ └─────┘
+```
+
+### Physical Node Distribution
+
+```
             ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
             │   Node 1     │ │   Node 2     │ │   Node 3     │
-            │              │ │              │ │              │
-            │ ┌──────────┐ │ │ ┌──────────┐ │ │ ┌──────────┐ │
-            │ │ Shard 0  │ │ │ │ Shard 0  │ │ │ │ Shard 0  │ │
-            │ │ (Leader) │◄┼─┼─┤(Follower)│◄┼─┼─┤(Follower)│ │
-            │ └──────────┘ │ │ └──────────┘ │ │ └──────────┘ │
-            │              │ │              │ │              │
-            │ ┌──────────┐ │ │ ┌──────────┐ │ │ ┌──────────┐ │
-            │ │ Shard 1  │ │ │ │ Shard 1  │ │ │ │ Shard 1  │ │
-            │ │(Follower)│◄┼─┼─┤ (Leader) │◄┼─┼─┤(Follower)│ │
-            │ └──────────┘ │ │ └──────────┘ │ │ └──────────┘ │
-            │              │ │              │ │              │
-            │ ┌──────────┐ │ │ ┌──────────┐ │ │ ┌──────────┐ │
-            │ │ Shard 2  │ │ │ │ Shard 2  │ │ │ │ Shard 2  │ │
-            │ │(Follower)│◄┼─┼─┤(Follower)│◄┼─┼─┤ (Leader) │ │
-            │ └──────────┘ │ │ └──────────┘ │ │ └──────────┘ │
+            ├──────────────┤ ├──────────────┤ ├──────────────┤
+            │ System Meta  │ │ System Meta  │ │ System Meta  │
+            │ (Follower)   │ │ (Leader)     │ │ (Follower)   │
+            ├──────────────┤ ├──────────────┤ ├──────────────┤
+            │ DB1 Meta     │ │ DB1 Meta     │ │ DB1 Meta     │
+            │ (Leader)     │ │ (Follower)   │ │ (Follower)   │
+            ├──────────────┤ ├──────────────┤ ├──────────────┤
+            │ DB2 Meta     │ │ DB2 Meta     │ │ DB2 Meta     │
+            │ (Follower)   │ │ (Leader)     │ │ (Follower)   │
+            ├──────────────┤ ├──────────────┤ ├──────────────┤
+            │ Shard 0      │ │ Shard 0      │ │ Shard 0      │
+            │ (Leader)     │ │ (Follower)   │ │ (Follower)   │
+            ├──────────────┤ ├──────────────┤ ├──────────────┤
+            │ Shard 1      │ │ Shard 1      │ │ Shard 1      │
+            │ (Follower)   │ │ (Leader)     │ │ (Follower)   │
+            ├──────────────┤ ├──────────────┤ ├──────────────┤
+            │ Shard 2      │ │ Shard 2      │ │ Shard 2      │
+            │ (Follower)   │ │ (Follower)   │ │ (Leader)     │
             └──────────────┘ └──────────────┘ └──────────────┘
 ```
+
+### Why Three Tiers?
+
+1. **Scope Isolation**: System, database, and data operations have different scopes
+2. **Multi-Tenancy**: Each database gets its own metadata Raft group
+3. **Performance**: Optimize each tier for its workload characteristics
+4. **Failure Isolation**: Failures in one tier don't cascade to others
+5. **Scalability**: Add databases and shards independently
 
 ### Data Flow
 

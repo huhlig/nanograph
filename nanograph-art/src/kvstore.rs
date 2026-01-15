@@ -14,18 +14,19 @@
 // limitations under the License.
 //
 
+use crate::config::ARTStorageConfig;
 use crate::iterator::ArtIterator;
 use crate::metrics::ArtMetrics;
 use crate::tree::AdaptiveRadixTree;
 use crate::wal_record::{WalRecordKind, decode_put};
 use async_trait::async_trait;
 use futures_core::Stream;
-use nanograph_kvt::metrics::{ShardStats, StatValue};
 use nanograph_kvt::{
     KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId,
     ShardIndex, TableId, Transaction,
+    metrics::{ShardStats, StatValue},
 };
-use nanograph_vfs::{MemoryFileSystem, Path};
+use nanograph_vfs::{DynamicFileSystem, MemoryFileSystem, Path};
 use nanograph_wal::{
     LogSequenceNumber, WriteAheadLogConfig, WriteAheadLogManager, WriteAheadLogRecord,
 };
@@ -218,6 +219,71 @@ impl ArtKeyValueStore {
         }
     }
 
+    /// Create a shard with VFS and tablespace-resolved configuration
+    /// This is the new tablespace-aware method that will be used by the shard manager
+    pub fn create_shard_with_config(
+        &self,
+        shard: ShardId,
+        vfs: Arc<dyn DynamicFileSystem>,
+        config: ARTStorageConfig,
+    ) -> KeyValueResult<()> {
+        // Ensure directories exist
+        let data_dir_str = config.data_dir.to_string_lossy();
+        let wal_dir_str = config.wal_dir.to_string_lossy();
+
+        vfs.create_directory_all(&data_dir_str)
+            .map_err(|e| KeyValueError::StorageCorruption(e.to_string()))?;
+        vfs.create_directory_all(&wal_dir_str)
+            .map_err(|e| KeyValueError::StorageCorruption(e.to_string()))?;
+
+        // Create ART tree
+        let tree = Arc::new(RwLock::new(AdaptiveRadixTree::new()));
+
+        // Create WAL if enabled
+        let (wal, wal_writer) = if self.wal_enabled {
+            let wal_fs = vfs.clone();
+            let wal_path = Path::from(wal_dir_str.as_ref());
+            let wal_config = WriteAheadLogConfig::new(shard.0);
+
+            let wal_manager = WriteAheadLogManager::new(wal_fs, wal_path, wal_config)
+                .map_err(|e| KeyValueError::StorageCorruption(e.to_string()))?;
+
+            let writer = wal_manager
+                .writer()
+                .map_err(|e| KeyValueError::StorageCorruption(e.to_string()))?;
+
+            (
+                Some(Arc::new(wal_manager)),
+                Some(Arc::new(Mutex::new(writer))),
+            )
+        } else {
+            (None, None)
+        };
+
+        // Create shard data
+        let shard_data = Arc::new(ShardData {
+            tree: tree.clone(),
+            wal,
+            wal_writer,
+            flushed_lsn: Arc::new(RwLock::new(None)),
+        });
+
+        // Recover from WAL if it exists
+        if self.wal_enabled {
+            self.recover_from_wal(shard, &tree)?;
+        }
+
+        // Store shard data
+        let mut shards = self.shards.write().unwrap();
+        shards.insert(shard, shard_data);
+
+        // Initialize metrics
+        let mut metrics = self.metrics.write().unwrap();
+        metrics.insert(shard, Arc::new(ArtMetrics::new()));
+
+        Ok(())
+    }
+
     /// Initialize transaction manager (must be called after wrapping in Arc)
     pub fn init_tx_manager(self: &Arc<Self>) {
         let tx_mgr = Arc::new(crate::transaction::TransactionManager::new(Arc::clone(
@@ -237,7 +303,7 @@ impl ArtKeyValueStore {
         shards
             .get(&shard)
             .cloned()
-            .ok_or(KeyValueError::KeyNotFound)
+            .ok_or(KeyValueError::ShardNotFound(shard))
     }
 
     /// Get the tree for a shard

@@ -238,5 +238,3 @@ file = "/app/logs/app.log"
 
     Ok(())
 }
-
-// Made with Bob

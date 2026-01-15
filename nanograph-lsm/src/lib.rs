@@ -165,6 +165,7 @@
 
 mod cache;
 mod compaction;
+mod config;
 mod engine;
 mod error;
 mod iterator;
@@ -178,6 +179,7 @@ mod wal_record;
 
 pub use self::cache::{BlockCache, BlockKey, CacheStats};
 pub use self::compaction::{CompactionStrategy, CompactionTask};
+pub use self::config::LSMStorageConfig;
 pub use self::engine::{EngineStats, LSMTreeEngine, LevelStats};
 pub use self::error::{ErrorSeverity, LSMError, LSMResult};
 pub use self::iterator::LSMIterator;

@@ -14,22 +14,23 @@
 // limitations under the License.
 //
 
-//! Cluster metadata management
-
-use crate::config::ClusterMetadata;
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::types::{MetadataChange, NodeInfo, RaftClusterState};
-use nanograph_core::types::{NodeId, Timestamp};
-use nanograph_kvt::{ShardId, ShardMetadata, ShardStatus};
+use nanograph_core::{
+    object::{
+        ClusterMetadata, NodeId, RegionId, ShardId, ShardMetadata, ShardStatus, StorageEngineType,
+    },
+    types::Timestamp,
+};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 
-/// Metadata Raft Group
+/// Container Metadata Shard Raft Group
 ///
-/// Manages cluster metadata via Raft consensus. All metadata changes
+/// Manages Container (Tenant+Database) Shard metadata via Raft consensus. All metadata changes
 /// go through this group to ensure consistency across the cluster.
-pub struct MetadataRaftGroup {
+pub struct ContainerShardRaftGroup {
     /// Local node ID
     local_node_id: NodeId,
 
@@ -40,8 +41,8 @@ pub struct MetadataRaftGroup {
     is_leader: Arc<RwLock<bool>>,
 }
 
-impl MetadataRaftGroup {
-    /// Create a new metadata Raft group
+impl ContainerShardRaftGroup {
+    /// Create a new Container Shard Metadata Raft group
     pub fn new(local_node_id: NodeId) -> Self {
         info!("Creating metadata Raft group on node {}", local_node_id);
 
@@ -138,9 +139,9 @@ impl MetadataRaftGroup {
                 let shard_metadata = ShardMetadata {
                     id: shard_id,
                     name: format!("shard_{}", shard_id.as_u64()),
-                    table: nanograph_kvt::TableId::new(shard_id.table().as_u64()),
+                    version: 0,
                     created_at: Timestamp::now(),
-                    engine_type: nanograph_kvt::StorageEngineType::new("lsm"),
+                    engine_type: StorageEngineType::new("lsm"),
                     last_modified: Timestamp::now(),
                     range,
                     leader: None,
@@ -233,24 +234,11 @@ impl MetadataRaftGroup {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use nanograph_core::types::ClusterId;
-
-    #[tokio::test]
-    async fn test_metadata_creation() {
-        let metadata = ClusterMetadata {
-            id: ClusterId::new(0),
-            name: String::new(),
-            version: 0,
-            created_at: Timestamp::now(),
-            last_modified: Timestamp::now(),
-        };
-        assert_eq!(metadata.version, 0);
-    }
+    use super::{ContainerShardRaftGroup, NodeId};
 
     #[tokio::test]
     async fn test_metadata_group() {
-        let group = MetadataRaftGroup::new(NodeId::new(1));
+        let group = ContainerShardRaftGroup::new(NodeId::new(1));
         let metadata = group.get_metadata().await;
         assert_eq!(metadata.version, 0);
     }

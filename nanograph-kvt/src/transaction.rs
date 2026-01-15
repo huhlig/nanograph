@@ -14,9 +14,10 @@
 // limitations under the License.
 //
 
-use crate::{KeyRange, KeyValueIterator, KeyValueResult};
+use crate::{KeyValueIterator, KeyValueResult};
 use async_trait::async_trait;
-use nanograph_core::types::{ShardId, Timestamp};
+use nanograph_core::object::{KeyRange, ShardId};
+use nanograph_core::types::Timestamp;
 use std::sync::Arc;
 
 /// Transaction identifier for Multiversion Concurrency Control (MVCC)

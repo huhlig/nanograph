@@ -830,6 +830,65 @@ This document provides a phased implementation roadmap for Nanograph, a multi-mo
 
 ---
 
+### Phase 2.5: Multi-Tenancy and Resource Management (Weeks 15-18)
+
+**Goal:** Enable secure multi-tenant deployments with resource isolation.
+
+**Related ADRs:** ADR-0025, ADR-0026, ADR-0010
+
+#### 2.5.1 Core Multi-Tenancy (Weeks 15-16)
+
+- [ ] Add TenantId and DatabaseId types to `nanograph-core`
+- [ ] Extend Metastore with tenant/database metadata
+- [ ] Update resolver to support `tenant.database.namespace.table` paths
+- [ ] Implement key prefixing with tenant/database IDs
+- [ ] Update all storage engines to handle prefixed keys
+- [ ] Add tenant-scoped range scan support
+- [ ] Test data isolation guarantees
+
+**Deliverables:**
+- Updated `nanograph-core` with tenant types
+- Extended `nanograph-kvm` metastore
+- Tenant isolation tests
+- Key encoding specification
+
+#### 2.5.2 Access Control Integration (Week 17)
+
+- [ ] Extend ABAC with tenant context
+- [ ] Add tenant boundary enforcement in KeyValueDatabaseManager
+- [ ] Implement tenant-aware routing in ConsensusRouter
+- [ ] Add per-tenant audit logging
+- [ ] Create tenant management APIs
+
+**Deliverables:**
+- Tenant-aware access control
+- Audit logging per tenant
+- Tenant management documentation
+
+#### 2.5.3 Resource Quotas and Limits (Week 18)
+
+- [ ] Implement ResourceQuotas types
+- [ ] Create UsageTracker with atomic counters
+- [ ] Add quota enforcement in database operations
+- [ ] Implement rate limiting (token bucket)
+- [ ] Create quota monitoring and alerting
+- [ ] Define default quota tiers (Free, Starter, Pro, Enterprise)
+
+**Deliverables:**
+- `ResourceQuotas` and `UsageTracker` implementations
+- Quota enforcement in all operations
+- Monitoring dashboards
+- Quota tier configurations
+
+**Phase 2.5 Success Criteria:**
+- Complete data isolation between tenants verified
+- Quota enforcement working for all resource types
+- Tenant management APIs functional
+- Multi-tenant integration tests passing
+- Performance overhead < 5% with quotas enabled
+
+---
+
 ## Appendix A: Deferred Features
 
 The following features are explicitly deferred to post-1.0:
@@ -837,7 +896,7 @@ The following features are explicitly deferred to post-1.0:
 - Full ACID multi-shard transactions (2PC/Spanner-style)
 - SQL query language
 - Advanced graph algorithms (PageRank, community detection)
-- Multi-tenancy with resource isolation
+- Advanced multi-tenancy features (dedicated nodes, physical isolation)
 - Geo-replication and active-active clusters
 - Advanced compaction strategies (universal, FIFO)
 - Custom storage backend plugins

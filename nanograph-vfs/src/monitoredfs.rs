@@ -71,37 +71,42 @@ impl MonitoredFilesystem {
             inner: Arc::new(inner),
             filesystem_type,
             stats: Arc::new(RwLock::new(FileSystemStats::default())),
-            files: Arc::new(Default::default()),
+            files: Arc::new(RwLock::default()),
         }
     }
 
     /// Returns the total number of bytes written to this filesystem.
+    #[must_use]
     pub fn bytes_written(&self) -> u64 {
         self.stats.read().unwrap().bytes_written
     }
 
     /// Returns the total number of bytes read from this filesystem.
+    #[must_use]
     pub fn bytes_read(&self) -> u64 {
         self.stats.read().unwrap().bytes_read
     }
 
     /// Count of Failed Operations
+    #[must_use]
     pub fn failed_operations(&self) -> usize {
         self.stats.read().unwrap().failed_operations
     }
 
     /// Count of Successful Operations
+    #[must_use]
     pub fn successful_operations(&self) -> usize {
         self.stats.read().unwrap().success_operations
     }
 
     /// Count of Total Operations
+    #[must_use]
     pub fn total_operations(&self) -> usize {
         self.stats.read().unwrap().failed_operations + self.stats.read().unwrap().success_operations
     }
 
     /// Get Count of Specific Operations
-
+    #[must_use]
     pub fn operation_count(&self, operation: &str) -> usize {
         match operation {
             "create_directory" => self.stats.read().unwrap().create_directory_calls,
@@ -143,6 +148,7 @@ impl MonitoredFilesystem {
     }
 
     /// Returns a list of currently open files.
+    #[must_use]
     pub fn open_files(&self) -> Vec<Path> {
         self.stats
             .read()
@@ -154,6 +160,7 @@ impl MonitoredFilesystem {
     }
 
     /// Returns the filesystem type identifier.
+    #[must_use]
     pub fn filesystem_type(&self) -> &'static str {
         self.filesystem_type
     }
@@ -373,18 +380,22 @@ pub struct MonitoredFile {
 
 impl MonitoredFile {
     /// Number of bytes written to the file
+    #[must_use]
     pub fn bytes_written(&self) -> u64 {
         self.file_stats.read().unwrap().bytes_written
     }
     /// Number of bytes read from the file
+    #[must_use]
     pub fn bytes_read(&self) -> u64 {
         self.file_stats.read().unwrap().bytes_read
     }
     /// Number of read calls made to the file
+    #[must_use]
     pub fn read_calls(&self) -> usize {
         self.file_stats.read().unwrap().read_calls
     }
     /// Number of write calls made to the file
+    #[must_use]
     pub fn write_calls(&self) -> usize {
         self.file_stats.write().unwrap().write_calls
     }
@@ -476,7 +487,7 @@ impl std::fmt::Debug for MonitoredFile {
     }
 }
 
-/// FileSystem
+/// `FileSystem` Statistics
 #[derive(Default)]
 struct FileSystemStats {
     open_files: HashSet<Path>,
@@ -513,7 +524,7 @@ mod test {
     #[traced_test]
     fn test_generic() {
         let fs = MonitoredFilesystem::new(MemoryFileSystem::new(), "memory");
-        run_generic_test_suite(fs);
+        run_generic_test_suite(&fs);
     }
 
     #[test]

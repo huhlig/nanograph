@@ -14,8 +14,9 @@
 // limitations under the License.
 //
 
-use crate::error::{Error, Result};
+use crate::error::{ArtError, ArtResult};
 use crate::node::{Node, Node4, Node16, Node48, Node256};
+use crate::{ArtIterator, ArtRangeIterator};
 use std::sync::Arc;
 
 /// Adaptive Radix Tree implementation
@@ -50,9 +51,9 @@ impl<V: Clone> AdaptiveRadixTree<V> {
     }
 
     /// Insert a key-value pair into the tree
-    pub fn insert(&mut self, key: Vec<u8>, value: V) -> Result<Option<V>> {
+    pub fn insert(&mut self, key: Vec<u8>, value: V) -> ArtResult<Option<V>> {
         if key.is_empty() {
-            return Err(Error::InvalidKey("Key cannot be empty".to_string()));
+            return Err(ArtError::InvalidKey("Key cannot be empty".to_string()));
         }
 
         let (new_root, old_value) = if let Some(root) = self.root.take() {
@@ -124,9 +125,9 @@ impl<V: Clone> AdaptiveRadixTree<V> {
     }
 
     /// Remove a key from the tree
-    pub fn remove(&mut self, key: &[u8]) -> Result<Option<V>> {
+    pub fn remove(&mut self, key: &[u8]) -> ArtResult<Option<V>> {
         if key.is_empty() {
-            return Err(Error::InvalidKey("Key cannot be empty".to_string()));
+            return Err(ArtError::InvalidKey("Key cannot be empty".to_string()));
         }
 
         let root = match self.root.take() {
@@ -158,7 +159,7 @@ impl<V: Clone> AdaptiveRadixTree<V> {
         key: &[u8],
         depth: usize,
         value: V,
-    ) -> Result<(Arc<Node<V>>, Option<V>)> {
+    ) -> ArtResult<(Arc<Node<V>>, Option<V>)> {
         // Check partial key
         let partial = node.partial();
         let mismatch_idx = self.check_prefix(partial, key, depth);
@@ -408,9 +409,9 @@ impl<V: Clone> AdaptiveRadixTree<V> {
         node: Arc<Node<V>>,
         key_byte: u8,
         child: Arc<Node<V>>,
-    ) -> Result<Arc<Node<V>>> {
+    ) -> ArtResult<Arc<Node<V>>> {
         match node.as_ref() {
-            Node::Leaf(_) => Err(Error::Internal("Cannot add child to leaf".to_string())),
+            Node::Leaf(_) => Err(ArtError::Internal("Cannot add child to leaf".to_string())),
             Node::Node4(n) if n.header.num_children < 4 => {
                 Ok(Arc::new(self.add_child_to_node4(n, key_byte, child)))
             }
@@ -440,7 +441,7 @@ impl<V: Clone> AdaptiveRadixTree<V> {
             Node::Node256(n) if n.header.num_children < 256 => {
                 Ok(Arc::new(self.add_child_to_node256(n, key_byte, child)))
             }
-            Node::Node256(_) => Err(Error::NodeCapacityExceeded),
+            Node::Node256(_) => Err(ArtError::NodeCapacityExceeded),
         }
     }
 
@@ -643,7 +644,7 @@ impl<V: Clone> AdaptiveRadixTree<V> {
         node: Arc<Node<V>>,
         key: &[u8],
         depth: usize,
-    ) -> Result<(Option<Arc<Node<V>>>, Option<V>)> {
+    ) -> ArtResult<(Option<Arc<Node<V>>>, Option<V>)> {
         // Check partial key
         let partial = node.partial();
         let mismatch_idx = self.check_prefix(partial, key, depth);
@@ -730,9 +731,11 @@ impl<V: Clone> AdaptiveRadixTree<V> {
         &self,
         node: Arc<Node<V>>,
         key_byte: u8,
-    ) -> Result<(Option<Arc<Node<V>>>, Option<V>)> {
+    ) -> ArtResult<(Option<Arc<Node<V>>>, Option<V>)> {
         match node.as_ref() {
-            Node::Leaf(_) => Err(Error::Internal("Cannot remove child from leaf".to_string())),
+            Node::Leaf(_) => Err(ArtError::Internal(
+                "Cannot remove child from leaf".to_string(),
+            )),
             Node::Node4(n) => {
                 let new_node = self.remove_child_from_node4(n, key_byte);
                 if new_node.header.num_children == 1 {
@@ -973,8 +976,8 @@ impl<V: Clone> AdaptiveRadixTree<V> {
     }
 
     /// Create an iterator over all entries in the tree
-    pub fn iter(&self) -> crate::iterator::ArtIterator<V> {
-        crate::iterator::ArtIterator::new(self.root.clone())
+    pub fn iter(&self) -> ArtIterator<V> {
+        ArtIterator::new(self.root.clone())
     }
 
     /// Create a range iterator
@@ -983,8 +986,8 @@ impl<V: Clone> AdaptiveRadixTree<V> {
         start: Option<Vec<u8>>,
         end: Option<Vec<u8>>,
         inclusive: bool,
-    ) -> crate::iterator::ArtRangeIterator<V> {
-        crate::iterator::ArtRangeIterator::new(self.root.clone(), start, end, inclusive)
+    ) -> ArtRangeIterator<V> {
+        ArtRangeIterator::new(self.root.clone(), start, end, inclusive)
     }
 
     /// Get all keys in the tree
@@ -1003,5 +1006,3 @@ impl<V: Clone> Default for AdaptiveRadixTree<V> {
         Self::new()
     }
 }
-
-// Made with Bob

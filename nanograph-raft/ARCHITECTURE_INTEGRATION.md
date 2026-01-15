@@ -4,6 +4,8 @@ This document describes how the Raft consensus layer integrates with the rest of
 
 ## System Architecture Overview
 
+Nanograph uses a **3-tier Raft group architecture** for hierarchical metadata and data management:
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Application Layer                         │
@@ -11,80 +13,359 @@ This document describes how the Raft consensus layer integrates with the rest of
 └────────────────────────────┬────────────────────────────────────┘
                              │
 ┌────────────────────────────▼────────────────────────────────────┐
-│                      Router Layer                                │
-│                   (nanograph-raft::Router)                       │
-│  - Routes operations to correct shard                            │
-│  - Manages shard Raft groups                                     │
-│  - Coordinates with metadata                                     │
+│                 KeyValueDatabaseManager                          │
+│  - Routes operations through consensus router                    │
+│  - Manages system and database metastores (caches)              │
+│  - Coordinates with shard manager                                │
 └────────────────────────────┬────────────────────────────────────┘
+                             │
+                ┌────────────┴────────────┐
+                │   ConsensusRouter       │
+                │  - Routes to Raft groups│
+                └────────────┬────────────┘
                              │
         ┌────────────────────┼────────────────────┐
         │                    │                    │
-┌───────▼────────┐  ┌────────▼────────┐  ┌───────▼────────┐
-│  Shard 0 Raft  │  │  Shard 1 Raft   │  │  Metadata Raft │
-│     Group      │  │     Group       │  │     Group      │
-└───────┬────────┘  └────────┬────────┘  └───────┬────────┘
-        │                    │                    │
-┌───────▼────────┐  ┌────────▼────────┐  ┌───────▼────────┐
-│ RaftStorage    │  │ RaftStorage     │  │ RaftStorage    │
-│   Adapter      │  │   Adapter       │  │   Adapter      │
-└───────┬────────┘  └────────┬────────┘  └───────┬────────┘
-        │                    │                    │
-┌───────▼────────┐  ┌────────▼────────┐  ┌───────▼────────┐
-│  LSM Engine    │  │  LSM Engine     │  │  LSM Engine    │
-│ (KeyValueStore)│  │ (KeyValueStore) │  │ (KeyValueStore)│
-└───────┬────────┘  └────────┬────────┘  └───────┬────────┘
-        │                    │                    │
-        └────────────────────┼────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────┐
+        ▼                    ▼                    ▼
+┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
+│ System Metadata  │ │ Database Metadata│ │  Data Shard      │
+│   Raft Group     │ │   Raft Groups    │ │  Raft Groups     │
+│   (1 per cluster)│ │ (1 per database) │ │ (N per table)    │
+└────────┬─────────┘ └────────┬─────────┘ └────────┬─────────┘
+         │                    │                    │
+         │ Stores:            │ Stores:            │ Stores:
+         │ - Clusters         │ - Namespaces       │ - User data
+         │ - Regions          │ - Tables           │ - KV pairs
+         │ - Servers          │ - Shards metadata  │ - High volume
+         │ - Tenants          │ - DB users         │
+         │ - System users     │ - Name resolver    │
+         │                    │                    │
+┌────────▼────────┐  ┌────────▼────────┐  ┌────────▼────────┐
+│ RaftStorage     │  │ RaftStorage     │  │ RaftStorage     │
+│   Adapter       │  │   Adapter       │  │   Adapter       │
+└────────┬────────┘  └────────┬────────┘  └────────┬────────┘
+         │                    │                    │
+┌────────▼────────┐  ┌────────▼────────┐  ┌────────▼────────┐
+│  LSM Engine     │  │  LSM Engine     │  │  LSM Engine     │
+│ (KeyValueStore) │  │ (KeyValueStore) │  │ (KeyValueStore) │
+└────────┬────────┘  └────────┬────────┘  └────────┬────────┘
+         │                    │                    │
+         └────────────────────┼────────────────────┘
+                              │
+┌─────────────────────────────▼───────────────────────────────────┐
 │                    Storage Layer                                 │
 │              (nanograph-wal, nanograph-vfs)                      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+## Three-Tier Raft Group Architecture
+
+### Tier 1: System Metadata Raft Group
+
+**Scope**: One per cluster (global)
+**Purpose**: Manages cluster-wide system configuration
+**Shard**: `system_shard` (dedicated shard ID)
+
+**Data Managed**:
+- Cluster configuration and version
+- Regions (geographic/data center locations)
+- Servers (Nanograph instances)
+- Tenants (multi-tenancy root)
+- System-level users and permissions
+- Database registry (references only)
+
+**Update Frequency**: Very low (minutes to hours)
+**Size**: Small (KB to low MB)
+**Replication**: Fully replicated across all nodes
+
+**Implementation**: `SystemMetastore` in `nanograph-kvm/src/metastore.rs`
+
+```rust
+pub struct SystemMetastore {
+    cluster: ClusterMetadata,
+    regions: HashMap<RegionId, RegionMetadata>,
+    servers: HashMap<ServerId, ServerMetadata>,
+    tenants: HashMap<TenantId, TenantMetadata>,
+    databases: HashMap<DatabaseId, DatabaseMetadata>,
+    system_users: HashMap<UserId, UserMetadata>,
+    system_shard: ShardId,  // Dedicated shard for system metadata
+    consensus_router: Option<Arc<ConsensusRouter>>,
+}
+```
+
+### Tier 2: Database Metadata Raft Groups
+
+**Scope**: One per database (container = tenant + database)
+**Purpose**: Manages database-specific metadata and schema
+**Shard**: `metadata_shard` per database (dedicated shard ID per database)
+
+**Data Managed**:
+- Namespaces within the database
+- Tables and their configurations
+- Shard metadata for this database's tables
+- Database-level users and permissions
+- Shard assignments (which nodes host which shards)
+- Name resolver (hierarchical object paths)
+
+**Update Frequency**: Low (seconds to minutes)
+**Size**: Medium (MB range)
+**Replication**: Fully replicated per database
+
+**Implementation**: `DatabaseMetastore` in `nanograph-kvm/src/metastore.rs`
+
+```rust
+pub struct DatabaseMetastore {
+    container: ContainerId,  // Tenant + Database
+    namespaces: HashMap<NamespaceId, NamespaceMetadata>,
+    tables: HashMap<TableId, TableMetadata>,
+    shards: HashMap<ShardId, ShardMetadata>,
+    database_users: HashMap<UserId, UserMetadata>,
+    metadata_shard: Option<ShardId>,  // Dedicated shard for this DB's metadata
+    consensus_router: Option<Arc<ConsensusRouter>>,
+    shard_assignments: BTreeMap<ShardId, Vec<NodeId>>,
+    resolver_nodes: BTreeMap<ObjectId, Node>,  // Hierarchical name resolution
+    resolver_paths: BTreeMap<String, ObjectId>,
+}
+```
+
+### Tier 3: Data Shard Raft Groups
+
+**Scope**: Many per database (N shards per table)
+**Purpose**: Manages actual user data
+**Shard**: One Raft group per data shard
+
+**Data Managed**:
+- User key-value pairs
+- Application data
+- High-volume, high-frequency operations
+
+**Update Frequency**: Very high (milliseconds)
+**Size**: Large (GB to TB per shard)
+**Replication**: Configurable per shard (typically 3-5 replicas)
+
+**Implementation**: `ShardRaftGroup` in `nanograph-raft/src/shard_group.rs`
+
+```rust
+pub struct ShardRaftGroup {
+    shard_id: ShardId,
+    local_node_id: NodeId,
+    storage: Arc<RaftStorageAdapter>,
+    config: ReplicationConfig,
+    role: Arc<RwLock<RaftRole>>,
+    peers: Arc<RwLock<Vec<NodeId>>>,
+}
+```
+
+## Hierarchical Relationship
+
+```
+System Metadata Raft Group (1)
+    │
+    ├─ Manages: Cluster, Regions, Servers, Tenants
+    │
+    └─ Contains references to ──┐
+                                │
+Database Metadata Raft Groups (N) ◄─┘
+    │
+    ├─ Database 1 Metadata
+    │   ├─ Manages: Namespaces, Tables, DB Users
+    │   └─ Contains references to ──┐
+    │                                │
+    ├─ Database 2 Metadata           │
+    │   └─ ...                       │
+    │                                │
+    └─ Database N Metadata           │
+                                     │
+Data Shard Raft Groups (M) ◄────────┘
+    │
+    ├─ Shard 0 (Table A, DB 1)
+    ├─ Shard 1 (Table A, DB 1)
+    ├─ Shard 2 (Table B, DB 1)
+    ├─ Shard 3 (Table C, DB 2)
+    └─ ...
+```
+
+## Why Three Tiers?
+
+### 1. Isolation and Scope
+
+- **System changes** (adding a region) don't require consensus from all databases
+- **Database changes** (creating a table) don't require consensus from all shards
+- **Data operations** are isolated to their shard's Raft group
+
+### 2. Multi-Tenancy Support
+
+- Each tenant's database metadata is in its own Raft group
+- Tenant A's schema changes don't affect Tenant B
+- Better isolation and security boundaries
+
+### 3. Scalability
+
+- System metadata: 1 group (low volume, cluster-wide)
+- Database metadata: N groups (medium volume, per-database)
+- Data shards: M groups (high volume, horizontally scalable)
+
+### 4. Performance Characteristics
+
+| Tier | Groups | Update Freq | Size | Replication |
+|------|--------|-------------|------|-------------|
+| System Metadata | 1 | Very Low | Small | Full |
+| Database Metadata | N (per DB) | Low | Medium | Full per DB |
+| Data Shards | M (many) | Very High | Large | Per shard |
+
+### 5. Failure Isolation
+
+- System metadata failure doesn't affect data operations
+- Database metadata failure only affects that database
+- Data shard failure only affects that shard's data
+
 ## Integration Points
 
-### 1. Router ↔ Application Layer
+### 1. Application ↔ KeyValueDatabaseManager
 
-**Location**: Applications use `Router` as the main entry point
+**Location**: Applications use `KeyValueDatabaseManager` as the main entry point
 
 **Interface**:
 ```rust
 // Application code
-use nanograph_raft::Router;
+use nanograph_kvm::KeyValueDatabaseManager;
 
-let router = Router::new(node_id, config);
+// Create manager in distributed mode
+let manager = KeyValueDatabaseManager::new_distributed(raft_router);
 
-// Standard KV operations
-router.put(key, value).await?;
-let value = router.get(key).await?;
-router.delete(key).await?;
+// Create a table (goes through metadata consensus)
+let table_id = manager.create_table(
+    "/app/public",
+    "users".to_string(),
+    TableCreate::new("users", StorageEngineType::LSM)
+        .with_sharding(TableSharding::Multiple {
+            shard_count: 4,
+            partitioner: Partitioner::Hash,
+            replication_factor: 3,
+        })
+).await?;
 
-// Batch operations
-router.batch(vec![
-    Operation::Put { key: k1, value: v1 },
-    Operation::Put { key: k2, value: v2 },
-]).await?;
+// Data operations (go through data shard consensus)
+manager.put(table_id, b"user:123", b"Alice").await?;
+let value = manager.get(table_id, b"user:123").await?;
+manager.delete(table_id, b"user:123").await?;
 ```
 
 **Responsibilities**:
-- Router handles key-to-shard mapping
-- Router manages Raft groups
-- Router provides simple KV API to applications
+- Routes metadata operations to appropriate metadata Raft groups
+- Routes data operations to appropriate data shard Raft groups
+- Manages metastore caches
+- Coordinates with ConsensusRouter
 
-### 2. Router ↔ Shard Raft Groups
+### 2. KeyValueDatabaseManager ↔ ConsensusRouter
 
-**Location**: Router creates and manages shard Raft groups
+**Location**: Manager delegates consensus operations to router
 
 **Interface**:
 ```rust
-// Router creates shard groups
-impl Router {
+impl KeyValueDatabaseManager {
+    pub async fn create_table(&self, ...) -> Result<TableId> {
+        if let Some(router) = &self.raft_router {
+            // Create shards via metadata Raft group
+            router.metadata()
+                .create_shard(shard_id, range, replicas)
+                .await?;
+        }
+        // ...
+    }
+    
+    pub async fn put(&self, table: TableId, key: &[u8], value: &[u8]) -> Result<()> {
+        let shard_id = self.get_shard_for_key(table, key)?;
+        
+        if let Some(router) = &self.raft_router {
+            // Route through Raft for distributed consensus
+            router.put(key.to_vec(), value.to_vec()).await?;
+        } else {
+            // Single-node mode: direct shard access
+            let shard_manager = self.shard_manager.read().unwrap();
+            shard_manager.put(shard_id, key, value).await?;
+        }
+        Ok(())
+    }
+}
+```
+
+### 3. ConsensusRouter ↔ Metadata Raft Groups
+
+**Location**: Router manages system and database metadata groups
+
+**Interface**:
+```rust
+impl ConsensusRouter {
+    // Access system metadata Raft group
+    pub fn metadata(&self) -> &MetadataRaftGroup {
+        &self.metadata
+    }
+    
+    // System metadata operations
+    pub async fn add_region(&self, region: RegionInfo) -> Result<()> {
+        self.metadata.add_node(node_info).await
+    }
+    
+    // Database metadata operations (future)
+    pub async fn create_table(&self, database: DatabaseId, table: TableConfig) -> Result<()> {
+        // Route to appropriate database metadata Raft group
+        let db_metadata_group = self.get_database_metadata_group(database).await?;
+        db_metadata_group.create_table(table).await
+    }
+}
+```
+
+**Metadata Raft Group Interface**:
+```rust
+impl MetadataRaftGroup {
+    // System-level operations
+    pub async fn add_node(&self, node: NodeInfo) -> Result<()> {
+        self.propose_change(MetadataChange::AddNode { node }).await
+    }
+    
+    pub async fn remove_node(&self, node_id: NodeId) -> Result<()> {
+        self.propose_change(MetadataChange::RemoveNode { node_id }).await
+    }
+    
+    // Shard management
+    pub async fn create_shard(
+        &self,
+        shard_id: ShardId,
+        range: (Vec<u8>, Vec<u8>),
+        replicas: Vec<NodeId>,
+    ) -> Result<()> {
+        self.propose_change(MetadataChange::CreateShard {
+            shard_id,
+            range,
+            replicas,
+        }).await
+    }
+    
+    pub async fn update_shard_assignment(
+        &self,
+        shard_id: ShardId,
+        replicas: Vec<NodeId>,
+    ) -> Result<()> {
+        self.propose_change(MetadataChange::UpdateShardAssignment {
+            shard_id,
+            replicas,
+        }).await
+    }
+}
+```
+
+### 4. ConsensusRouter ↔ Data Shard Raft Groups
+
+**Location**: Router creates and manages data shard Raft groups
+
+**Interface**:
+```rust
+impl ConsensusRouter {
     pub async fn add_shard(
         &self,
         shard_id: ShardId,
-        storage: Box<dyn KeyValueStore>,
+        storage: Box<dyn KeyValueShardStore>,
         peers: Vec<NodeId>,
     ) -> Result<()> {
         let adapter = Arc::new(RaftStorageAdapter::new(storage, shard_id));
@@ -98,6 +379,15 @@ impl Router {
         self.shards.write().await.insert(shard_id, group);
         Ok(())
     }
+    
+    // Data operations route to appropriate shard
+    pub async fn put(&self, key: Vec<u8>, value: Vec<u8>) -> Result<()> {
+        let shard_id = self.get_shard_for_key(&key).await;
+        let shard = self.get_shard_group(shard_id).await?;
+        shard.propose_write(Operation::Put { key, value }).await?;
+        Ok(())
+    }
+}
 }
 ```
 
@@ -200,14 +490,49 @@ impl LSMTreeEngine {
 
 ## Data Flow Examples
 
-### Write Path (Distributed)
+### Metadata Operation: Create Table
 
 ```
-1. Application: router.put(b"user:123", b"Alice")
+1. Application: manager.create_table("users", config)
                      │
-2. Router: hash("user:123") → Shard 2
+2. KeyValueDatabaseManager: Determine database
                      │
-3. Router: forward to Shard 2 leader
+3. Route to Database Metadata Raft Group
+                     │
+4. Database Metadata Leader: propose to Raft
+                     │
+5. Raft: replicate to followers
+                     │
+   ┌─────────────────┼─────────────────┐
+   │                 │                 │
+   ▼                 ▼                 ▼
+DB Meta          DB Meta          DB Meta
+Follower 1       Follower 2       Follower 3
+   │                 │                 │
+   └─────────────────┼─────────────────┘
+                     │
+6. Raft: quorum reached, commit
+                     │
+7. Storage Adapter: apply_operation(CreateTable)
+                     │
+8. Update database metadata shard
+                     │
+9. Create data shards via System Metadata Raft Group
+                     │
+10. System Metadata: Update shard assignments
+                     │
+11. Response: TableId → Application
+```
+
+### Data Operation: Write Path (Distributed)
+
+```
+1. Application: manager.put(table_id, b"user:123", b"Alice")
+                     │
+2. KeyValueDatabaseManager: Determine shard
+   hash("user:123") → Shard 2
+                     │
+3. ConsensusRouter: Route to Shard 2 Raft Group
                      │
 4. Shard 2 Leader: propose to Raft
                      │
@@ -216,6 +541,7 @@ impl LSMTreeEngine {
    ┌─────────────────┼─────────────────┐
    │                 │                 │
    ▼                 ▼                 ▼
+Data Shard       Data Shard       Data Shard
 Follower 1       Follower 2       Follower 3
    │                 │                 │
    └─────────────────┼─────────────────┘
@@ -231,6 +557,38 @@ Follower 1       Follower 2       Follower 3
 10. VFS: fsync to disk
                      │
 11. Response: success → Application
+```
+
+### System Operation: Add Node
+
+```
+1. Admin: cluster.add_server(server_info)
+                     │
+2. Route to System Metadata Raft Group
+                     │
+3. System Metadata Leader: propose to Raft
+                     │
+4. Raft: replicate to all nodes
+                     │
+   ┌─────────────────┼─────────────────┐
+   │                 │                 │
+   ▼                 ▼                 ▼
+System Meta      System Meta      System Meta
+Follower 1       Follower 2       Follower 3
+   │                 │                 │
+   └─────────────────┼─────────────────┘
+                     │
+5. Raft: quorum reached, commit
+                     │
+6. Storage Adapter: apply_operation(AddServer)
+                     │
+7. Update system metadata shard
+                     │
+8. All nodes: Update local metadata cache
+                     │
+9. Trigger shard rebalancing (if needed)
+                     │
+10. Response: success → Admin
 ```
 
 ### Read Path (Linearizable)

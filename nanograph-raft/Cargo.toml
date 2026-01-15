@@ -28,9 +28,7 @@ openraft.workspace = true
 
 # Serialization
 serde.workspace = true
-
-# Time
-chrono.workspace = true
+postcard.workspace = true
 
 # Logging
 metrics.workspace = true

@@ -15,21 +15,21 @@ categories.workspace = true
 
 [dependencies]
 # Integrity/Checksums
-crc32c.workspace = true
+crc.workspace = true
 xxhash-rust.workspace = true
 
 # Compression
-lz4 = "1.28"
-zstd = "0.13"
-snap = "1.1"
+lz4.workspace = true
+snap.workspace = true
+zstd.workspace = true
 
 # Encryption
-aes-gcm = "0.10"
-chacha20poly1305 = "0.10"
-rand = "0.8"
+aes-gcm.workspace = true
+chacha20poly1305.workspace = true
+rand.workspace = true
 
 # Error handling
-thiserror = "2.0"
+thiserror.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

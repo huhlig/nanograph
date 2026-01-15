@@ -251,5 +251,3 @@ impl<V> NodeHeader<V> {
         }
     }
 }
-
-// Made with Bob

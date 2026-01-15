@@ -14,22 +14,19 @@
 // limitations under the License.
 //
 
-//! Shard Raft Group - manages consensus for a single shard
-
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::storage::RaftStorageAdapter;
 use crate::types::{Operation, OperationResponse, ReadConsistency, ReplicationConfig};
-use nanograph_core::types::NodeId;
-use nanograph_kvt::ShardId;
+use nanograph_core::object::{NodeId, ShardId};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 
 /// Shard Raft Group
 ///
-/// Manages Raft consensus for a single shard. Each shard is an independent
-/// Raft group with its own leader election, log replication, and state machine.
-pub struct ShardRaftGroup {
+/// Manages Raft consensus for a single table shard. Each shard is an independent Raft group with
+/// its own leader election, log replication, and state machine.
+pub struct TableShardRaftGroup {
     /// Shard identifier
     shard_id: ShardId,
 
@@ -68,7 +65,7 @@ pub enum RaftRole {
     Leader,
 }
 
-impl ShardRaftGroup {
+impl TableShardRaftGroup {
     /// Create a new shard Raft group
     pub fn new(
         shard_id: ShardId,

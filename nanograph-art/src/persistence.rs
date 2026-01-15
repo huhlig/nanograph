@@ -19,7 +19,7 @@
 //! This module provides disk persistence for Adaptive Radix Tree nodes using the VFS abstraction.
 //! The ART is serialized to disk in a compact binary format that preserves the tree structure.
 
-use crate::error::{Error, Result};
+use crate::error::{ArtError, ArtResult};
 use crate::node::Node;
 use crate::tree::AdaptiveRadixTree;
 use nanograph_vfs::{DynamicFileSystem, File as VfsFile};
@@ -81,35 +81,35 @@ pub struct ArtPersistence {
 
 impl ArtPersistence {
     /// Create a new persistence manager
-    pub fn new(fs: Arc<dyn DynamicFileSystem>, base_path: String) -> Result<Self> {
+    pub fn new(fs: Arc<dyn DynamicFileSystem>, base_path: String) -> ArtResult<Self> {
         // Ensure base directory exists
         fs.create_directory_all(&base_path)
-            .map_err(|e| Error::Internal(format!("Failed to create directory: {}", e)))?;
+            .map_err(|e| ArtError::Internal(format!("Failed to create directory: {}", e)))?;
 
         Ok(Self { fs, base_path })
     }
 
     /// Save the entire tree to disk
-    pub fn save_tree<V: Clone + Serialize>(&self, tree: &AdaptiveRadixTree<V>) -> Result<()> {
+    pub fn save_tree<V: Clone + Serialize>(&self, tree: &AdaptiveRadixTree<V>) -> ArtResult<()> {
         let tree_path = format!("{}/tree.art", self.base_path);
         let metadata_path = format!("{}/metadata.json", self.base_path);
 
         // Serialize the tree
         let serialized = self.serialize_tree(tree)?;
         let data = serde_json::to_vec(&serialized)
-            .map_err(|e| Error::Internal(format!("Serialization error: {}", e)))?;
+            .map_err(|e| ArtError::Internal(format!("Serialization error: {}", e)))?;
 
         // Write tree data
         let mut file = self
             .fs
             .create_file(&tree_path)
-            .map_err(|e| Error::Internal(format!("Failed to create file: {}", e)))?;
+            .map_err(|e| ArtError::Internal(format!("Failed to create file: {}", e)))?;
 
         file.write_all(&data)
-            .map_err(|e| Error::Internal(format!("Failed to write tree: {}", e)))?;
+            .map_err(|e| ArtError::Internal(format!("Failed to write tree: {}", e)))?;
 
         file.sync_all()
-            .map_err(|e| Error::Internal(format!("Failed to sync tree: {}", e)))?;
+            .map_err(|e| ArtError::Internal(format!("Failed to sync tree: {}", e)))?;
 
         // Write metadata
         let metadata = TreeMetadata {
@@ -128,26 +128,28 @@ impl ArtPersistence {
         };
 
         let metadata_data = serde_json::to_vec_pretty(&metadata)
-            .map_err(|e| Error::Internal(format!("Metadata serialization error: {}", e)))?;
+            .map_err(|e| ArtError::Internal(format!("Metadata serialization error: {}", e)))?;
 
         let mut metadata_file = self
             .fs
             .create_file(&metadata_path)
-            .map_err(|e| Error::Internal(format!("Failed to create metadata file: {}", e)))?;
+            .map_err(|e| ArtError::Internal(format!("Failed to create metadata file: {}", e)))?;
 
         metadata_file
             .write_all(&metadata_data)
-            .map_err(|e| Error::Internal(format!("Failed to write metadata: {}", e)))?;
+            .map_err(|e| ArtError::Internal(format!("Failed to write metadata: {}", e)))?;
 
         metadata_file
             .sync_all()
-            .map_err(|e| Error::Internal(format!("Failed to sync metadata: {}", e)))?;
+            .map_err(|e| ArtError::Internal(format!("Failed to sync metadata: {}", e)))?;
 
         Ok(())
     }
 
     /// Load the entire tree from disk
-    pub fn load_tree<V: Clone + for<'de> Deserialize<'de>>(&self) -> Result<AdaptiveRadixTree<V>> {
+    pub fn load_tree<V: Clone + for<'de> Deserialize<'de>>(
+        &self,
+    ) -> ArtResult<AdaptiveRadixTree<V>> {
         let tree_path = format!("{}/tree.art", self.base_path);
         let metadata_path = format!("{}/metadata.json", self.base_path);
 
@@ -155,22 +157,22 @@ impl ArtPersistence {
         let mut metadata_file = self
             .fs
             .open_file(&metadata_path)
-            .map_err(|e| Error::Internal(format!("Failed to open metadata file: {}", e)))?;
+            .map_err(|e| ArtError::Internal(format!("Failed to open metadata file: {}", e)))?;
 
         let mut metadata_data = Vec::new();
         metadata_file
             .read_to_end(&mut metadata_data)
-            .map_err(|e| Error::Internal(format!("Failed to read metadata: {}", e)))?;
+            .map_err(|e| ArtError::Internal(format!("Failed to read metadata: {}", e)))?;
 
         let metadata: TreeMetadata = serde_json::from_slice(&metadata_data)
-            .map_err(|e| Error::Internal(format!("Metadata deserialization error: {}", e)))?;
+            .map_err(|e| ArtError::Internal(format!("Metadata deserialization error: {}", e)))?;
 
         if metadata.magic != MAGIC_NUMBER {
-            return Err(Error::Internal("Invalid magic number".to_string()));
+            return Err(ArtError::Internal("Invalid magic number".to_string()));
         }
 
         if metadata.version != VERSION {
-            return Err(Error::Internal(format!(
+            return Err(ArtError::Internal(format!(
                 "Unsupported version: {}",
                 metadata.version
             )));
@@ -180,25 +182,28 @@ impl ArtPersistence {
         let mut file = self
             .fs
             .open_file(&tree_path)
-            .map_err(|e| Error::Internal(format!("Failed to open file: {}", e)))?;
+            .map_err(|e| ArtError::Internal(format!("Failed to open file: {}", e)))?;
 
         let mut data = Vec::new();
         file.read_to_end(&mut data)
-            .map_err(|e| Error::Internal(format!("Failed to read tree: {}", e)))?;
+            .map_err(|e| ArtError::Internal(format!("Failed to read tree: {}", e)))?;
 
         let serialized: Option<SerializedNode> = serde_json::from_slice(&data)
-            .map_err(|e| Error::Internal(format!("Deserialization error: {}", e)))?;
+            .map_err(|e| ArtError::Internal(format!("Deserialization error: {}", e)))?;
 
         // Deserialize the tree
         self.deserialize_tree(serialized)
     }
 
     /// Serialize a node recursively
-    fn serialize_node<V: Clone + Serialize>(&self, node: &Arc<Node<V>>) -> Result<SerializedNode> {
+    fn serialize_node<V: Clone + Serialize>(
+        &self,
+        node: &Arc<Node<V>>,
+    ) -> ArtResult<SerializedNode> {
         match node.as_ref() {
             Node::Leaf(leaf) => {
                 let value = serde_json::to_vec(&leaf.value)
-                    .map_err(|e| Error::Internal(format!("Value serialization error: {}", e)))?;
+                    .map_err(|e| ArtError::Internal(format!("Value serialization error: {}", e)))?;
                 Ok(SerializedNode::Leaf {
                     key: leaf.key.clone(),
                     value,
@@ -213,7 +218,7 @@ impl ArtPersistence {
                 }
                 let value = if let Some(ref v) = n.header.value {
                     Some(serde_json::to_vec(v).map_err(|e| {
-                        Error::Internal(format!("Value serialization error: {}", e))
+                        ArtError::Internal(format!("Value serialization error: {}", e))
                     })?)
                 } else {
                     None
@@ -234,7 +239,7 @@ impl ArtPersistence {
                 }
                 let value = if let Some(ref v) = n.header.value {
                     Some(serde_json::to_vec(v).map_err(|e| {
-                        Error::Internal(format!("Value serialization error: {}", e))
+                        ArtError::Internal(format!("Value serialization error: {}", e))
                     })?)
                 } else {
                     None
@@ -257,7 +262,7 @@ impl ArtPersistence {
                 }
                 let value = if let Some(ref v) = n.header.value {
                     Some(serde_json::to_vec(v).map_err(|e| {
-                        Error::Internal(format!("Value serialization error: {}", e))
+                        ArtError::Internal(format!("Value serialization error: {}", e))
                     })?)
                 } else {
                     None
@@ -280,7 +285,7 @@ impl ArtPersistence {
                 }
                 let value = if let Some(ref v) = n.header.value {
                     Some(serde_json::to_vec(v).map_err(|e| {
-                        Error::Internal(format!("Value serialization error: {}", e))
+                        ArtError::Internal(format!("Value serialization error: {}", e))
                     })?)
                 } else {
                     None
@@ -298,7 +303,7 @@ impl ArtPersistence {
     fn serialize_tree<V: Clone + Serialize>(
         &self,
         tree: &AdaptiveRadixTree<V>,
-    ) -> Result<Option<SerializedNode>> {
+    ) -> ArtResult<Option<SerializedNode>> {
         if let Some(root) = tree.root() {
             Ok(Some(self.serialize_node(&root)?))
         } else {
@@ -310,11 +315,12 @@ impl ArtPersistence {
     fn deserialize_node<V: Clone + for<'de> Deserialize<'de>>(
         &self,
         serialized: SerializedNode,
-    ) -> Result<Arc<Node<V>>> {
+    ) -> ArtResult<Arc<Node<V>>> {
         match serialized {
             SerializedNode::Leaf { key, value } => {
-                let v: V = serde_json::from_slice(&value)
-                    .map_err(|e| Error::Internal(format!("Value deserialization error: {}", e)))?;
+                let v: V = serde_json::from_slice(&value).map_err(|e| {
+                    ArtError::Internal(format!("Value deserialization error: {}", e))
+                })?;
                 Ok(Arc::new(Node::new_leaf(key, v)))
             }
             SerializedNode::Node4 {
@@ -326,7 +332,7 @@ impl ArtPersistence {
                 let mut node = Node::new_node4(partial);
                 let v = if let Some(val_bytes) = value {
                     Some(serde_json::from_slice(&val_bytes).map_err(|e| {
-                        Error::Internal(format!("Value deserialization error: {}", e))
+                        ArtError::Internal(format!("Value deserialization error: {}", e))
                     })?)
                 } else {
                     None
@@ -352,7 +358,7 @@ impl ArtPersistence {
                 let mut node = Node::new_node16(partial);
                 let v = if let Some(val_bytes) = value {
                     Some(serde_json::from_slice(&val_bytes).map_err(|e| {
-                        Error::Internal(format!("Value deserialization error: {}", e))
+                        ArtError::Internal(format!("Value deserialization error: {}", e))
                     })?)
                 } else {
                     None
@@ -377,7 +383,7 @@ impl ArtPersistence {
                 let mut node = Node::new_node48(partial);
                 let v = if let Some(val_bytes) = value {
                     Some(serde_json::from_slice(&val_bytes).map_err(|e| {
-                        Error::Internal(format!("Value deserialization error: {}", e))
+                        ArtError::Internal(format!("Value deserialization error: {}", e))
                     })?)
                 } else {
                     None
@@ -405,7 +411,7 @@ impl ArtPersistence {
                 let mut node = Node::new_node256(partial);
                 let v = if let Some(val_bytes) = value {
                     Some(serde_json::from_slice(&val_bytes).map_err(|e| {
-                        Error::Internal(format!("Value deserialization error: {}", e))
+                        ArtError::Internal(format!("Value deserialization error: {}", e))
                     })?)
                 } else {
                     None
@@ -431,7 +437,7 @@ impl ArtPersistence {
     fn deserialize_tree<V: Clone + for<'de> Deserialize<'de>>(
         &self,
         serialized: Option<SerializedNode>,
-    ) -> Result<AdaptiveRadixTree<V>> {
+    ) -> ArtResult<AdaptiveRadixTree<V>> {
         let mut tree = AdaptiveRadixTree::new();
 
         if let Some(root_serialized) = serialized {
@@ -447,11 +453,12 @@ impl ArtPersistence {
         &self,
         tree: &mut AdaptiveRadixTree<V>,
         node: SerializedNode,
-    ) -> Result<()> {
+    ) -> ArtResult<()> {
         match node {
             SerializedNode::Leaf { key, value } => {
-                let v: V = serde_json::from_slice(&value)
-                    .map_err(|e| Error::Internal(format!("Value deserialization error: {}", e)))?;
+                let v: V = serde_json::from_slice(&value).map_err(|e| {
+                    ArtError::Internal(format!("Value deserialization error: {}", e))
+                })?;
                 tree.insert(key, v)?;
             }
             SerializedNode::Node4 { children, .. } | SerializedNode::Node16 { children, .. } => {
@@ -496,20 +503,20 @@ impl ArtPersistence {
     }
 
     /// Delete persisted tree
-    pub fn delete(&self) -> Result<()> {
+    pub fn delete(&self) -> ArtResult<()> {
         let tree_path = format!("{}/tree.art", self.base_path);
         let metadata_path = format!("{}/metadata.json", self.base_path);
 
         if self.fs.exists(&tree_path).unwrap_or(false) {
             self.fs
                 .remove_file(&tree_path)
-                .map_err(|e| Error::Internal(format!("Failed to delete tree: {}", e)))?;
+                .map_err(|e| ArtError::Internal(format!("Failed to delete tree: {}", e)))?;
         }
 
         if self.fs.exists(&metadata_path).unwrap_or(false) {
             self.fs
                 .remove_file(&metadata_path)
-                .map_err(|e| Error::Internal(format!("Failed to delete metadata: {}", e)))?;
+                .map_err(|e| ArtError::Internal(format!("Failed to delete metadata: {}", e)))?;
         }
 
         Ok(())
@@ -578,5 +585,3 @@ mod tests {
         assert!(!persistence.exists());
     }
 }
-
-// Made with Bob

@@ -19,7 +19,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::Arc;
 
 #[cfg(test)]
-pub fn run_generic_test_suite<F: FileSystem>(fs: F) {
+pub fn run_generic_test_suite<F: FileSystem>(fs: &F) {
     // 1. Basic File Operations
     {
         let path = "/test_file.txt";
@@ -150,7 +150,7 @@ pub fn run_generic_test_suite<F: FileSystem>(fs: F) {
     }
 }
 
-/// A wrapper that converts any FileSystem to one that returns Box<dyn File>
+/// A wrapper that converts any `FileSystem` to one that returns Box<dyn File>
 #[derive(Debug)]
 pub struct BoxedFileSystem<F: FileSystem> {
     pub inner: Arc<F>,

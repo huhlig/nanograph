@@ -20,7 +20,7 @@
 //! Nodes are serialized to disk and can be loaded on demand (lazy loading).
 
 use crate::error::{BTreeError, BTreeResult};
-use crate::node::{BPlusTreeNode, InternalNode, LeafNode, NodeId};
+use crate::node::{BPlusTreeNode, BTreeNodeId, InternalNode, LeafNode};
 use nanograph_vfs::{DynamicFileSystem, File as VfsFile};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
@@ -30,17 +30,17 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 enum SerializedNode {
     Leaf {
-        id: NodeId,
-        parent: Option<NodeId>,
+        id: BTreeNodeId,
+        parent: Option<BTreeNodeId>,
         entries: Vec<(Vec<u8>, Vec<u8>)>,
-        next: Option<NodeId>,
-        prev: Option<NodeId>,
+        next: Option<BTreeNodeId>,
+        prev: Option<BTreeNodeId>,
     },
     Internal {
-        id: NodeId,
-        parent: Option<NodeId>,
+        id: BTreeNodeId,
+        parent: Option<BTreeNodeId>,
         keys: Vec<Vec<u8>>,
-        children: Vec<NodeId>,
+        children: Vec<BTreeNodeId>,
     },
 }
 
@@ -48,9 +48,9 @@ enum SerializedNode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TreeMetadata {
     pub version: u32,
-    pub root_id: NodeId,
+    pub root_id: BTreeNodeId,
     pub next_node_id: u64,
-    pub leftmost_leaf: Option<NodeId>,
+    pub leftmost_leaf: Option<BTreeNodeId>,
     pub node_count: usize,
 }
 
@@ -107,7 +107,7 @@ impl BTreePersistence {
     }
 
     /// Load a node from disk
-    pub fn load_node(&self, node_id: NodeId) -> BTreeResult<BPlusTreeNode> {
+    pub fn load_node(&self, node_id: BTreeNodeId) -> BTreeResult<BPlusTreeNode> {
         let node_path = self.node_path(node_id);
 
         let mut file = self
@@ -203,7 +203,7 @@ impl BTreePersistence {
     }
 
     /// Delete a node from disk
-    pub fn delete_node(&self, node_id: NodeId) -> BTreeResult<()> {
+    pub fn delete_node(&self, node_id: BTreeNodeId) -> BTreeResult<()> {
         let node_path = self.node_path(node_id);
 
         self.fs
@@ -214,7 +214,7 @@ impl BTreePersistence {
     }
 
     /// Get the file path for a node
-    fn node_path(&self, node_id: NodeId) -> String {
+    fn node_path(&self, node_id: BTreeNodeId) -> String {
         format!("{}/node_{:016x}.json", self.base_path, node_id.0)
     }
 }
@@ -229,7 +229,7 @@ mod tests {
         let fs: Arc<dyn DynamicFileSystem> = Arc::new(MemoryFileSystem::new());
         let persistence = BTreePersistence::new(fs, "/btree".to_string()).unwrap();
 
-        let node_id = NodeId::new(1);
+        let node_id = BTreeNodeId::new(1);
         let leaf = BPlusTreeNode::Leaf(LeafNode {
             id: node_id,
             parent: None,
@@ -260,9 +260,9 @@ mod tests {
 
         let metadata = TreeMetadata {
             version: 1,
-            root_id: NodeId::new(0),
+            root_id: BTreeNodeId::new(0),
             next_node_id: 10,
-            leftmost_leaf: Some(NodeId::new(5)),
+            leftmost_leaf: Some(BTreeNodeId::new(5)),
             node_count: 15,
         };
 

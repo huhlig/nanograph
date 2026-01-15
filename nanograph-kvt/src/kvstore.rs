@@ -14,13 +14,14 @@
 // limitations under the License.
 //
 
+use crate::KeyValueError;
+use crate::error::KeyValueResult;
 use crate::kviter::KeyValueIterator;
 use crate::metrics::ShardStats;
-use crate::result::KeyValueResult;
 use crate::transaction::Transaction;
-use crate::types::KeyRange;
 use async_trait::async_trait;
-use nanograph_core::types::{ShardId, ShardIndex, TableId};
+use nanograph_core::object::{KeyRange, ShardId, ShardIndex, TableId};
+use nanograph_vfs::{DynamicFileSystem, Path};
 use std::ops::Bound;
 use std::sync::Arc;
 
@@ -146,6 +147,36 @@ pub trait KeyValueShardStore: Send + Sync {
     /// - Managing shard assignments to servers
     ///
     /// Storage engines simply create the physical storage for the given ShardId.
+
+    /// Create a new shard with tablespace-aware configuration
+    ///
+    /// This method allows the shard manager to create shards with specific storage paths
+    /// resolved from tablespace configuration. The VFS and paths are provided by the
+    /// shard manager's StoragePathResolver.
+    ///
+    /// # Arguments
+    /// * `shard` - The shard ID to create
+    /// * `vfs` - Virtual filesystem instance for storage operations
+    /// * `data_path` - Resolved path for data files
+    /// * `wal_path` - Resolved path for WAL files
+    ///
+    /// # Default Implementation
+    /// The default implementation falls back to the standard `create_shard` method,
+    /// ignoring the tablespace paths. Storage engines should override this to support
+    /// tablespace-aware storage.
+    fn create_shard_with_tablespace(
+        &self,
+        _shard: ShardId,
+        _vfs: Arc<dyn DynamicFileSystem>,
+        _data_path: Path,
+        _wal_path: Path,
+    ) -> KeyValueResult<()> {
+        // Default implementation: not supported
+        // Storage engines that support tablespaces should override this method
+        Err(KeyValueError::InvalidValue(
+            "Tablespace-aware shard creation not supported by this storage engine".to_string(),
+        ))
+    }
     async fn create_shard(&self, table: TableId, index: ShardIndex) -> KeyValueResult<ShardId>;
 
     /// Drop a shard and all its data

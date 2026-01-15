@@ -26,7 +26,7 @@ use std::sync::Arc;
 use test_utils::*;
 
 // Helper function to create a test shard
-async fn create_test_shard(store: &BTreeKeyValueStore, id: u64) -> ShardId {
+async fn create_test_shard(store: &BTreeKeyValueStore, id: u32) -> ShardId {
     let table_id = TableId::new(id);
     let shard_index = ShardIndex::new(0);
     store.create_shard(table_id, shard_index).await.unwrap()
