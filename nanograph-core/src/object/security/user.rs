@@ -14,10 +14,8 @@
 // limitations under the License.
 //
 
-use crate::object::security::{SystemGroupId, SystemGroupMetadata, SystemGroupRecord, SystemRoleId, SystemRoleMetadata, SystemRoleRecord, TenantGroupId, TenantGroupRecord, TenantRoleId, TenantRoleRecord};
-use crate::object::{
-    DatabaseId, FunctionId, NamespaceId, Permission, PermissionGrant, TableId, TenantId, UserId,
-};
+use crate::object::security::{SystemGroupId, SystemRoleId, TenantGroupId, TenantRoleId};
+use crate::object::{PermissionGrant, TenantId, UserId};
 use crate::types::{PropertyUpdate, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -189,12 +187,12 @@ pub struct SystemUserMetadata {
 impl From<SystemUserRecord> for SystemUserMetadata {
     fn from(record: SystemUserRecord) -> Self {
         Self {
-            id: record.id,
+            id: record.user_id,
             username: record.username,
             created_at: record.created_at,
             last_modified: record.last_modified,
-            groups: record.groups,
-            roles: record.roles,
+            groups: record.group_ids,
+            roles: record.role_ids,
             grants: record.grants,
             enabled: record.enabled,
             options: record.options,
@@ -214,7 +212,7 @@ impl From<SystemUserRecord> for SystemUserMetadata {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SystemUserRecord {
     /// Unique identifier for the User
-    pub id: UserId,
+    pub user_id: UserId,
     /// Username
     pub username: String,
     /// Version of the User Record
@@ -224,9 +222,9 @@ pub struct SystemUserRecord {
     /// Timestamp when the user was last modified
     pub last_modified: Timestamp,
     /// Groups this user belongs to
-    pub groups: Vec<SystemGroupId>,
+    pub group_ids: Vec<SystemGroupId>,
     /// Roles assigned directly to this user
-    pub roles: Vec<SystemRoleId>,
+    pub role_ids: Vec<SystemRoleId>,
     /// Direct permission grants for the user (in addition to group/role permissions)
     pub grants: Vec<PermissionGrant>,
     /// Whether the user account is enabled
@@ -238,7 +236,6 @@ pub struct SystemUserRecord {
     /// User Metadata (Informative)
     pub metadata: HashMap<String, String>,
 }
-
 
 /// Configuration for Tenant User creation
 #[derive(Clone, Debug)]
@@ -383,12 +380,12 @@ pub struct TenantUserMetadata {
 impl From<(SystemUserRecord, TenantUserRecord)> for TenantUserMetadata {
     fn from((user, tenant_user): (SystemUserRecord, TenantUserRecord)) -> Self {
         Self {
-            user: user.id,
+            user: user.user_id,
             username: user.username,
             created_at: tenant_user.created_at,
             last_modified: tenant_user.last_modified,
-            groups: tenant_user.groups,
-            roles: tenant_user.roles,
+            groups: tenant_user.group_ids,
+            roles: tenant_user.role_ids,
             enabled: user.enabled,
             options: tenant_user.options,
             metadata: tenant_user.metadata,
@@ -400,9 +397,9 @@ impl From<(SystemUserRecord, TenantUserRecord)> for TenantUserMetadata {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TenantUserRecord {
     /// Unique identifier for the User
-    pub user: UserId,
+    pub user_id: UserId,
     /// Unique identifier for the Tenant
-    pub tenant: TenantId,
+    pub tenant_id: TenantId,
     /// Version of the Tenant Record
     pub version: u64,
     /// Timestamp when the schema was created
@@ -410,9 +407,9 @@ pub struct TenantUserRecord {
     /// Timestamp when the schema was last modified
     pub last_modified: Timestamp,
     /// Tenant Groups this user belongs to
-    pub groups: Vec<TenantGroupId>,
+    pub group_ids: Vec<TenantGroupId>,
     /// Tenant Roles assigned directly to this user
-    pub roles: Vec<TenantRoleId>,
+    pub role_ids: Vec<TenantRoleId>,
     /// Configuration Options for the Cluster
     pub options: HashMap<String, String>,
     /// Cluster Metadata (Informative)

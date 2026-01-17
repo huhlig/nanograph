@@ -17,6 +17,7 @@
 use crate::types::{PropertyUpdate, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use crate::object::TenantId;
 
 /// Tablespace identifier (cluster-wide)
 ///
@@ -243,6 +244,8 @@ pub struct TablespaceMetadata {
     pub created_at: Timestamp,
     /// Timestamp when the tablespace was last modified
     pub last_modified: Timestamp,
+    /// Tenants assigned to this tablespace
+    pub tenants: Vec<TenantId>,
     /// Configuration Options for the Tablespace
     pub options: HashMap<String, String>,
     /// Tablespace Metadata (Informative)
@@ -258,6 +261,7 @@ impl From<TablespaceRecord> for TablespaceMetadata {
             tier: record.tier,
             created_at: record.created_at,
             last_modified: record.last_modified,
+            tenants: vec![],
             options: record.options,
             metadata: record.metadata,
         }
@@ -281,6 +285,8 @@ pub struct TablespaceRecord {
     pub created_at: Timestamp,
     /// Timestamp when the tablespace was last modified
     pub last_modified: Timestamp,
+    /// Tenants assigned to this tablespace
+    pub tenants: Vec<TenantId>,
     /// Configuration Options for the Tablespace
     pub options: HashMap<String, String>,
     /// Tablespace Metadata (Informative)

@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
-    "nanograph-art",
+    "nanograph-art", "nanograph-auth",
     "nanograph-btree",
     "nanograph-core", "nanograph-kvm",
     "nanograph-kvt",
@@ -30,6 +30,7 @@ categories = ["database"]
 [workspace.dependencies]
 # Internal Crates
 nanograph-art = { path = "nanograph-art" }
+nanograph-auth = { path = "nanograph-auth" }
 nanograph-btree = { path = "nanograph-btree" }
 nanograph-core = { path = "nanograph-core" }
 nanograph-kvt = { path = "nanograph-kvt" }
@@ -65,6 +66,7 @@ thiserror = { version = "2", features = ["default"] }
 openraft = { version = "0.9" }
 
 # Date/Time Handling
+atomic-time = { version = "0.1", features = ["default"] }
 chrono = { version = "0.4", features = ["default", "now"] }
 
 # Serialization

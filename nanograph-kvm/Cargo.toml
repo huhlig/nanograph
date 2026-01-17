@@ -15,6 +15,7 @@ categories.workspace = true
 
 [dependencies]
 # Internal Crates
+nanograph-auth.workspace = true
 nanograph-core.workspace = true
 nanograph-kvt.workspace = true
 nanograph-raft.workspace = true
@@ -22,6 +23,7 @@ nanograph-vfs.workspace = true
 nanograph-lsm.workspace = true
 nanograph-btree.workspace = true
 nanograph-art.workspace = true
+nanograph-util.workspace = true
 
 # Integrity
 crc.workspace = true
@@ -42,5 +44,10 @@ tracing.workspace = true
 tracing-timing.workspace = true
 
 [dev-dependencies]
-tokio.workspace = true
+tokio = { workspace = true, features = ["full"] }
 tokio-test.workspace = true
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bench]]
+name = "manager_bench"
+harness = false

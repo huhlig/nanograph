@@ -32,8 +32,8 @@ pub use self::role::{
     TenantRoleCreate, TenantRoleId, TenantRoleMetadata, TenantRoleRecord, TenantRoleUpdate,
 };
 pub use self::user::{
-    SystemUserCreate, SystemUserMetadata, SystemUserRecord, SystemUserUpdate,
-    TenantUserCreate, TenantUserMetadata, TenantUserRecord, TenantUserUpdate,
+    SystemUserCreate, SystemUserMetadata, SystemUserRecord, SystemUserUpdate, TenantUserCreate,
+    TenantUserMetadata, TenantUserRecord, TenantUserUpdate,
 };
 use crate::object::ObjectId;
 use serde::{Deserialize, Serialize};

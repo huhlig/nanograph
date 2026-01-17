@@ -16,6 +16,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::hash::Hash;
 
 /// Millisecond Timestamp for Multiversion Concurrency Control (MVCC)
 #[derive(Copy, Clone, Debug, Default, Ord, PartialOrd, Eq, PartialEq, Hash)]

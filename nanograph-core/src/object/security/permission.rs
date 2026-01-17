@@ -41,8 +41,18 @@ impl PermissionGrant {
         Self { permission, scope }
     }
 
+    /// Check if this grant allows a specific permission on a tablespace
+    pub fn allows_system(&self, permission: &Permission) -> bool {
+        self.permission.implies(permission) && self.scope.matches_system()
+    }
+
+    /// Check if this grant allows a specific permission on a tablespace
+    pub fn allows_tablespace(&self, permission: &Permission, tablespace_id: &TablespaceId) -> bool {
+        self.permission.implies(permission) && self.scope.matches_tablespace(tablespace_id)
+    }
+
     /// Check if this grant allows a specific permission on a tenant
-    pub fn allows_tenant(&self, permission: &Permission, tenant_id: TenantId) -> bool {
+    pub fn allows_tenant(&self, permission: &Permission, tenant_id: &TenantId) -> bool {
         self.permission.implies(permission) && self.scope.matches_tenant(tenant_id)
     }
 
@@ -50,50 +60,50 @@ impl PermissionGrant {
     pub fn allows_database(
         &self,
         permission: &Permission,
-        database_id: DatabaseId,
-        tenant_id: TenantId,
+        tenant_id: &TenantId,
+        database_id: &DatabaseId,
     ) -> bool {
-        self.permission.implies(permission) && self.scope.matches_database(database_id, tenant_id)
+        self.permission.implies(permission) && self.scope.matches_database(tenant_id, database_id)
     }
 
     /// Check if this grant allows a specific permission on a table
     pub fn allows_table(
         &self,
         permission: &Permission,
-        table_id: TableId,
-        database_id: DatabaseId,
-        tenant_id: TenantId,
+        tenant_id: &TenantId,
+        database_id: &DatabaseId,
+        table_id: &TableId,
     ) -> bool {
         self.permission.implies(permission)
-            && self.scope.matches_table(table_id, database_id, tenant_id)
+            && self.scope.matches_table(tenant_id, database_id, table_id)
     }
 
     /// Check if this grant allows a specific permission on a namespace
     pub fn allows_namespace(
         &self,
         permission: &Permission,
-        namespace_id: NamespaceId,
-        database_id: DatabaseId,
-        tenant_id: TenantId,
+        tenant_id: &TenantId,
+        database_id: &DatabaseId,
+        namespace_id: &NamespaceId,
     ) -> bool {
         self.permission.implies(permission)
             && self
                 .scope
-                .matches_namespace(namespace_id, database_id, tenant_id)
+                .matches_namespace(tenant_id, database_id, namespace_id)
     }
 
     /// Check if this grant allows a specific permission on a function
     pub fn allows_function(
         &self,
         permission: &Permission,
-        function_id: FunctionId,
-        database_id: DatabaseId,
-        tenant_id: TenantId,
+        tenant_id: &TenantId,
+        database_id: &DatabaseId,
+        function_id: &FunctionId,
     ) -> bool {
         self.permission.implies(permission)
             && self
                 .scope
-                .matches_function(function_id, database_id, tenant_id)
+                .matches_function(tenant_id, database_id, function_id)
     }
 }
 
@@ -107,9 +117,9 @@ impl std::fmt::Display for PermissionGrant {
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum Permission {
     // Cluster Operations
-    /// Manage cluster configuration
-    ClusterManage,
-    /// View cluster status
+    /// Manage cluster configuration (Including Regions and Servers)
+    ClusterAlter,
+    /// View cluster status (Including Regions and Servers)
     ClusterView,
 
     // Metrics Operations
@@ -118,39 +128,63 @@ pub enum Permission {
 
     // Security Operations
     /// Manage all users globally
-    SecurityManage,
+    UserManagement,
 
     // Configuration Operations
     /// Alter Configuration
-    ConfigManage,
+    ConfigAlter,
     /// View configuration
     ConfigView,
+
+    // Tablespace Operations
+    /// Create, Update, & Delete Tablespace Configurations
+    TablespaceManagement,
+    /// Assign Tablespaces to Tenants, Databases, Tables, and Shards
+    TablespaceAssign,
+    /// View Tablespace Information
+    TablespaceView,
+    /// View List of Tablespaces
+    TablespaceList,
 
     // Tenant Operations
     /// Create a new tenant
     TenantCreate,
     /// Delete a tenant
     TenantDelete,
-    /// Manage tenants
-    TenantManage,
-    /// View system tenants
+    /// Alter tenants
+    TenantAlter,
+    /// View System Tenants
     TenantView,
+    /// List System Tenants
+    TenantList,
 
     // Database Operations
+    /// User has access to database objects
+    DatabaseAccess,
     /// Create databases in tenant
     DatabaseCreate,
     /// Delete databases in tenant
     DatabaseDelete,
+    /// Update database configuration
+    DatabaseAlter,
+    /// View databases in tenant
+    DatabaseView,
+    /// List databases in tenant
+    DatabaseList,
 
-    // Namespace-level permissions
+    // Namespace Operations
     /// Create Namespaces
     NamespaceCreate,
+    /// Alter Namespaces
+    NamespaceAlter,
     /// Delete Namespaces
     NamespaceDelete,
-    /// View objects in namespace
-    NamespaceObjectView,
+    /// View Namespace Information
+    NamespaceView,
+    /// List Objects in Namespace
+    NamespaceList,
 
-    // Table-level permissions
+    // Table Operations
     /// Create new Tables
     TableCreate,
     /// Read data from table
@@ -168,7 +202,7 @@ pub enum Permission {
     /// Drop indexes from table
     TableIndexDrop,
 
-    // Function-level permissions
+    // Function Operations
     /// Execute functions
     FunctionExecute,
     /// Create functions
@@ -176,7 +210,7 @@ pub enum Permission {
     /// Delete functions
     FunctionDelete,
     /// Manage function configuration
-    FunctionManage,
+    FunctionAlter,
 
     // Special permissions
     /// Grant permissions to other users
@@ -185,15 +219,15 @@ pub enum Permission {
     RevokePermission,
     /// Tenant Superuser - all permissions within tenant
     TenantSuperuser,
-    /// Superuser - all permissions
-    Superuser,
+    /// Global Superuser - all permissions within all tenants
+    GlobalSuperuser,
 }
 
 impl Permission {
     /// Check if this permission implies another permission
     pub fn implies(&self, other: &Permission) -> bool {
         match self {
-            Permission::Superuser => true, // Superuser has all permissions
+            Permission::GlobalSuperuser => true, // Superuser has all permissions
             _ => self == other,
         }
     }
@@ -213,6 +247,11 @@ impl std::fmt::Display for Permission {
 pub enum ResourceScope {
     /// System-wide scope (for system administration)
     System,
+
+    /// Specific Tablespace
+    Tablespace(TablespaceId),
+    /// All Tablespaces (wildcard)
+    AllTablespaces,
 
     /// Specific tenant
     Tenant(TenantId),
@@ -238,32 +277,44 @@ pub enum ResourceScope {
     Function(FunctionId),
     /// All functions (wildcard)
     AllFunctions,
-
-    /// Specific Tablespace
-    Tablespace(TablespaceId),
-    /// All Tablespaces (wildcard)
-    AllTablespaces,
 }
 
 impl ResourceScope {
+    /// Check if this scope matches the system scope
+    pub fn matches_system(&self) -> bool {
+        match self {
+            ResourceScope::System => true,
+            _ => false,
+        }
+    }
+    /// Check if this scope matches a specific tablespace
+    pub fn matches_tablespace(&self, tablespace_id: &TablespaceId) -> bool {
+        match self {
+            ResourceScope::System => true,
+            ResourceScope::AllTablespaces => true,
+            ResourceScope::Tablespace(id) => *id == *tablespace_id,
+            _ => false,
+        }
+    }
+
     /// Check if this scope matches a specific tenant
-    pub fn matches_tenant(&self, tenant_id: TenantId) -> bool {
+    pub fn matches_tenant(&self, tenant_id: &TenantId) -> bool {
         match self {
             ResourceScope::System => true,
             ResourceScope::AllTenants => true,
-            ResourceScope::Tenant(id) => *id == tenant_id,
+            ResourceScope::Tenant(id) => *id == *tenant_id,
             _ => false,
         }
     }
 
     /// Check if this scope matches a specific database
-    pub fn matches_database(&self, database_id: DatabaseId, tenant_id: TenantId) -> bool {
+    pub fn matches_database(&self, tenant_id: &TenantId, database_id: &DatabaseId) -> bool {
         match self {
             ResourceScope::System => true,
             ResourceScope::AllDatabases => true,
             ResourceScope::AllTenants => true,
-            ResourceScope::Tenant(tid) => *tid == tenant_id,
-            ResourceScope::Database(did) => *did == database_id,
+            ResourceScope::Tenant(tid) => *tid == *tenant_id,
+            ResourceScope::Database(did) => *did == *database_id,
             _ => false,
         }
     }
@@ -271,18 +322,18 @@ impl ResourceScope {
     /// Check if this scope matches a specific table
     pub fn matches_table(
         &self,
-        table_id: TableId,
-        database_id: DatabaseId,
-        tenant_id: TenantId,
+        tenant_id: &TenantId,
+        database_id: &DatabaseId,
+        table_id: &TableId,
     ) -> bool {
         match self {
             ResourceScope::System => true,
             ResourceScope::AllTables => true,
             ResourceScope::AllDatabases => true,
             ResourceScope::AllTenants => true,
-            ResourceScope::Tenant(tid) => *tid == tenant_id,
-            ResourceScope::Database(did) => *did == database_id,
-            ResourceScope::Table(tid) => *tid == table_id,
+            ResourceScope::Tenant(tid) => *tid == *tenant_id,
+            ResourceScope::Database(did) => *did == *database_id,
+            ResourceScope::Table(tid) => *tid == *table_id,
             _ => false,
         }
     }
@@ -290,18 +341,18 @@ impl ResourceScope {
     /// Check if this scope matches a specific namespace
     pub fn matches_namespace(
         &self,
-        namespace_id: NamespaceId,
-        database_id: DatabaseId,
-        tenant_id: TenantId,
+        tenant_id: &TenantId,
+        database_id: &DatabaseId,
+        namespace_id: &NamespaceId,
     ) -> bool {
         match self {
             ResourceScope::System => true,
             ResourceScope::AllNamespaces => true,
             ResourceScope::AllDatabases => true,
             ResourceScope::AllTenants => true,
-            ResourceScope::Tenant(tid) => *tid == tenant_id,
-            ResourceScope::Database(did) => *did == database_id,
-            ResourceScope::Namespace(nid) => *nid == namespace_id,
+            ResourceScope::Tenant(tid) => *tid == *tenant_id,
+            ResourceScope::Database(did) => *did == *database_id,
+            ResourceScope::Namespace(nid) => *nid == *namespace_id,
             _ => false,
         }
     }
@@ -309,18 +360,18 @@ impl ResourceScope {
     /// Check if this scope matches a specific function
     pub fn matches_function(
         &self,
-        function_id: FunctionId,
-        database_id: DatabaseId,
-        tenant_id: TenantId,
+        tenant_id: &TenantId,
+        database_id: &DatabaseId,
+        function_id: &FunctionId,
     ) -> bool {
         match self {
             ResourceScope::System => true,
             ResourceScope::AllFunctions => true,
             ResourceScope::AllDatabases => true,
             ResourceScope::AllTenants => true,
-            ResourceScope::Tenant(tid) => *tid == tenant_id,
-            ResourceScope::Database(did) => *did == database_id,
-            ResourceScope::Function(fid) => *fid == function_id,
+            ResourceScope::Tenant(tid) => *tid == *tenant_id,
+            ResourceScope::Database(did) => *did == *database_id,
+            ResourceScope::Function(fid) => *fid == *function_id,
             _ => false,
         }
     }

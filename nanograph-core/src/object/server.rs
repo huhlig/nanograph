@@ -259,7 +259,6 @@ impl ServerUpdate {
     }
 }
 
-
 /// Metadata for a server.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ServerMetadata {

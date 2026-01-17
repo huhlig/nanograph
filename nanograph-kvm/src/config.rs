@@ -15,8 +15,20 @@
 //
 
 use nanograph_core::object::NodeId;
+use std::time::Duration;
 
 pub struct KeyValueDatabaseConfig {
     /// Cluster Node Id (Defaults to zero)
     pub node_id: NodeId,
+    /// Cache Time to Live (Defaults to 1 hour)
+    pub cache_ttl: Duration,
+}
+
+impl Default for KeyValueDatabaseConfig {
+    fn default() -> Self {
+        Self {
+            node_id: NodeId::default(),
+            cache_ttl: Duration::from_secs(60 * 60),
+        }
+    }
 }

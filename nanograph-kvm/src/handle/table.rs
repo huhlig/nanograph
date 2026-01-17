@@ -15,10 +15,9 @@
 //
 
 use crate::context::KeyValueDatabaseContext;
-use nanograph_core::object::{ContainerId, TableId};
+use nanograph_core::object::{ContainerId, SecurityPrincipal, TableId, TableRecord, TableUpdate};
 use nanograph_kvt::KeyValueResult;
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 /// A handle for performing operations on a specific table.
 ///
@@ -31,7 +30,7 @@ use std::sync::{Arc, RwLock};
 /// You typically obtain a `TableHandle` from a `ContainerHandle`:
 ///
 /// ```ignore
-/// let table_handle = container.get_table_handle(&table_id).await?;
+/// let table = container.get_table_handle(&table_id).await?;
 /// ```
 ///
 /// # Thread Safety
@@ -46,25 +45,56 @@ use std::sync::{Arc, RwLock};
 /// - Reads can be served from local replicas in distributed mode
 /// - Batch operations are more efficient than individual operations
 pub struct TableHandle {
-    container_id: ContainerId, // Encapsulates TenantId + DatabaseId
-    table_id: TableId,
     context: Arc<KeyValueDatabaseContext>,
-    metadata_cache: Arc<RwLock<HashMap<Vec<u8>, Vec<u8>>>>,
+    principal: SecurityPrincipal,
+    container_id: ContainerId,
+    table_id: TableId,
 }
 
 impl TableHandle {
     pub(crate) fn new(
+        context: Arc<KeyValueDatabaseContext>,
+        principal: SecurityPrincipal,
         container_id: ContainerId,
         table_id: TableId,
-        context: Arc<KeyValueDatabaseContext>,
     ) -> Self {
         TableHandle {
+            context,
+            principal,
             container_id,
             table_id,
-            context,
-            metadata_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
+
+    /// Get the table ID associated with this handle.
+    pub fn table_id(&self) -> TableId {
+        self.table_id
+    }
+
+    /// Get the container ID associated with this handle.
+    pub fn container_id(&self) -> &ContainerId {
+        &self.container_id
+    }
+
+    /// Get metadata for this table.
+    pub async fn get_metadata(&self) -> KeyValueResult<Option<TableRecord>> {
+        self.context.get_table(&self.principal, &self.container_id, &self.table_id).await
+    }
+
+    /// Update this table's configuration.
+    pub async fn update(&self, config: TableUpdate) -> KeyValueResult<TableRecord> {
+        self.context.update_table(&self.principal, &self.container_id, &self.table_id, config).await
+    }
+
+    /// Delete this table.
+    pub async fn delete_table(&self) -> KeyValueResult<()> {
+        self.context.delete_table(&self.principal, &self.container_id, &self.table_id).await
+    }
+
+    //
+    // Data Operations
+    //
+
     /// Store a key-value pair in the table.
     ///
     /// # Arguments
@@ -84,7 +114,13 @@ impl TableHandle {
     /// ```
     pub async fn put(&self, key: &[u8], value: &[u8]) -> KeyValueResult<()> {
         self.context
-            .put(&self.container_id, &self.table_id, key, value)
+            .put(
+                &self.principal,
+                &self.container_id,
+                &self.table_id,
+                key,
+                value,
+            )
             .await
     }
 
@@ -109,7 +145,7 @@ impl TableHandle {
     /// ```
     pub async fn get(&self, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
         self.context
-            .get(&self.container_id, &self.table_id, key)
+            .get(&self.principal, &self.container_id, &self.table_id, key)
             .await
     }
 
@@ -122,7 +158,7 @@ impl TableHandle {
     /// # Returns
     ///
     /// * `Ok(true)` - The key was deleted
-    /// * `Ok(false)` - The key did not exist (standalone mode only)
+    /// * `Ok(false)` - The key did not exist
     /// * `Err(KeyValueError)` - The operation failed
     ///
     /// # Example
@@ -134,7 +170,7 @@ impl TableHandle {
     /// ```
     pub async fn delete(&self, key: &[u8]) -> KeyValueResult<bool> {
         self.context
-            .delete(&self.container_id, &self.table_id, key)
+            .delete(&self.principal, &self.container_id, &self.table_id, key)
             .await
     }
 
@@ -164,7 +200,7 @@ impl TableHandle {
     /// ```
     pub async fn batch_put(&self, pairs: &[(&[u8], &[u8])]) -> KeyValueResult<()> {
         self.context
-            .batch_put(&self.container_id, &self.table_id, pairs)
+            .batch_put(&self.principal, &self.container_id, &self.table_id, pairs)
             .await
     }
 }

@@ -12,12 +12,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-//
 
-mod container;
-mod resolver;
-mod system;
-
-pub use self::container::ContainerMetadataCache;
-pub use self::resolver::ObjectPathResolver;
-pub use self::system::SystemMetadataCache;
+mod authenticator;
+mod credentials;

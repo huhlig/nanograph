@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-use crate::object::{TablespaceId, UserId};
+use crate::object::TablespaceId;
 use crate::types::{PropertyUpdate, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

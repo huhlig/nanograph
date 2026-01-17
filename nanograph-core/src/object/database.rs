@@ -207,8 +207,8 @@ pub struct DatabaseMetadata {
 impl From<DatabaseRecord> for DatabaseMetadata {
     fn from(value: DatabaseRecord) -> Self {
         Self {
-            id: value.id,
-            tenant: value.tenant,
+            id: value.database_id,
+            tenant: value.tenant_id,
             name: value.name,
             created_at: value.created_at,
             last_modified: value.last_modified,
@@ -224,9 +224,9 @@ impl From<DatabaseRecord> for DatabaseMetadata {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DatabaseRecord {
     /// Unique identifier for the Database
-    pub id: DatabaseId,
+    pub database_id: DatabaseId,
     /// Tenant Id
-    pub tenant: TenantId,
+    pub tenant_id: TenantId,
     /// Name of the Database
     pub name: String,
     /// Version of the Database Record

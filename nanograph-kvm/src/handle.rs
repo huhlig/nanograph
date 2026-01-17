@@ -14,10 +14,16 @@
 // limitations under the License.
 //
 
-mod container;
-mod resolver;
-mod system;
+//! Module for managing authenticated database handles and operations.
+//!
+//! TODO: Document Handles
 
-pub use self::container::ContainerMetadataCache;
-pub use self::resolver::ObjectPathResolver;
-pub use self::system::SystemMetadataCache;
+mod container;
+mod system;
+mod table;
+mod tenant;
+
+pub use self::container::ContainerHandle;
+pub use self::system::SystemHandle;
+pub use self::table::TableHandle;
+pub use self::tenant::TenantHandle;

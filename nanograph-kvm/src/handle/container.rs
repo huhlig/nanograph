@@ -14,16 +14,16 @@
 // limitations under the License.
 //
 
-use crate::cache::ContainerMetadataCache;
 use crate::context::KeyValueDatabaseContext;
 use nanograph_core::object::{
-    ContainerId, NamespaceCreate, NamespaceId, NamespaceRecord, NamespaceUpdate, ObjectId,
-    ObjectMetadata, ObjectType, ShardId, TableCreate, TableId, TableRecord, TableUpdate,
+    ContainerId, DatabaseId, DatabaseMetadata, NamespaceCreate, NamespaceId, NamespaceRecord,
+    NamespaceUpdate, ObjectId, ObjectMetadata, ObjectType, SecurityPrincipal, TableCreate, TableId,
+    TableRecord, TableUpdate, TenantId,
 };
 use nanograph_kvt::{KeyValueError, KeyValueResult};
 
-use crate::table::TableHandle;
-use std::sync::{Arc, RwLock};
+use crate::handle::table::TableHandle;
+use std::sync::Arc;
 
 /// A handle for managing a database container (tenant + database combination).
 ///
@@ -58,46 +58,67 @@ use std::sync::{Arc, RwLock};
 /// `ContainerHandle` is safe to clone and share across threads. All operations are
 /// internally synchronized.
 pub struct ContainerHandle {
-    container_id: ContainerId, // Encapsulates TenantId + DatabaseId
     context: Arc<KeyValueDatabaseContext>,
-    metadata_cache: Arc<RwLock<ContainerMetadataCache>>,
+    principal: SecurityPrincipal,
+    container_id: ContainerId,
 }
 
 impl ContainerHandle {
     pub(crate) fn new(
-        container_id: ContainerId,
-        shard_id: ShardId,
         context: Arc<KeyValueDatabaseContext>,
+        principal: SecurityPrincipal,
+        container_id: ContainerId,
     ) -> ContainerHandle {
         ContainerHandle {
-            container_id,
             context,
-            metadata_cache: Arc::new(RwLock::new(ContainerMetadataCache::new(
-                container_id,
-                shard_id,
-            ))),
+            principal,
+            container_id,
         }
     }
 
+    /// Get the container ID associated with this handle.
+    pub fn container_id(&self) -> &ContainerId {
+        &self.container_id
+    }
+
+    /// Get the tenant ID for this container.
+    pub fn tenant_id(&self) -> TenantId {
+        self.container_id.tenant()
+    }
+
+    /// Get the database ID for this container.
+    pub fn database_id(&self) -> DatabaseId {
+        self.container_id.database()
+    }
+
+    /// Get metadata for this database.
+    pub async fn get_metadata(&self) -> KeyValueResult<Option<DatabaseMetadata>> {
+        self.context
+            .get_database(
+                &self.principal,
+                &self.container_id.tenant(),
+                &self.container_id.database(),
+            )
+            .await
+    }
+
     /// Get the root namespace ID for this container.
-    ///
-    /// Every database has a root namespace that serves as the top-level organizational unit.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(NamespaceId)` - The root namespace ID
-    /// * `Err(KeyValueError)` - The container is invalid or not found
     pub async fn get_root_namespace(&self) -> KeyValueResult<NamespaceId> {
-        // TODO: Figure out a better way to handle this
-        if let Some(database_metadata) = self
-            .context
-            .get_database(&self.container_id.tenant(), &self.container_id.database())
-            .await?
-        {
+        if let Some(database_metadata) = self.get_metadata().await? {
             Ok(database_metadata.root_namespace)
         } else {
             Err(KeyValueError::InvalidKey("invalid container".to_string()))
         }
+    }
+
+    /// Get an object (table, namespace, etc.) by its path within the container.
+    pub async fn get_object_by_path(
+        &self,
+        path: &str,
+    ) -> KeyValueResult<Option<(ObjectId, ObjectType)>> {
+        self.context
+            .get_object_by_path(&self.principal, &self.container_id, path)
+            .await
     }
 
     /// List all objects (tables, views, etc.) in a specific namespace.
@@ -114,7 +135,7 @@ impl ContainerHandle {
         namespace: &NamespaceId,
     ) -> KeyValueResult<impl IntoIterator<Item = (ObjectId, ObjectType, ObjectMetadata)>> {
         self.context
-            .get_objects_by_namespace(&self.container_id, namespace)
+            .get_objects_by_namespace(&self.principal, &self.container_id, namespace)
             .await
     }
 
@@ -125,8 +146,10 @@ impl ContainerHandle {
     /// An iterator over all namespace metadata records
     pub async fn get_namespaces(
         &self,
-    ) -> KeyValueResult<impl IntoIterator<Item =NamespaceRecord>> {
-        self.context.get_namespaces(&self.container_id).await
+    ) -> KeyValueResult<impl IntoIterator<Item = NamespaceRecord>> {
+        self.context
+            .get_namespaces(&self.principal, &self.container_id)
+            .await
     }
 
     /// Find namespaces whose name or path starts with the given prefix.
@@ -141,9 +164,9 @@ impl ContainerHandle {
     pub async fn get_namespaces_by_prefix(
         &self,
         prefix: &str,
-    ) -> KeyValueResult<impl IntoIterator<Item =NamespaceRecord>> {
+    ) -> KeyValueResult<impl IntoIterator<Item = NamespaceRecord>> {
         self.context
-            .get_namespaces_by_prefix(&self.container_id, prefix)
+            .get_namespaces_by_prefix(&self.principal, &self.container_id, prefix)
             .await
     }
 
@@ -162,7 +185,7 @@ impl ContainerHandle {
         namespace: &NamespaceId,
     ) -> KeyValueResult<Option<NamespaceRecord>> {
         self.context
-            .get_namespace(&self.container_id, namespace)
+            .get_namespace(&self.principal, &self.container_id, namespace)
             .await
     }
 
@@ -193,7 +216,7 @@ impl ContainerHandle {
         config: NamespaceCreate,
     ) -> KeyValueResult<NamespaceRecord> {
         self.context
-            .create_namespace(&self.container_id, config)
+            .create_namespace(&self.principal, &self.container_id, config)
             .await
     }
 
@@ -213,7 +236,7 @@ impl ContainerHandle {
         config: NamespaceUpdate,
     ) -> KeyValueResult<NamespaceRecord> {
         self.context
-            .update_namespace(&self.container_id, namespace, config)
+            .update_namespace(&self.principal, &self.container_id, namespace, config)
             .await
     }
 
@@ -233,7 +256,7 @@ impl ContainerHandle {
     /// Ensure the namespace is empty before deletion to avoid orphaned objects.
     pub async fn delete_namespace(&self, namespace: &NamespaceId) -> KeyValueResult<()> {
         self.context
-            .delete_namespace(&self.container_id, namespace)
+            .delete_namespace(&self.principal, &self.container_id, namespace)
             .await
     }
 
@@ -242,8 +265,10 @@ impl ContainerHandle {
     /// # Returns
     ///
     /// An iterator over all table metadata records
-    pub async fn get_tables(&self) -> KeyValueResult<impl IntoIterator<Item =TableRecord>> {
-        self.context.get_tables(&self.container_id).await
+    pub async fn get_tables(&self) -> KeyValueResult<impl IntoIterator<Item = TableRecord>> {
+        self.context
+            .get_tables(&self.principal, &self.container_id)
+            .await
     }
 
     /// Get a handle for performing operations on a specific table.
@@ -267,9 +292,10 @@ impl ContainerHandle {
     /// ```
     pub async fn get_table_handle(&self, table: &TableId) -> KeyValueResult<TableHandle> {
         Ok(TableHandle::new(
+            self.context.clone(),
+            self.principal.clone(),
             self.container_id.clone(),
             table.clone(),
-            self.context.clone(),
         ))
     }
 
@@ -285,9 +311,19 @@ impl ContainerHandle {
     pub async fn get_tables_by_prefix(
         &self,
         prefix: &str,
-    ) -> KeyValueResult<impl IntoIterator<Item =TableRecord>> {
+    ) -> KeyValueResult<impl IntoIterator<Item = TableRecord>> {
         self.context
-            .get_tables_by_prefix(&self.container_id, prefix)
+            .get_tables_by_prefix(&self.principal, &self.container_id, prefix)
+            .await
+    }
+
+    /// List tables in a specific namespace.
+    pub async fn get_tables_by_namespace(
+        &self,
+        namespace: &NamespaceId,
+    ) -> KeyValueResult<impl IntoIterator<Item = TableRecord>> {
+        self.context
+            .get_tables_by_namespace(&self.principal, &self.container_id, namespace)
             .await
     }
 
@@ -302,7 +338,9 @@ impl ContainerHandle {
     /// * `Ok(Some(metadata))` - The table exists
     /// * `Ok(None)` - The table does not exist
     pub async fn get_table(&self, table: &TableId) -> KeyValueResult<Option<TableRecord>> {
-        self.context.get_table(&self.container_id, table).await
+        self.context
+            .get_table(&self.principal, &self.container_id, table)
+            .await
     }
 
     /// Create a new table in this container.
@@ -329,7 +367,11 @@ impl ContainerHandle {
     /// let table_id = container.create_table(config).await?;
     /// ```
     pub async fn create_table(&self, config: TableCreate) -> KeyValueResult<TableId> {
-        self.context.create_table(&self.container_id, config).await
+        let record = self
+            .context
+            .create_table(&self.principal, &self.container_id, config)
+            .await?;
+        Ok(record.id)
     }
 
     /// Update an existing table's metadata.
@@ -348,7 +390,7 @@ impl ContainerHandle {
         config: TableUpdate,
     ) -> KeyValueResult<TableRecord> {
         self.context
-            .update_table(&self.container_id, table, config)
+            .update_table(&self.principal, &self.container_id, table, config)
             .await
     }
 
@@ -367,7 +409,9 @@ impl ContainerHandle {
     ///
     /// This will delete all data in the table. Ensure you have backups if needed.
     pub async fn delete_table(&self, table: &TableId) -> KeyValueResult<()> {
-        self.context.delete_table(&self.container_id, table).await
+        self.context
+            .delete_table(&self.principal, &self.container_id, table)
+            .await
     }
 
     /**********************************************************************************************\
@@ -379,7 +423,7 @@ impl ContainerHandle {
     /// TODO: Figure out how to deal with tenants and containers
     pub async fn put(&self, table: &TableId, key: &[u8], value: &[u8]) -> KeyValueResult<()> {
         self.context
-            .put(&self.container_id, &table, key, value)
+            .put(&self.principal, &self.container_id, table, key, value)
             .await
     }
 
@@ -396,7 +440,9 @@ impl ContainerHandle {
     /// * `Ok(None)` - The key does not exist
     /// * `Err(KeyValueError)` - The operation failed
     pub async fn get(&self, table: &TableId, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
-        self.context.get(&self.container_id, table, key).await
+        self.context
+            .get(&self.principal, &self.container_id, table, key)
+            .await
     }
 
     /// Delete a key-value pair from a table.
@@ -412,7 +458,9 @@ impl ContainerHandle {
     /// * `Ok(false)` - The key did not exist
     /// * `Err(KeyValueError)` - The operation failed
     pub async fn delete(&self, table: &TableId, key: &[u8]) -> KeyValueResult<bool> {
-        self.context.delete(&self.container_id, table, key).await
+        self.context
+            .delete(&self.principal, &self.container_id, table, key)
+            .await
     }
 
     /// Store multiple key-value pairs in a table in a single batch operation.
@@ -430,7 +478,7 @@ impl ContainerHandle {
     /// * `Err(KeyValueError)` - The operation failed
     pub async fn batch_put(&self, table: &TableId, pairs: &[(&[u8], &[u8])]) -> KeyValueResult<()> {
         self.context
-            .batch_put(&self.container_id, table, pairs)
+            .batch_put(&self.principal, &self.container_id, table, pairs)
             .await
     }
 }

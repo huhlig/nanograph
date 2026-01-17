@@ -16,16 +16,12 @@
 
 mod cache;
 mod config;
-mod container;
 mod context;
+pub mod handle;
 mod manager;
 mod shardmgr;
-mod table;
-pub mod tablespace;
 mod utility;
 
 pub use self::config::KeyValueDatabaseConfig;
-pub use self::container::ContainerHandle;
 pub use self::manager::KeyValueDatabaseManager;
-pub use self::table::TableHandle;
 pub use self::utility::{deserialize, serialize};

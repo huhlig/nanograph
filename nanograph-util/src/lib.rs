@@ -160,8 +160,10 @@ mod compression;
 mod encryption;
 mod error;
 mod integrity;
+mod cache;
 
 pub use compression::CompressionAlgorithm;
 pub use encryption::{EncryptionAlgorithm, EncryptionKey, Nonce};
 pub use error::{Error, Result};
 pub use integrity::{IntegrityAlgorithm, IntegrityHash, IntegrityHasher};
+pub use cache::CacheMap;

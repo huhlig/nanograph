@@ -14,13 +14,13 @@
 // limitations under the License.
 //
 
-use crate::object::{
-    DatabaseId, FunctionId, NamespaceId, Permission, PermissionGrant,
-    TableId, TenantId, UserId,
-};
 use crate::object::security::{
-    SystemGroupRecord, SystemRoleRecord, SystemUserRecord,
-    TenantGroupRecord, TenantRoleRecord, TenantUserRecord,
+    SystemGroupRecord, SystemRoleRecord, SystemUserRecord, TenantGroupRecord, TenantRoleRecord,
+    TenantUserRecord,
+};
+use crate::object::{
+    DatabaseId, FunctionId, NamespaceId, Permission, PermissionGrant, TableId, TablespaceId,
+    TenantId, UserId,
 };
 use crate::types::Timestamp;
 
@@ -63,14 +63,11 @@ impl SecurityPrincipal {
         system_groups: &[SystemGroupRecord],
         system_roles: &[SystemRoleRecord],
     ) -> Self {
-        let effective_grants = Self::resolve_system_grants(
-            system_user,
-            system_groups,
-            system_roles,
-        );
+        let effective_grants =
+            Self::resolve_system_grants(system_user, system_groups, system_roles);
 
         Self {
-            user_id: system_user.id,
+            user_id: system_user.user_id,
             username: system_user.username.clone(),
             tenant_id: None,
             effective_grants,
@@ -92,17 +89,13 @@ impl SecurityPrincipal {
         tenant_groups: &[TenantGroupRecord],
         tenant_roles: &[TenantRoleRecord],
     ) -> Self {
-        let effective_grants = Self::resolve_tenant_grants(
-            system_user,
-            tenant_user,
-            tenant_groups,
-            tenant_roles,
-        );
+        let effective_grants =
+            Self::resolve_tenant_grants(system_user, tenant_user, tenant_groups, tenant_roles);
 
         Self {
-            user_id: system_user.id,
+            user_id: system_user.user_id,
             username: system_user.username.clone(),
-            tenant_id: Some(tenant_user.tenant),
+            tenant_id: Some(tenant_user.tenant_id),
             effective_grants,
             created_at: Timestamp::now(),
         }
@@ -120,18 +113,11 @@ impl SecurityPrincipal {
         tenant_groups: &[TenantGroupRecord],
         tenant_roles: &[TenantRoleRecord],
     ) -> Self {
-        let mut effective_grants = Self::resolve_system_grants(
-            system_user,
-            system_groups,
-            system_roles,
-        );
+        let mut effective_grants =
+            Self::resolve_system_grants(system_user, system_groups, system_roles);
 
-        let tenant_grants = Self::resolve_tenant_grants(
-            system_user,
-            tenant_user,
-            tenant_groups,
-            tenant_roles,
-        );
+        let tenant_grants =
+            Self::resolve_tenant_grants(system_user, tenant_user, tenant_groups, tenant_roles);
 
         effective_grants.extend(tenant_grants);
 
@@ -140,9 +126,9 @@ impl SecurityPrincipal {
         effective_grants.dedup();
 
         Self {
-            user_id: system_user.id,
+            user_id: system_user.user_id,
             username: system_user.username.clone(),
-            tenant_id: Some(tenant_user.tenant),
+            tenant_id: Some(tenant_user.tenant_id),
             effective_grants,
             created_at: Timestamp::now(),
         }
@@ -196,8 +182,11 @@ impl SecurityPrincipal {
         tenant_roles: &[TenantRoleRecord],
     ) -> Self {
         // Verify this is the same user
-        assert_eq!(self.user_id, system_user.id, "Cannot switch tenant for different user");
-        assert_eq!(system_user.id, tenant_user.user, "User ID mismatch");
+        assert_eq!(
+            self.user_id, system_user.user_id,
+            "Cannot switch tenant for different user"
+        );
+        assert_eq!(system_user.user_id, tenant_user.user_id, "User ID mismatch");
 
         Self::from_tenant_user(system_user, tenant_user, tenant_groups, tenant_roles)
     }
@@ -238,7 +227,7 @@ impl SecurityPrincipal {
         let mut grants = system_user.grants.clone();
 
         // Add grants from system groups
-        for group_id in &system_user.groups {
+        for group_id in &system_user.group_ids {
             if let Some(group) = system_groups.iter().find(|g| g.id == *group_id) {
                 grants.extend(group.grants.clone());
 
@@ -252,7 +241,7 @@ impl SecurityPrincipal {
         }
 
         // Add grants from direct system roles
-        for role_id in &system_user.roles {
+        for role_id in &system_user.role_ids {
             if let Some(role) = system_roles.iter().find(|r| r.id == *role_id) {
                 grants.extend(role.grants.clone());
             }
@@ -281,7 +270,7 @@ impl SecurityPrincipal {
         // This would need to be added to TenantUserRecord if direct grants are needed
 
         // 3. Add grants from tenant groups
-        for group_id in &tenant_user.groups {
+        for group_id in &tenant_user.group_ids {
             if let Some(group) = tenant_groups.iter().find(|g| g.id == *group_id) {
                 grants.extend(group.grants.clone());
 
@@ -295,7 +284,7 @@ impl SecurityPrincipal {
         }
 
         // 5. Add grants from direct tenant roles
-        for role_id in &tenant_user.roles {
+        for role_id in &tenant_user.role_ids {
             if let Some(role) = tenant_roles.iter().find(|r| r.id == *role_id) {
                 grants.extend(role.grants.clone());
             }
@@ -333,8 +322,27 @@ impl SecurityPrincipal {
             .any(|grant| grant.permission.implies(permission))
     }
 
+    /// Check if principal has a specific permission (without resource scope)
+    pub fn has_system_permission(&self, permission: &Permission) -> bool {
+        self.effective_grants
+            .iter()
+            .any(|grant| grant.allows_system(permission))
+    }
+
+    /// Check if principal has permission on a specific tablespace
+    /// TODO: Modify to handle Assignment of tablespaces versus modification vs viewing
+    pub fn has_tablespace_permission(
+        &self,
+        permission: &Permission,
+        tablespace_id: &TablespaceId,
+    ) -> bool {
+        self.effective_grants
+            .iter()
+            .any(|grant| grant.allows_tablespace(permission, tablespace_id))
+    }
+
     /// Check if principal has permission on a specific tenant
-    pub fn has_tenant_permission(&self, permission: &Permission, tenant_id: TenantId) -> bool {
+    pub fn has_tenant_permission(&self, permission: &Permission, tenant_id: &TenantId) -> bool {
         self.effective_grants
             .iter()
             .any(|grant| grant.allows_tenant(permission, tenant_id))
@@ -344,55 +352,55 @@ impl SecurityPrincipal {
     pub fn has_database_permission(
         &self,
         permission: &Permission,
-        database_id: DatabaseId,
-        tenant_id: TenantId,
+        tenant_id: &TenantId,
+        database_id: &DatabaseId,
     ) -> bool {
         self.effective_grants
             .iter()
-            .any(|grant| grant.allows_database(permission, database_id, tenant_id))
+            .any(|grant| grant.allows_database(permission, tenant_id, database_id))
     }
 
     /// Check if principal has permission on a specific table
     pub fn has_table_permission(
         &self,
         permission: &Permission,
-        table_id: TableId,
-        database_id: DatabaseId,
-        tenant_id: TenantId,
+        tenant_id: &TenantId,
+        database_id: &DatabaseId,
+        table_id: &TableId,
     ) -> bool {
         self.effective_grants
             .iter()
-            .any(|grant| grant.allows_table(permission, table_id, database_id, tenant_id))
+            .any(|grant| grant.allows_table(permission, tenant_id, database_id, table_id))
     }
 
     /// Check if principal has permission on a specific namespace
     pub fn has_namespace_permission(
         &self,
         permission: &Permission,
-        namespace_id: NamespaceId,
-        database_id: DatabaseId,
-        tenant_id: TenantId,
+        tenant_id: &TenantId,
+        database_id: &DatabaseId,
+        namespace_id: &NamespaceId,
     ) -> bool {
         self.effective_grants
             .iter()
-            .any(|grant| grant.allows_namespace(permission, namespace_id, database_id, tenant_id))
+            .any(|grant| grant.allows_namespace(permission, tenant_id, database_id, namespace_id))
     }
 
     /// Check if principal has permission on a specific function
     pub fn has_function_permission(
         &self,
         permission: &Permission,
-        function_id: FunctionId,
-        database_id: DatabaseId,
-        tenant_id: TenantId,
+        tenant_id: &TenantId,
+        database_id: &DatabaseId,
+        function_id: &FunctionId,
     ) -> bool {
         self.effective_grants
             .iter()
-            .any(|grant| grant.allows_function(permission, function_id, database_id, tenant_id))
+            .any(|grant| grant.allows_function(permission, tenant_id, database_id, function_id))
     }
 
     /// Check if principal is a superuser (has Superuser permission)
     pub fn is_superuser(&self) -> bool {
-        self.has_permission(&Permission::Superuser)
+        self.has_permission(&Permission::GlobalSuperuser)
     }
 }

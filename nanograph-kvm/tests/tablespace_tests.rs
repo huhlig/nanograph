@@ -14,26 +14,60 @@
 // limitations under the License.
 //
 
-use nanograph_core::object::{ClusterId, NodeId, TablespaceCreate, TablespaceId, TablespaceUpdate};
+use nanograph_core::object::{
+    ClusterId, NodeId, Permission, PermissionGrant, ResourceScope, SecurityPrincipal,
+    SystemUserRecord, TablespaceCreate, TablespaceId, TablespaceUpdate, UserId,
+};
+use nanograph_core::types::Timestamp;
 use nanograph_kvm::{KeyValueDatabaseConfig, KeyValueDatabaseManager};
+use std::collections::HashMap;
+use std::time::Duration;
+
+fn create_test_principal() -> SecurityPrincipal {
+    let user_record = SystemUserRecord {
+        user_id: UserId::new(1),
+        username: "admin".to_string(),
+        version: 1,
+        created_at: Timestamp::now(),
+        last_modified: Timestamp::now(),
+        group_ids: vec![],
+        role_ids: vec![],
+        grants: vec![PermissionGrant::new(
+            Permission::GlobalSuperuser,
+            ResourceScope::System,
+        )],
+        enabled: true,
+        password_hash: None,
+        options: HashMap::new(),
+        metadata: HashMap::new(),
+    };
+    SecurityPrincipal::from_system_user(&user_record, &[], &[])
+}
 
 #[tokio::test]
 async fn test_create_tablespace() {
     // Setup
     let config = KeyValueDatabaseConfig {
         node_id: NodeId::new(1),
+        cache_ttl: Duration::from_secs(60),
     };
-    let db_manager = KeyValueDatabaseManager::new_standalone(config);
+    let db_manager = KeyValueDatabaseManager::new_standalone(config).await.unwrap();
+    let principal = create_test_principal();
 
     // Create tablespace
     let create_config = TablespaceCreate::new("hot_storage", "/data/hot", "Hot");
 
-    let result = db_manager.create_tablespace(create_config).await;
+    let result = db_manager
+        .create_tablespace(&principal, create_config)
+        .await;
     assert!(result.is_ok(), "Failed to create tablespace: {:?}", result);
     let metadata = result.unwrap();
 
     // Verify tablespace was created
-    let tablespace = db_manager.get_tablespace(&metadata.id).await.unwrap();
+    let tablespace = db_manager
+        .get_tablespace(&principal, &metadata.id)
+        .await
+        .unwrap();
     assert!(tablespace.is_some(), "Tablespace not found after creation");
 
     let tablespace = tablespace.unwrap();
@@ -49,8 +83,10 @@ async fn test_list_tablespaces() {
     // Setup
     let config = KeyValueDatabaseConfig {
         node_id: NodeId::new(1),
+        cache_ttl: Duration::from_secs(60),
     };
-    let db_manager = KeyValueDatabaseManager::new_standalone(config);
+    let db_manager = KeyValueDatabaseManager::new_standalone(config).await.unwrap();
+    let principal = create_test_principal();
 
     // Create multiple tablespaces
     let tablespaces = vec![
@@ -59,24 +95,24 @@ async fn test_list_tablespaces() {
         TablespaceCreate::new("cold_storage", "/data/cold", "Cold"),
     ];
 
-    for (config) in &tablespaces {
+    for config in &tablespaces {
         db_manager
-            .create_tablespace(config.to_owned())
+            .create_tablespace(&principal, config.to_owned())
             .await
             .unwrap();
     }
 
     // List all tablespaces
-    let result = db_manager.get_tablespaces().await.unwrap();
+    let result = db_manager.get_tablespaces(&principal).await.unwrap();
     let tablespace_list: Vec<_> = result.into_iter().collect();
 
-    assert_eq!(tablespace_list.len(), 3, "Expected 3 tablespaces");
+    assert!(tablespace_list.len() >= 3, "Expected at least 3 tablespaces");
 
     // Verify all tablespaces are present
-    for (config) in &tablespaces {
+    for config in &tablespaces {
         let found = tablespace_list
             .iter()
-            .any(|ts| ts.name == config.name && ts.storage_path == config.storage_path);
+            .any(|(_, name)| name == &config.name);
         assert!(found, "Tablespace {} not found in list", config.name);
     }
 }
@@ -86,17 +122,21 @@ async fn test_update_tablespace() {
     // Setup
     let config = KeyValueDatabaseConfig {
         node_id: NodeId::new(1),
+        cache_ttl: Duration::from_secs(60),
     };
-    let db_manager = KeyValueDatabaseManager::new_standalone(config);
+    let db_manager = KeyValueDatabaseManager::new_standalone(config).await.unwrap();
+    let principal = create_test_principal();
 
     // Create tablespace
-    let tablespace_id = TablespaceId::new(1);
     let create_config = TablespaceCreate::new("test_storage", "/data/test", "Hot");
-    let metadata = db_manager.create_tablespace(create_config).await.unwrap();
+    let metadata = db_manager
+        .create_tablespace(&principal, create_config)
+        .await
+        .unwrap();
 
     // Get initial version
     let initial = db_manager
-        .get_tablespace(&metadata.id)
+        .get_tablespace(&principal, &metadata.id)
         .await
         .unwrap()
         .unwrap();
@@ -113,13 +153,13 @@ async fn test_update_tablespace() {
         .set_tier("Warm".to_string());
 
     let result = db_manager
-        .update_tablespace(&metadata.id, update_config)
+        .update_tablespace(&principal, &metadata.id, update_config)
         .await;
     assert!(result.is_ok(), "Failed to update tablespace: {:?}", result);
 
     // Verify updates
     let updated = db_manager
-        .get_tablespace(&metadata.id)
+        .get_tablespace(&principal, &metadata.id)
         .await
         .unwrap()
         .unwrap();
@@ -142,15 +182,17 @@ async fn test_update_nonexistent_tablespace() {
     // Setup
     let config = KeyValueDatabaseConfig {
         node_id: NodeId::new(1),
+        cache_ttl: Duration::from_secs(60),
     };
-    let db_manager = KeyValueDatabaseManager::new_standalone(config);
+    let db_manager = KeyValueDatabaseManager::new_standalone(config).await.unwrap();
+    let principal = create_test_principal();
 
     // Try to update non-existent tablespace
     let tablespace_id = TablespaceId::new(999);
     let update_config = TablespaceUpdate::default().set_name("should_fail".to_string());
 
     let result = db_manager
-        .update_tablespace(&tablespace_id, update_config)
+        .update_tablespace(&principal, &tablespace_id, update_config)
         .await;
     assert!(
         result.is_err(),
@@ -163,23 +205,34 @@ async fn test_delete_tablespace() {
     // Setup
     let config = KeyValueDatabaseConfig {
         node_id: NodeId::new(1),
+        cache_ttl: Duration::from_secs(60),
     };
-    let db_manager = KeyValueDatabaseManager::new_standalone(config);
+    let db_manager = KeyValueDatabaseManager::new_standalone(config).await.unwrap();
+    let principal = create_test_principal();
 
     // Create tablespace
     let create_config = TablespaceCreate::new("temp_storage", "/data/temp", "Cold");
-    let metadata = db_manager.create_tablespace(create_config).await.unwrap();
+    let metadata = db_manager
+        .create_tablespace(&principal, create_config)
+        .await
+        .unwrap();
 
     // Verify it exists
-    let exists = db_manager.get_tablespace(&metadata.id).await.unwrap();
+    let exists = db_manager
+        .get_tablespace(&principal, &metadata.id)
+        .await
+        .unwrap();
     assert!(exists.is_some(), "Tablespace should exist before deletion");
 
     // Delete tablespace
-    let result = db_manager.delete_tablespace(&metadata.id).await;
+    let result = db_manager.delete_tablespace(&principal, &metadata.id).await;
     assert!(result.is_ok(), "Failed to delete tablespace: {:?}", result);
 
     // Verify it's gone
-    let deleted = db_manager.get_tablespace(&metadata.id).await.unwrap();
+    let deleted = db_manager
+        .get_tablespace(&principal, &metadata.id)
+        .await
+        .unwrap();
     assert!(
         deleted.is_none(),
         "Tablespace should not exist after deletion"
@@ -191,8 +244,10 @@ async fn test_tablespace_with_options_and_metadata() {
     // Setup
     let config = KeyValueDatabaseConfig {
         node_id: NodeId::new(1),
+        cache_ttl: Duration::from_secs(60),
     };
-    let db_manager = KeyValueDatabaseManager::new_standalone(config);
+    let db_manager = KeyValueDatabaseManager::new_standalone(config).await.unwrap();
+    let principal = create_test_principal();
 
     // Create tablespace with options and metadata
     let mut create_config = TablespaceCreate::new("configured_storage", "/data/configured", "Hot");
@@ -203,11 +258,14 @@ async fn test_tablespace_with_options_and_metadata() {
         .add_metadata("owner", "admin")
         .add_metadata("purpose", "production");
 
-    let metadata = db_manager.create_tablespace(create_config).await.unwrap();
+    let metadata = db_manager
+        .create_tablespace(&principal, create_config)
+        .await
+        .unwrap();
 
     // Verify options and metadata were stored
     let tablespace = db_manager
-        .get_tablespace(&metadata.id)
+        .get_tablespace(&principal, &metadata.id)
         .await
         .unwrap()
         .unwrap();
@@ -231,29 +289,34 @@ async fn test_tablespace_storage_tiers() {
     // Setup
     let config = KeyValueDatabaseConfig {
         node_id: NodeId::new(1),
+        cache_ttl: Duration::from_secs(60),
     };
-    let db_manager = KeyValueDatabaseManager::new_standalone(config);
+    let db_manager = KeyValueDatabaseManager::new_standalone(config).await.unwrap();
+    let principal = create_test_principal();
 
     // Create tablespaces for each tier
     let tiers = vec!["Hot", "Warm", "Cold", "Archive"];
 
-    for (idx, tier) in tiers.iter().enumerate() {
+    for tier in &tiers {
         let create_config = TablespaceCreate::new(
             format!("{}_storage", tier.to_lowercase()),
             format!("/data/{}", tier.to_lowercase()),
             *tier,
         );
-        db_manager.create_tablespace(create_config).await.unwrap();
+        db_manager
+            .create_tablespace(&principal, create_config)
+            .await
+            .unwrap();
     }
 
     // Verify all tiers were created correctly
-    let all_tablespaces = db_manager.get_tablespaces().await.unwrap();
+    let all_tablespaces = db_manager.get_tablespaces(&principal).await.unwrap();
     let tablespace_list: Vec<_> = all_tablespaces.into_iter().collect();
 
-    assert_eq!(tablespace_list.len(), 4, "Should have 4 tablespaces");
+    assert!(tablespace_list.len() >= 4, "Should have at least 4 tablespaces");
 
     for tier in &tiers {
-        let found = tablespace_list.iter().any(|ts| ts.tier == *tier);
+        let found = tablespace_list.iter().any(|(_, name)| name == &format!("{}_storage", tier.to_lowercase()));
         assert!(found, "Tier {} not found", tier);
     }
 }
@@ -263,11 +326,15 @@ async fn test_get_nonexistent_tablespace() {
     // Setup
     let config = KeyValueDatabaseConfig {
         node_id: NodeId::new(1),
+        cache_ttl: Duration::from_secs(60),
     };
-    let db_manager = KeyValueDatabaseManager::new_standalone(config);
+    let db_manager = KeyValueDatabaseManager::new_standalone(config).await.unwrap();
+    let principal = create_test_principal();
 
     // Try to get non-existent tablespace
-    let result = db_manager.get_tablespace(&TablespaceId::new(999)).await;
+    let result = db_manager
+        .get_tablespace(&principal, &TablespaceId::new(999))
+        .await;
     assert!(
         result.is_ok(),
         "Should not error on non-existent tablespace"

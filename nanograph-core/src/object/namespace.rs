@@ -56,6 +56,8 @@ impl std::fmt::Display for NamespaceId {
 pub struct NamespaceCreate {
     /// Name of the Namespace
     pub name: String,
+    /// Parent Namespace for this Namespace
+    pub parent: NamespaceId,
     /// Configuration Options for the Cluster
     pub options: HashMap<String, String>,
     /// Cluster Metadata (Informative)
@@ -68,9 +70,10 @@ impl NamespaceCreate {
     /// # Arguments
     ///
     /// * `name`: The name of the new Namespace.
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new(name: impl Into<String>, parent: NamespaceId) -> Self {
         Self {
             name: name.into(),
+            parent,
             options: HashMap::new(),
             metadata: HashMap::new(),
         }
@@ -203,7 +206,6 @@ pub struct NamespaceMetadata {
     /// Namespace Metadata (Informative)
     pub metadata: HashMap<String, String>,
 }
-
 
 /// Metadata for a Namespace.
 #[derive(Clone, Debug, Serialize, Deserialize)]

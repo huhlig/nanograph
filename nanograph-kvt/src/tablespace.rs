@@ -19,8 +19,8 @@
 //! This module provides utilities to resolve storage paths based on tablespace
 //! configuration, enabling storage tiering and flexible storage management.
 
+use crate::{KeyValueError, KeyValueResult};
 use nanograph_core::object::{ShardId, StorageEngineType, TableId, TablespaceId};
-use nanograph_kvt::{KeyValueError, KeyValueResult};
 use nanograph_vfs::Path;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};

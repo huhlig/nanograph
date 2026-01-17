@@ -14,10 +14,9 @@
 // limitations under the License.
 //
 
-mod container;
-mod resolver;
-mod system;
+use nanograph_core::object::SecurityPrincipal;
+use crate::credentials::Credentials;
 
-pub use self::container::ContainerMetadataCache;
-pub use self::resolver::ObjectPathResolver;
-pub use self::system::SystemMetadataCache;
+pub trait Authenticator {
+    fn authenticate(credentials: Credentials) -> SecurityPrincipal;
+}

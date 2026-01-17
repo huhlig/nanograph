@@ -14,10 +14,6 @@
 // limitations under the License.
 //
 
-mod container;
-mod resolver;
-mod system;
+use std::collections::HashMap;
 
-pub use self::container::ContainerMetadataCache;
-pub use self::resolver::ObjectPathResolver;
-pub use self::system::SystemMetadataCache;
+pub struct Credentials(HashMap<String, String>);

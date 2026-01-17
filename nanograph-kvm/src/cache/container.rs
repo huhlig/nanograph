@@ -14,11 +14,13 @@
 // limitations under the License.
 //
 
+use crate::cache::resolver::ObjectPathResolver;
 use nanograph_core::object::{
     ContainerId, FunctionId, FunctionRecord, NamespaceId, NamespaceRecord, NodeId, ShardId,
     ShardRecord, TableId, TableRecord,
 };
-use std::collections::{BTreeMap, HashMap};
+use nanograph_util::CacheMap;
+use std::time::Duration;
 
 /// Cache for all container-level metadata.
 ///
@@ -32,29 +34,35 @@ pub struct ContainerMetadataCache {
     container: ContainerId,
     /// Container Metadata Shard ID
     shard: ShardId,
+    /**********************************************************************************************\
+     * Container Record Cache                                                                     *
+    \**********************************************************************************************/
     /// Namespaces in the system
-    namespaces: HashMap<NamespaceId, NamespaceRecord>,
+    namespaces: CacheMap<NamespaceId, NamespaceRecord>,
     /// Functions in the system
-    functions: HashMap<FunctionId, FunctionRecord>,
+    functions: CacheMap<FunctionId, FunctionRecord>,
     /// Tables in the system
-    tables: HashMap<TableId, TableRecord>,
+    tables: CacheMap<TableId, TableRecord>,
     /// Shards in the system
-    shards: HashMap<ShardId, ShardRecord>,
+    shards: CacheMap<ShardId, ShardRecord>,
     /// Shard Assignment Cache (shard -> replica nodes)
-    shard_assignments: BTreeMap<ShardId, Vec<NodeId>>,
+    shard_assignments: CacheMap<ShardId, Vec<NodeId>>,
+    /// Object Path Resolver
+    path_resolver: ObjectPathResolver,
 }
 
 impl ContainerMetadataCache {
     /// Create a new `ContainerMetadataCache`.
-    pub fn new(container: ContainerId, shard: ShardId) -> Self {
+    pub fn new(container: ContainerId, shard: ShardId, cache_ttl: Duration) -> Self {
         ContainerMetadataCache {
             container,
             shard,
-            namespaces: Default::default(),
-            functions: Default::default(),
-            tables: Default::default(),
-            shards: Default::default(),
-            shard_assignments: Default::default(),
+            namespaces: CacheMap::new(cache_ttl),
+            functions: CacheMap::new(cache_ttl),
+            tables: CacheMap::new(cache_ttl),
+            shards: CacheMap::new(cache_ttl),
+            shard_assignments: CacheMap::new(cache_ttl),
+            path_resolver: Default::default(),
         }
     }
 
@@ -184,7 +192,7 @@ impl ContainerMetadataCache {
     }
 
     /// Returns the node IDs assigned to a specific shard if it exists.
-    pub fn get_shard_assignment(&self, shard_id: &ShardId) -> Option<&Vec<NodeId>> {
+    pub fn get_shard_assignment(&mut self, shard_id: &ShardId) -> Option<&Vec<NodeId>> {
         self.shard_assignments.get(shard_id)
     }
 
@@ -201,6 +209,12 @@ impl ContainerMetadataCache {
     /// Clears all shard assignments.
     pub fn clear_shard_assignments(&mut self) {
         self.shard_assignments.clear();
+    }
+
+    // TODO: Add Path Resolver methods here
+
+    pub fn path_resolver(&mut self) -> &mut ObjectPathResolver {
+        &mut self.path_resolver
     }
 }
 
@@ -220,7 +234,7 @@ mod tests {
         let table_id = TableId::from(1);
         let shard_index = ShardIndex::from(5);
         let shard_id = ShardId::from_parts(table_id, shard_index);
-        ContainerMetadataCache::new(container_id, shard_id)
+        ContainerMetadataCache::new(container_id, shard_id, Duration::from_secs(60))
     }
 
     #[test]
@@ -231,7 +245,11 @@ mod tests {
         let table_id = TableId::from(1);
         let shard_index = ShardIndex::from(5);
         let shard_id = ShardId::from_parts(table_id, shard_index);
-        let cache = ContainerMetadataCache::new(container_id.clone(), shard_id.clone());
+        let cache = ContainerMetadataCache::new(
+            container_id.clone(),
+            shard_id.clone(),
+            Duration::from_secs(60),
+        );
 
         assert_eq!(cache.container_id(), &container_id);
         assert_eq!(cache.metadata_shard_id(), &shard_id);

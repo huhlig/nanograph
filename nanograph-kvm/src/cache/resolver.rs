@@ -22,10 +22,10 @@ use std::collections::{BTreeMap, BTreeSet};
 /// This structure maintains an in-memory representation of a container's metadata, including
 /// namespaces, tables, and shards. It also includes a name resolver for hierarchical object paths.
 #[derive(Debug)]
-pub struct HierarchicalResolverCache {
-    /// Name Resolver Nodes
-    resolver_nodes: BTreeMap<ObjectId, Node>,
-    /// Name Resolver Paths
+pub struct ObjectPathResolver {
+    /// Name Resolver Nodes (ObjectId -> Node)
+    resolver_nodes: BTreeMap<ObjectId, PathNode>,
+    /// Name Resolver Paths (path.to.object -> ObjectId)
     resolver_paths: BTreeMap<String, ObjectId>,
     /// Available Nodes from Removed Nodes
     resolver_available_nodes: BTreeSet<ObjectId>,
@@ -33,14 +33,56 @@ pub struct HierarchicalResolverCache {
     resolver_next_id: ObjectId,
 }
 
-impl HierarchicalResolverCache {
+impl ObjectPathResolver {
     /*============================================================================================*\
     | Resolver Functions
     \*============================================================================================*/
 
     pub fn set_path_object(&mut self, path: &str, object_id: ObjectId, object_type: ObjectType) {
-        // TODO: Fix this
-        let _ = self.add_path(path, object_type);
+        let parts = Self::parse_path(path);
+        if parts.is_empty() {
+            return;
+        }
+
+        let mut current_parent: Option<ObjectId> = None;
+        let mut current_path = String::new();
+
+        for (i, &part) in parts.iter().enumerate() {
+            if !current_path.is_empty() {
+                current_path.push('.');
+            }
+            current_path.push_str(part);
+
+            if let Some(&existing_idx) = self.resolver_paths.get(&current_path) {
+                current_parent = Some(existing_idx);
+            } else {
+                let is_leaf = i == parts.len() - 1;
+                let (idx, node_type) = if is_leaf {
+                    (object_id, object_type)
+                } else {
+                    (self.get_next_object_id(), ObjectType::Namespace)
+                };
+
+                let node = PathNode {
+                    object_id: idx,
+                    object_name: part.to_string(),
+                    object_type: node_type,
+                    parent: current_parent,
+                    children: Vec::new(),
+                };
+
+                self.resolver_nodes.insert(idx, node);
+                self.resolver_paths.insert(current_path.clone(), idx);
+
+                if let Some(parent_idx) = current_parent {
+                    if let Some(parent) = self.resolver_nodes.get_mut(&parent_idx) {
+                        parent.children.push(idx);
+                    }
+                }
+
+                current_parent = Some(idx);
+            }
+        }
     }
 
     /// Moves a path from the old location to the new.
@@ -62,7 +104,7 @@ impl HierarchicalResolverCache {
     /// Removes a path from the resolver.
     ///
     /// Returns an error if the path is not found or if the node has children.
-    fn remove_path(&mut self, path: &str) -> Result<(), String> {
+    pub fn remove_path(&mut self, path: &str) -> Result<(), String> {
         let idx = *self
             .resolver_paths
             .get(path)
@@ -85,13 +127,14 @@ impl HierarchicalResolverCache {
 
         self.resolver_nodes.remove(&idx);
         self.resolver_paths.remove(path);
+        self.resolver_available_nodes.insert(idx);
 
         Ok(())
     }
 
     /// Moves a node from one path to another.
     /// This also updates the paths of all descendant nodes.
-    fn move_path(&mut self, from: &str, to: &str) -> Result<(), String> {
+    pub fn move_path(&mut self, from: &str, to: &str) -> Result<(), String> {
         let from_idx = *self
             .resolver_paths
             .get(from)
@@ -144,12 +187,24 @@ impl HierarchicalResolverCache {
         }
 
         if let Some(node) = self.resolver_nodes.get_mut(&from_idx) {
-            node.name = node_name.to_string();
+            node.object_name = node_name.to_string();
             node.parent = new_parent_idx;
         }
 
         self.resolver_paths.remove(from);
-        self.resolver_paths.insert(to.to_string(), from_idx);
+        // We need to remove all old paths of descendants because they are based on the old 'from' path.
+        // This is tricky because resolver_paths is a BTreeMap<String, ObjectId>.
+        // A simple way is to clear and rebuild, but that's expensive.
+        // Better: find all keys starting with "from." and remove them.
+        let descendant_paths: Vec<String> = self
+            .resolver_paths
+            .keys()
+            .filter(|k| k.starts_with(&format!("{}.", from)))
+            .cloned()
+            .collect();
+        for path in descendant_paths {
+            self.resolver_paths.remove(&path);
+        }
 
         self.update_descendant_paths(from_idx);
 
@@ -157,7 +212,7 @@ impl HierarchicalResolverCache {
     }
 
     /// Lists all objects in the resolver, optionally filtered by a prefix.
-    fn list_objects(&self, prefix: Option<&str>) -> Vec<(String, ObjectType)> {
+    pub fn list_objects(&self, prefix: Option<&str>) -> Vec<(String, ObjectType)> {
         let mut results: Vec<(String, ObjectType)> = self
             .resolver_paths
             .iter()
@@ -177,16 +232,15 @@ impl HierarchicalResolverCache {
     }
 
     /// Returns the object type and ID at the specified path.
-    fn get_path_reference(&self, path: &str) -> Option<(ObjectId, ObjectType)> {
+    pub fn get_path_reference(&self, path: &str) -> Option<&PathNode> {
         let idx = self.resolver_paths.get(path)?;
-        let node = self.resolver_nodes.get(idx)?;
-        Some((*idx, node.object_type))
+        self.resolver_nodes.get(idx)
     }
 
     /// Adds a new object to the resolver at the specified path.
     ///
     /// Intermediate namespaces will be created automatically if they don't exist.
-    fn add_path(&mut self, path: &str, object_type: ObjectType) -> Result<ObjectId, String> {
+    pub fn add_path(&mut self, path: &str, object_type: ObjectType) -> Result<ObjectId, String> {
         let parts = Self::parse_path(path);
         if parts.is_empty() {
             return Err("Empty path".to_string());
@@ -215,11 +269,11 @@ impl HierarchicalResolverCache {
                     ObjectType::Namespace
                 };
 
-                let idx = self.resolver_next_id;
-                self.resolver_next_id += 1;
+                let idx = self.get_next_object_id();
 
-                let node = Node {
-                    name: part.to_string(),
+                let node = PathNode {
+                    object_id: idx,
+                    object_name: part.to_string(),
                     object_type: node_type,
                     parent: current_parent,
                     children: Vec::new(),
@@ -258,7 +312,7 @@ impl HierarchicalResolverCache {
 
         loop {
             let node = self.resolver_nodes.get(&current)?;
-            parts.push(node.name.clone());
+            parts.push(node.object_name.clone());
 
             match node.parent {
                 Some(parent) => current = parent,
@@ -272,10 +326,15 @@ impl HierarchicalResolverCache {
 
     /// Updates the paths of all descendant nodes recursively.
     fn update_descendant_paths(&mut self, idx: ObjectId) {
-        let _path = self.get_node_path(idx).unwrap();
+        if let Some(path) = self.get_node_path(idx) {
+            self.resolver_paths.insert(path, idx);
+        }
 
-        let node = self.resolver_nodes.get(&idx).unwrap();
-        let children: Vec<ObjectId> = node.children.clone();
+        let children = if let Some(node) = self.resolver_nodes.get(&idx) {
+            node.children.clone()
+        } else {
+            return;
+        };
 
         for &child_idx in &children {
             self.update_descendant_paths(child_idx);
@@ -283,15 +342,116 @@ impl HierarchicalResolverCache {
     }
 }
 
+impl Default for ObjectPathResolver {
+    fn default() -> Self {
+        Self {
+            resolver_nodes: Default::default(),
+            resolver_paths: Default::default(),
+            resolver_available_nodes: Default::default(),
+            resolver_next_id: 0,
+        }
+    }
+}
+
 /// A node in the hierarchical name resolver.
 #[derive(Debug, Clone)]
-struct Node {
+pub struct PathNode {
+    /// Unique identifier for the node.
+    object_id: ObjectId,
     /// Name of the node.
-    name: String,
+    object_name: String,
     /// Type of object this node represents.
     object_type: ObjectType,
     /// Parent node index, if any.
     parent: Option<ObjectId>,
     /// Child node indices.
     children: Vec<ObjectId>,
+}
+
+impl PathNode {
+    pub fn object_id(&self) -> ObjectId {
+        self.object_id
+    }
+    pub fn object_name(&self) -> &str {
+        &self.object_name
+    }
+    pub fn object_type(&self) -> ObjectType {
+        self.object_type
+    }
+    pub fn parent(&self) -> Option<ObjectId> {
+        self.parent
+    }
+    pub fn children(&self) -> &[ObjectId] {
+        &self.children
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nanograph_core::object::ObjectType;
+
+    #[test]
+    fn test_add_and_get_path() {
+        let mut resolver = ObjectPathResolver::default();
+        let id = resolver.add_path("a.b.c", ObjectType::Table).unwrap();
+
+        let node = resolver.get_path_reference("a.b.c").unwrap();
+        assert_eq!(id, node.object_id);
+        assert_eq!(node.object_type, ObjectType::Table);
+
+        // Check intermediate namespaces
+        let node = resolver.get_path_reference("a").unwrap();
+        assert_eq!(node.object_type, ObjectType::Namespace);
+        let node = resolver.get_path_reference("a.b").unwrap();
+        assert_eq!(node.object_type, ObjectType::Namespace);
+    }
+
+    #[test]
+    fn test_remove_path() {
+        let mut resolver = ObjectPathResolver::default();
+        resolver.add_path("a.b.c", ObjectType::Table).unwrap();
+        resolver.remove_path("a.b.c").unwrap();
+        assert!(resolver.get_path_reference("a.b.c").is_none());
+
+        // a and a.b should still exist because they are namespaces and were not removed
+        assert!(resolver.get_path_reference("a.b").is_some());
+
+        resolver.remove_path("a.b.c").unwrap_err(); // Already removed
+
+        resolver.remove_path("a.b").unwrap();
+        assert!(resolver.get_path_reference("a.b").is_none());
+    }
+
+    #[test]
+    fn test_move_path() {
+        let mut resolver = ObjectPathResolver::default();
+        resolver.add_path("a.b.c", ObjectType::Table).unwrap();
+        resolver.move_path("a.b.c", "a.d").unwrap();
+
+        assert!(resolver.get_path_reference("a.b.c").is_none());
+        let node = resolver.get_path_reference("a.d").unwrap();
+        assert_eq!(node.object_type, ObjectType::Table);
+
+        // Verify node name was updated
+        let node = resolver.resolver_nodes.get(&node.object_id).unwrap();
+        assert_eq!(node.object_name, "d");
+    }
+
+    #[test]
+    fn test_move_path_with_children() {
+        let mut resolver = ObjectPathResolver::default();
+        resolver.add_path("a.b.c", ObjectType::Namespace).unwrap();
+        resolver.add_path("a.b.c.d", ObjectType::Table).unwrap();
+
+        resolver.move_path("a.b", "x").unwrap();
+
+        assert!(resolver.get_path_reference("a.b").is_none());
+        assert!(resolver.get_path_reference("a.b.c").is_none());
+        assert!(resolver.get_path_reference("a.b.c.d").is_none());
+
+        assert!(resolver.get_path_reference("x").is_some());
+        assert!(resolver.get_path_reference("x.c").is_some());
+        assert!(resolver.get_path_reference("x.c.d").is_some());
+    }
 }

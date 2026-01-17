@@ -161,6 +161,7 @@ mod error;
 mod kviter;
 mod kvstore;
 pub mod metrics;
+mod tablespace;
 mod transaction;
 mod types;
 
@@ -169,6 +170,7 @@ pub use self::error::{KeyValueError, KeyValueResult};
 pub use self::kviter::KeyValueIterator;
 pub use self::kvstore::KeyValueShardStore;
 pub use self::metrics::EngineMetrics;
+pub use self::tablespace::{StoragePathResolver, StorageTier, TablespaceConfig};
 pub use self::transaction::Transaction;
 pub use self::transaction::TransactionId;
 pub use nanograph_core::object::{

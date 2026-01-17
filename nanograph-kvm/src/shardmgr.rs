@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-use crate::tablespace::StoragePathResolver;
+use nanograph_kvt::StoragePathResolver;
 use nanograph_core::object::ShardCreate;
 use nanograph_kvt::{
     DynamicFileSystem, KeyRange, KeyValueError, KeyValueIterator, KeyValueResult,
