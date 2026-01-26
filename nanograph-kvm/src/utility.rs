@@ -20,19 +20,6 @@ use nanograph_core::object::{
 };
 use nanograph_kvt::{KeyValueError, KeyValueResult};
 
-const CRC: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
-
-/// Serialize a value to a byte vector with a CRC32 checksum.
-pub fn serialize<T: serde::Serialize>(value: &T) -> KeyValueResult<Vec<u8>> {
-    postcard::to_stdvec_crc32(value, CRC.digest())
-        .map_err(|err: postcard::Error| KeyValueError::Serialization(err.to_string()))
-}
-
-/// Deserialize a value from a byte vector with a CRC32 checksum.
-pub fn deserialize<'de, T: serde::de::DeserializeOwned>(bytes: &[u8]) -> KeyValueResult<T> {
-    postcard::from_bytes_crc32::<T>(bytes, CRC.digest())
-        .map_err(|err: postcard::Error| KeyValueError::Deserialization(err.to_string()))
-}
 
 /// Utility for generating system-level storage keys.
 pub struct SystemKeys;

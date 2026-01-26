@@ -34,5 +34,9 @@ rand.workspace = true
 # Error handling
 thiserror.workspace = true
 
+# Serialization
+serde.workspace = true
+postcard.workspace = true
+
 [dev-dependencies]
 criterion.workspace = true

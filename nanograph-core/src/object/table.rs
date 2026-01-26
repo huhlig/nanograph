@@ -14,14 +14,14 @@
 // limitations under the License.
 //
 
-use crate::object::{NodeId, ObjectId};
+use crate::object::{ContainerId, DatabaseId, NodeId, ObjectId, TenantId};
 use crate::types::{PropertyUpdate, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::{Bound, HashMap};
 
 /// Table identifier
 ///
-/// Uses u64 for globally unique identification within a schema.
+/// Uses u32 for globally unique identification within a schema.
 /// Names are stored separately in metadata and mapped to IDs.
 #[derive(
     Copy, Clone, Debug, Default, Ord, PartialOrd, Eq, PartialEq, Hash, Serialize, Deserialize,
@@ -35,7 +35,7 @@ impl TableId {
     }
 
     /// Return the table identifier as a u64.
-    pub fn as_u64(&self) -> u32 {
+    pub fn as_u32(&self) -> u32 {
         self.0
     }
 }
@@ -48,7 +48,7 @@ impl From<u32> for TableId {
 
 impl std::fmt::Display for TableId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Table({})", self.0)
+        write!(f, "Table({:X})", self.0)
     }
 }
 
@@ -56,9 +56,9 @@ impl std::fmt::Display for TableId {
 #[derive(
     Copy, Clone, Debug, Default, Ord, PartialOrd, Eq, PartialEq, Hash, Serialize, Deserialize,
 )]
-pub struct ShardIndex(pub u32);
+pub struct ShardNumber(pub u32);
 
-impl ShardIndex {
+impl ShardNumber {
     /// Create a new shard index.
     pub fn new(id: u32) -> Self {
         Self(id)
@@ -70,15 +70,15 @@ impl ShardIndex {
     }
 }
 
-impl From<u32> for ShardIndex {
+impl From<u32> for ShardNumber {
     fn from(id: u32) -> Self {
         Self(id)
     }
 }
 
-impl std::fmt::Display for ShardIndex {
+impl std::fmt::Display for ShardNumber {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Shard({})", self.0)
+        write!(f, "ShardNumber({:X})", self.0)
     }
 }
 
@@ -92,17 +92,126 @@ impl std::fmt::Display for ShardIndex {
 #[derive(
     Copy, Clone, Debug, Default, Ord, PartialOrd, Eq, PartialEq, Hash, Serialize, Deserialize,
 )]
-pub struct ShardId(pub u64);
+pub struct ShardId(pub u128);
 
 impl ShardId {
     /// Create a new shard identifier.
-    pub fn new(id: u64) -> Self {
+    pub fn new(id: u128) -> Self {
         Self(id)
     }
 
     /// Create a ShardId from TableId and ShardIndex.
-    pub fn from_parts(table: TableId, index: ShardIndex) -> Self {
-        Self((table.0 as u64) << 32 | index.0 as u64)
+    pub fn from_parts(
+        tenant: TenantId,
+        database: DatabaseId,
+        table: TableId,
+        index: ShardNumber,
+    ) -> Self {
+        Self(
+            (tenant.0 as u128) << 96
+                | (database.0 as u128) << 64
+                | (table.0 as u128) << 32
+                | (index.0 as u128) << 00,
+        )
+    }
+
+    pub fn tenant(&self) -> TenantId {
+        TenantId((self.0 >> 96) as u32)
+    }
+    pub fn database(&self) -> DatabaseId {
+        DatabaseId((self.0 >> 64) as u32)
+    }
+
+    /// Extract the TableId from the ShardId.
+    pub fn table(&self) -> TableId {
+        TableId((self.0 >> 32) as u32)
+    }
+
+    /// Extract the ShardNumber from the ShardId.
+    pub fn shard_number(&self) -> ShardNumber {
+        ShardNumber(self.0 as u32)
+    }
+
+    /// Get the underlying u64 value.
+    pub fn as_u128(&self) -> u128 {
+        self.0
+    }
+}
+
+impl From<u128> for ShardId {
+    fn from(id: u128) -> Self {
+        Self(id)
+    }
+}
+
+impl std::fmt::Display for ShardId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Shard({:X})", self.0)
+    }
+}
+
+/// Index Number, Unique within a table.
+#[derive(
+    Copy, Clone, Debug, Default, Ord, PartialOrd, Eq, PartialEq, Hash, Serialize, Deserialize,
+)]
+pub struct IndexNumber(pub u32);
+
+impl IndexNumber {
+    /// Create a new shard index.
+    pub fn new(id: u32) -> Self {
+        Self(id)
+    }
+
+    /// Return the shard index as a u32.
+    pub fn as_u32(&self) -> u32 {
+        self.0
+    }
+}
+
+impl From<u32> for IndexNumber {
+    fn from(id: u32) -> Self {
+        Self(id)
+    }
+}
+
+impl std::fmt::Display for IndexNumber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "IndexNumber({:X})", self.0)
+    }
+}
+
+/// Index identifier for Table Indexes
+#[derive(
+    Copy, Clone, Debug, Default, Ord, PartialOrd, Eq, PartialEq, Hash, Serialize, Deserialize,
+)]
+pub struct IndexId(pub u128);
+
+impl IndexId {
+    /// Create a new shard identifier.
+    pub fn new(id: u128) -> Self {
+        Self(id)
+    }
+
+    /// Create a ShardId from TableId and ShardIndex.
+    pub fn from_parts(
+        tenant: TenantId,
+        database: DatabaseId,
+        table: TableId,
+        index: IndexNumber,
+    ) -> Self {
+        Self(
+            (tenant.0 as u128) << 96
+                | (database.0 as u128) << 64
+                | (table.0 as u128) << 32
+                | (index.0 as u128) << 00,
+        )
+    }
+
+    pub fn tenant(&self) -> TenantId {
+        TenantId((self.0 >> 96) as u32)
+    }
+    pub fn database(&self) -> DatabaseId {
+        DatabaseId((self.0 >> 64) as u32)
     }
 
     /// Extract the TableId from the ShardId.
@@ -111,25 +220,25 @@ impl ShardId {
     }
 
     /// Extract the ShardIndex from the ShardId.
-    pub fn index(&self) -> ShardIndex {
-        ShardIndex(self.0 as u32)
+    pub fn index_number(&self) -> IndexNumber {
+        IndexNumber(self.0 as u32)
     }
 
     /// Get the underlying u64 value.
-    pub fn as_u64(&self) -> u64 {
+    pub fn as_u128(&self) -> u128 {
         self.0
     }
 }
 
-impl From<u64> for ShardId {
-    fn from(id: u64) -> Self {
+impl From<u128> for IndexId {
+    fn from(id: u128) -> Self {
         Self(id)
     }
 }
 
-impl std::fmt::Display for ShardId {
+impl std::fmt::Display for IndexId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Shard({})", self.0)
+        write!(f, "Index({:X})", self.0)
     }
 }
 
@@ -354,10 +463,12 @@ pub enum TableSharding {
 /// Configuration for shard creation
 #[derive(Debug, Clone)]
 pub struct ShardCreate {
+    /// Container ID for which the shard is being created
+    pub container: ContainerId,
     /// Table ID for which the shard is being created
     pub table: TableId,
-    /// Shard Index for which the shard is being created
-    pub index: ShardIndex,
+    /// Shard Number for which the shard is being created
+    pub shard_number: ShardNumber,
     /// Storage engine type for the shard
     pub engine_type: StorageEngineType,
     /// Number of replicas per shard (default: 1 for single-node)
@@ -372,10 +483,16 @@ impl ShardCreate {
     /// * `table`: The ID of the table the shard belongs to.
     /// * `index`: The index of the shard within the table.
     /// * `engine_type`: The storage engine type to use for the shard.
-    pub fn new(table: TableId, index: ShardIndex, engine_type: StorageEngineType) -> Self {
+    pub fn new(
+        container: ContainerId,
+        table: TableId,
+        shard_number: ShardNumber,
+        engine_type: StorageEngineType,
+    ) -> Self {
         Self {
+            container,
             table,
-            index,
+            shard_number,
             engine_type,
             replication_factor: 1, // Default to no replication
         }
@@ -532,31 +649,31 @@ pub enum Partitioner {
 
 impl Partitioner {
     /// Determine which shard index a key belongs to.
-    pub fn get_shard_index(&self, key: &[u8], shard_count: u32) -> ShardIndex {
+    pub fn get_shard_number(&self, key: &[u8], shard_count: u32) -> ShardNumber {
         match self {
             Partitioner::Hash { hash_fn } => {
                 let hash = hash_fn.hash(key);
-                ShardIndex((hash % shard_count as u64) as u32)
+                ShardNumber((hash % shard_count as u64) as u32)
             }
             Partitioner::Range { ranges } => {
                 // Find the range that contains this key
                 for (idx, (start, end)) in ranges.iter().enumerate() {
                     if key >= start.as_slice() && key < end.as_slice() {
-                        return ShardIndex(idx as u32);
+                        return ShardNumber(idx as u32);
                     }
                 }
                 // Default to shard 0 if not found
-                ShardIndex(0)
+                ShardNumber(0)
             }
             Partitioner::List { keys } => {
                 // Find which list contains this key
                 for (idx, key_list) in keys.iter().enumerate() {
                     if key_list.iter().any(|k| k.as_slice() == key) {
-                        return ShardIndex(idx as u32);
+                        return ShardNumber(idx as u32);
                     }
                 }
                 // Default to shard 0 if not found
-                ShardIndex(0)
+                ShardNumber(0)
             }
             Partitioner::Time { interval_seconds } => {
                 // Assume key contains timestamp (first 8 bytes as i64)
@@ -565,9 +682,9 @@ impl Partitioner {
                         key[0], key[1], key[2], key[3], key[4], key[5], key[6], key[7],
                     ]);
                     let shard_idx = (timestamp / *interval_seconds as i64) % shard_count as i64;
-                    ShardIndex(shard_idx.abs() as u32)
+                    ShardNumber(shard_idx.abs() as u32)
                 } else {
-                    ShardIndex(0)
+                    ShardNumber(0)
                 }
             }
         }
@@ -708,5 +825,70 @@ impl KeyRange {
 impl Default for KeyRange {
     fn default() -> Self {
         Self::all()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_table_id() {
+        let id = TableId::new(0x12345678);
+        assert_eq!(id.as_u32(), 0x12345678);
+        assert_eq!(TableId::from(0x12345678), id);
+        assert_eq!(format!("{}", id), "Table(12345678)");
+    }
+
+    #[test]
+    fn test_shard_number() {
+        let id = ShardNumber::new(0xABCDEF01);
+        assert_eq!(id.as_u32(), 0xABCDEF01);
+        assert_eq!(ShardNumber::from(0xABCDEF01), id);
+        assert_eq!(format!("{}", id), "ShardNumber(ABCDEF01)");
+    }
+
+    #[test]
+    fn test_shard_id() {
+        let tenant = TenantId::new(0x87654321);
+        let database = DatabaseId::new(0xFEDCBA98);
+        let table = TableId::new(0x12345678);
+        let number = ShardNumber::new(0x89ABCDEF);
+        let shard_id = ShardId::from_parts(tenant, database, table, number);
+
+        assert_eq!(shard_id.tenant(), tenant);
+        assert_eq!(shard_id.database(), database);
+        assert_eq!(shard_id.table(), table);
+        assert_eq!(shard_id.shard_number(), number);
+        assert_eq!(shard_id.as_u128(), 0x12345678_ABCDEF01);
+        assert_eq!(ShardId::new(0x12345678_ABCDEF01), shard_id);
+        assert_eq!(ShardId::from(0x12345678_ABCDEF01), shard_id);
+        assert_eq!(format!("{}", shard_id), "Shard(12345678ABCDEF01)");
+    }
+
+    #[test]
+    fn test_index_number() {
+        let id = IndexNumber::new(0x11223344);
+        assert_eq!(id.as_u32(), 0x11223344);
+        assert_eq!(IndexNumber::from(0x11223344), id);
+        assert_eq!(format!("{}", id), "IndexNumber(11223344)");
+    }
+
+    #[test]
+    fn test_index_id() {
+        let tenant = TenantId::new(0x87654321);
+        let database = DatabaseId::new(0xFEDCBA98);
+        let table = TableId::new(0x12345678);
+        let number = IndexNumber::new(0x89ABCDEF);
+        let index_id = IndexId::from_parts(tenant, database, table, number);
+
+        assert_eq!(index_id.tenant(), tenant);
+        assert_eq!(index_id.database(), database);
+        assert_eq!(index_id.table(), table);
+        assert_eq!(index_id.index_number(), number);
+        assert_eq!(index_id.as_u128(), 0x87654321_01FEDCBA);
+        assert_eq!(IndexId::new(0x87654321_01FEDCBA), index_id);
+        assert_eq!(IndexId::from(0x87654321_01FEDCBA), index_id);
+        assert_eq!(format!("{}", index_id), "Index(8765432101FEDCBA)");
     }
 }

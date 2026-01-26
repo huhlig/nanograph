@@ -75,13 +75,13 @@
 //!
 //! ```rust
 //! use nanograph_art::ArtKeyValueStore;
-//! use nanograph_kvt::{KeyValueShardStore, TableId, ShardIndex};
+//! use nanograph_kvt::{KeyValueShardStore, TableId, IndexNumber};
 //! use std::sync::Arc;
 //!
 //! # tokio_test::block_on(async {
 //! let store = Arc::new(ArtKeyValueStore::new());
 //! let table_id = TableId::new(0);
-//! let shard_index = ShardIndex::new(0);
+//! let shard_index = IndexNumber::new(0);
 //! let shard = store.create_shard(table_id, shard_index).await.unwrap();
 //!
 //! // Insert data
@@ -102,13 +102,13 @@
 //!
 //! ```rust
 //! use nanograph_art::{ArtKeyValueStore, TransactionManager};
-//! use nanograph_kvt::{KeyValueShardStore, TableId, ShardIndex, Transaction};
+//! use nanograph_kvt::{KeyValueShardStore, TableId, IndexNumber, Transaction};
 //! use std::sync::Arc;
 //!
 //! # tokio_test::block_on(async {
 //! let store = Arc::new(ArtKeyValueStore::new());
 //! let table_id = TableId::new(0);
-//! let shard_index = ShardIndex::new(0);
+//! let shard_index = IndexNumber::new(0);
 //! let shard = store.create_shard(table_id, shard_index).await.unwrap();
 //!
 //! let txn_manager = TransactionManager::new(store.clone());

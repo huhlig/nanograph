@@ -20,7 +20,7 @@ use crate::kviter::KeyValueIterator;
 use crate::metrics::ShardStats;
 use crate::transaction::Transaction;
 use async_trait::async_trait;
-use nanograph_core::object::{KeyRange, ShardId, ShardIndex, TableId};
+use nanograph_core::object::{IndexNumber, KeyRange, ShardId, TableId};
 use nanograph_vfs::{DynamicFileSystem, Path};
 use std::ops::Bound;
 use std::sync::Arc;
@@ -177,10 +177,13 @@ pub trait KeyValueShardStore: Send + Sync {
             "Tablespace-aware shard creation not supported by this storage engine".to_string(),
         ))
     }
-    async fn create_shard(&self, table: TableId, index: ShardIndex) -> KeyValueResult<ShardId>;
+    async fn create_shard(&self, shard: ShardId) -> KeyValueResult<()>;
 
     /// Drop a shard and all its data
     async fn drop_shard(&self, shard: ShardId) -> KeyValueResult<()>;
+
+    /// Clear all data in a shard without dropping it
+    async fn clear(&self, shard: ShardId) -> KeyValueResult<()>;
 
     /// List all shards
     async fn list_shards(&self) -> KeyValueResult<Vec<ShardId>>;

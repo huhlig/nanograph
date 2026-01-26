@@ -15,16 +15,72 @@
 //
 
 //! Core types for Raft-based distributed consensus
+use crate::error::ConsensusError;
+use nanograph_core::object::{RegionId, ServerId};
 use nanograph_core::{
-    object::{ClusterId, ClusterRecord, NodeId, RegionId, ShardId, ShardRecord, ShardStatus},
+    object::{ClusterId, ClusterRecord, NodeId, ShardId, ShardRecord, ShardStatus},
     types::Timestamp,
 };
+use openraft::{LogId, OptionalSend, RaftTypeConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use openraft::impls::leader_id_std::LeaderId;
+use openraft::vote::leader_id_std::CommittedLeaderId;
+use nanograph_vfs::File;
+
+/// Request to append entries to a follower's log
+pub type ConsensusAppendEntriesRequest = openraft::raft::AppendEntriesRequest<ConsensusTypeConfig>;
+/// Response to an append entries request
+pub type ConsensusAppendEntriesResponse =
+    openraft::raft::AppendEntriesResponse<ConsensusTypeConfig>;
+/// A single log entry in the consensus cluster
+pub type ConsensusEntry = openraft::Entry<ConsensusTypeConfig>;
+pub type ConsensusLeaderId = LeaderId<ConsensusTypeConfig>;
+pub type ConsensusLogId = openraft::LogId<ConsensusTypeConfig>;
+pub type ConsensusLogIdOf = openraft::type_config::alias::LogIdOf<ConsensusTypeConfig>;
+/// Error occurring during an RPC call
+pub type ConsensusRPCError = openraft::error::RPCError<ConsensusTypeConfig>;
+pub type ConsensusStoredMembership = openraft::StoredMembership<ConsensusTypeConfig>;
+/// A snapshot of the state machine
+pub type ConsensusSnapshot = openraft::Snapshot<ConsensusTypeConfig>;
+pub type ConsensusSnapshotData = std::io::Cursor<Vec<u8>>;
+/// Response to a snapshot request
+pub type ConsensusSnapshotResponse = openraft::raft::SnapshotResponse<ConsensusTypeConfig>;
+/// Error occurring during snapshot streaming
+pub type ConsensusStreamingError = openraft::error::StreamingError<ConsensusTypeConfig>;
+
+pub type ConsensusVote = openraft::Vote<ConsensusTypeConfig>;
+/// Request to vote for a candidate in an election
+pub type ConsensusVoteRequest = openraft::raft::VoteRequest<ConsensusTypeConfig>;
+/// Response to a vote request
+pub type ConsensusVoteResponse = openraft::raft::VoteResponse<ConsensusTypeConfig>;
+/// The vote type used in the consensus cluster
+pub type ConsensusVoteOf = openraft::type_config::alias::VoteOf<ConsensusTypeConfig>;
+
+/// Raft configuration for the Nanograph Consensus Cluster
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+pub struct ConsensusTypeConfig;
+
+impl RaftTypeConfig for ConsensusTypeConfig {
+    type D = Operation;
+    type R = OperationResponse;
+    type NodeId = NodeId;
+    type Node = NodeInfo;
+    type Term = u64;
+    type LeaderId = LeaderId<Self>;
+    type Vote = openraft::Vote<Self>;
+    type Entry = openraft::entry::Entry<Self>;
+    type SnapshotData = Box<dyn File>;
+    type AsyncRuntime = openraft::TokioRuntime;
+    type Responder<T: OptionalSend + 'static> = openraft::impls::OneshotResponder<Self, T>;
+    type ErrorSource = ConsensusError;
+}
 
 /// Node information in the cluster
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct NodeInfo {
     /// Unique node identifier
     pub node: NodeId,
@@ -48,10 +104,37 @@ pub struct NodeInfo {
     pub rack: Option<String>,
 }
 
+impl Default for NodeInfo {
+    /// Create a default NodeInfo with placeholder values
+    fn default() -> Self {
+        Self {
+            node: NodeId::new(0),
+            raft_addr: "127.0.0.1:0".parse().unwrap(),
+            api_addr: "127.0.0.1:0".parse().unwrap(),
+            status: NodeStatus::default(),
+            capacity: ResourceCapacity::default(),
+            zone: None,
+            rack: None,
+        }
+    }
+}
+
+impl Display for NodeInfo {
+    /// Format NodeInfo for display
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Node(id={}, raft={}, api={})",
+            self.node, self.raft_addr, self.api_addr
+        )
+    }
+}
+
 /// Node status in the cluster
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Default)]
 pub enum NodeStatus {
     /// Node is active and serving requests
+    #[default]
     Active,
 
     /// Node is draining (preparing for removal)
@@ -83,7 +166,21 @@ pub struct ResourceCapacity {
     pub weight: f64,
 }
 
+impl PartialEq for ResourceCapacity {
+    /// Compare two ResourceCapacity instances for equality
+    fn eq(&self, other: &Self) -> bool {
+        self.cpu_cores == other.cpu_cores
+            && self.memory_bytes == other.memory_bytes
+            && self.disk_bytes == other.disk_bytes
+            && self.network_bandwidth == other.network_bandwidth
+            && (self.weight - other.weight).abs() < f64::EPSILON
+    }
+}
+
+impl Eq for ResourceCapacity {}
+
 impl Default for ResourceCapacity {
+    /// Create a default ResourceCapacity with reasonable baseline values
     fn default() -> Self {
         Self {
             cpu_cores: 1,
@@ -112,13 +209,14 @@ pub enum ReadConsistency {
 }
 
 impl Default for ReadConsistency {
+    /// Create a default Linearizable consistency level
     fn default() -> Self {
         ReadConsistency::Linearizable
     }
 }
 
 /// KV operation to be replicated via Raft
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum Operation {
     /// Put a key-value pair
     Put { key: Vec<u8>, value: Vec<u8> },
@@ -130,8 +228,19 @@ pub enum Operation {
     Batch { operations: Vec<Operation> },
 }
 
+impl Display for Operation {
+    /// Format Operation for display
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Operation::Put { key, .. } => write!(f, "Put(key={:?})", key),
+            Operation::Delete { key } => write!(f, "Delete(key={:?})", key),
+            Operation::Batch { operations } => write!(f, "Batch(len={})", operations.len()),
+        }
+    }
+}
+
 /// Response from applying an operation
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct OperationResponse {
     /// Whether the operation succeeded
     pub success: bool,
@@ -144,6 +253,7 @@ pub struct OperationResponse {
 }
 
 impl Default for OperationResponse {
+    /// Create a default successful OperationResponse
     fn default() -> Self {
         Self {
             success: true,
@@ -221,6 +331,7 @@ impl ReplicationConfig {
 }
 
 impl Default for ReplicationConfig {
+    /// Create a default ReplicationConfig with standard values for a 3-node cluster
     fn default() -> Self {
         Self {
             replication_factor: 3,
@@ -250,6 +361,7 @@ pub enum PlacementStrategy {
 }
 
 impl Default for PlacementStrategy {
+    /// Create a default Random placement strategy
     fn default() -> Self {
         PlacementStrategy::Random
     }
@@ -315,13 +427,14 @@ impl RaftClusterState {
 }
 
 impl Default for RaftClusterState {
+    /// Create a default RaftClusterState with an empty cluster record
     fn default() -> Self {
         Self::new(ClusterRecord {
-            id: ClusterId::new(0),
+            cluster_id: ClusterId::new(0),
             name: String::new(),
             version: 0,
             created_at: Timestamp::now(),
-            last_modified: Timestamp::now(),
+            updated_at: Timestamp::now(),
             options: Default::default(),
             metadata: Default::default(),
         })

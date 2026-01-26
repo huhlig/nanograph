@@ -47,7 +47,20 @@ impl From<u32> for ClusterId {
 
 impl std::fmt::Display for ClusterId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Cluster({})", self.0)
+        write!(f, "Cluster({:X})", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cluster_id() {
+        let id = ClusterId::new(0x12345678);
+        assert_eq!(id.as_u32(), 0x12345678);
+        assert_eq!(ClusterId::from(0x12345678), id);
+        assert_eq!(format!("{}", id), "Cluster(12345678)");
     }
 }
 
@@ -199,10 +212,10 @@ pub struct ClusterMetadata {
 impl From<ClusterRecord> for ClusterMetadata {
     fn from(record: ClusterRecord) -> Self {
         Self {
-            id: record.id,
+            id: record.cluster_id,
             name: record.name,
             created_at: record.created_at,
-            last_modified: record.last_modified,
+            last_modified: record.updated_at,
             options: record.options,
             metadata: record.metadata,
         }
@@ -213,15 +226,15 @@ impl From<ClusterRecord> for ClusterMetadata {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClusterRecord {
     /// Unique identifier for the cluster.
-    pub id: ClusterId,
-    /// Name of the cluster.
-    pub name: String,
+    pub cluster_id: ClusterId,
     /// Metadata version (incremented on each change).
     pub version: u64,
     /// Timestamp when the cluster was created.
     pub created_at: Timestamp,
     /// Timestamp when the cluster metadata was last modified.
-    pub last_modified: Timestamp,
+    pub updated_at: Timestamp,
+    /// Name of the cluster.
+    pub name: String,
     /// Configuration Options for the Cluster.
     pub options: HashMap<String, String>,
     /// Cluster Metadata (Informative).

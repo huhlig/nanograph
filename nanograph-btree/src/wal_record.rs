@@ -28,6 +28,8 @@ pub enum WalRecordKind {
     Delete = 2,
     /// Checkpoint: marks a consistent state
     Checkpoint = 3,
+    /// Clear operation: removes all data
+    Clear = 4,
 }
 
 impl WalRecordKind {
@@ -37,6 +39,7 @@ impl WalRecordKind {
             1 => Some(Self::Put),
             2 => Some(Self::Delete),
             3 => Some(Self::Checkpoint),
+            4 => Some(Self::Clear),
             _ => None,
         }
     }
@@ -165,6 +168,16 @@ pub fn encode_checkpoint() -> Vec<u8> {
 ///
 /// Checkpoint records have no payload
 pub fn decode_checkpoint(_payload: &[u8]) -> BTreeResult<()> {
+    Ok(())
+}
+
+/// Encode a Clear operation into WAL payload format
+pub fn encode_clear() -> Vec<u8> {
+    Vec::new()
+}
+
+/// Decode a Clear operation from WAL payload format
+pub fn decode_clear(_payload: &[u8]) -> BTreeResult<()> {
     Ok(())
 }
 

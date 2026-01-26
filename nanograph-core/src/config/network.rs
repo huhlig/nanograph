@@ -13,3 +13,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
+
+use crate::object::NodeId;
+use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NetworkConfig {
+    pub node: NodeId,
+    pub addr: SocketAddr,
+}

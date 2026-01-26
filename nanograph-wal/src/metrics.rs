@@ -28,7 +28,7 @@ use metrics::{counter, gauge, histogram};
 /// * `shard_id` - The shard identifier
 /// * `success` - Whether the operation succeeded
 #[inline]
-pub fn record_operation(operation: &'static str, shard_id: u64, success: bool) {
+pub fn record_operation(operation: &'static str, shard_id: u128, success: bool) {
     let status = if success { "success" } else { "failure" };
     counter!(
         "nanograph_wal_operations_total",
@@ -45,7 +45,7 @@ pub fn record_operation(operation: &'static str, shard_id: u64, success: bool) {
 /// * `shard_id` - The shard identifier
 /// * `bytes` - Number of bytes written
 #[inline]
-pub fn record_bytes_written(shard_id: u64, bytes: u64) {
+pub fn record_bytes_written(shard_id: u128, bytes: u64) {
     counter!(
         "nanograph_wal_bytes_written_total",
         "shard_id" => shard_id.to_string()
@@ -59,7 +59,7 @@ pub fn record_bytes_written(shard_id: u64, bytes: u64) {
 /// * `shard_id` - The shard identifier
 /// * `bytes` - Number of bytes read
 #[inline]
-pub fn record_bytes_read(shard_id: u64, bytes: u64) {
+pub fn record_bytes_read(shard_id: u128, bytes: u64) {
     counter!(
         "nanograph_wal_bytes_read_total",
         "shard_id" => shard_id.to_string()
@@ -74,7 +74,7 @@ pub fn record_bytes_read(shard_id: u64, bytes: u64) {
 /// * `shard_id` - The shard identifier
 /// * `duration_micros` - Duration in microseconds
 #[inline]
-pub fn record_operation_duration(operation: &'static str, shard_id: u64, duration_micros: u64) {
+pub fn record_operation_duration(operation: &'static str, shard_id: u128, duration_micros: u64) {
     histogram!(
         "nanograph_wal_operation_duration_microseconds",
         "operation" => operation,
@@ -89,7 +89,7 @@ pub fn record_operation_duration(operation: &'static str, shard_id: u64, duratio
 /// * `shard_id` - The shard identifier
 /// * `count` - Number of active segments
 #[inline]
-pub fn record_active_segments(shard_id: u64, count: usize) {
+pub fn record_active_segments(shard_id: u128, count: usize) {
     gauge!(
         "nanograph_wal_active_segments",
         "shard_id" => shard_id.to_string()
@@ -103,7 +103,7 @@ pub fn record_active_segments(shard_id: u64, count: usize) {
 /// * `shard_id` - The shard identifier
 /// * `size` - Total WAL size in bytes
 #[inline]
-pub fn record_wal_size(shard_id: u64, size: u64) {
+pub fn record_wal_size(shard_id: u128, size: u64) {
     gauge!(
         "nanograph_wal_size_bytes",
         "shard_id" => shard_id.to_string()
@@ -117,7 +117,7 @@ pub fn record_wal_size(shard_id: u64, size: u64) {
 /// * `shard_id` - The shard identifier
 /// * `lsn` - Current LSN value
 #[inline]
-pub fn record_current_lsn(shard_id: u64, lsn: u128) {
+pub fn record_current_lsn(shard_id: u128, lsn: u128) {
     gauge!(
         "nanograph_wal_current_lsn",
         "shard_id" => shard_id.to_string()
@@ -131,7 +131,7 @@ pub fn record_current_lsn(shard_id: u64, lsn: u128) {
 /// * `shard_id` - The shard identifier
 /// * `success` - Whether the flush succeeded
 #[inline]
-pub fn record_flush(shard_id: u64, success: bool) {
+pub fn record_flush(shard_id: u128, success: bool) {
     let status = if success { "success" } else { "failure" };
     counter!(
         "nanograph_wal_flushes_total",
@@ -147,7 +147,7 @@ pub fn record_flush(shard_id: u64, success: bool) {
 /// * `shard_id` - The shard identifier
 /// * `success` - Whether the sync succeeded
 #[inline]
-pub fn record_sync(shard_id: u64, success: bool) {
+pub fn record_sync(shard_id: u128, success: bool) {
     let status = if success { "success" } else { "failure" };
     counter!(
         "nanograph_wal_syncs_total",
@@ -163,7 +163,7 @@ pub fn record_sync(shard_id: u64, success: bool) {
 /// * `shard_id` - The shard identifier
 /// * `success` - Whether the rotation succeeded
 #[inline]
-pub fn record_segment_rotation(shard_id: u64, success: bool) {
+pub fn record_segment_rotation(shard_id: u128, success: bool) {
     let status = if success { "success" } else { "failure" };
     counter!(
         "nanograph_wal_segment_rotations_total",
@@ -179,7 +179,7 @@ pub fn record_segment_rotation(shard_id: u64, success: bool) {
 /// * `shard_id` - The shard identifier
 /// * `count` - Number of records
 #[inline]
-pub fn record_segment_records(shard_id: u64, count: u64) {
+pub fn record_segment_records(shard_id: u128, count: u64) {
     histogram!(
         "nanograph_wal_segment_records",
         "shard_id" => shard_id.to_string()
@@ -193,7 +193,7 @@ pub fn record_segment_records(shard_id: u64, count: u64) {
 /// * `shard_id` - The shard identifier
 /// * `size` - Segment size in bytes
 #[inline]
-pub fn record_segment_size(shard_id: u64, size: u64) {
+pub fn record_segment_size(shard_id: u128, size: u64) {
     histogram!(
         "nanograph_wal_segment_size_bytes",
         "shard_id" => shard_id.to_string()
@@ -207,7 +207,7 @@ pub fn record_segment_size(shard_id: u64, size: u64) {
 /// * `shard_id` - The shard identifier
 /// * `success` - Whether the checkpoint succeeded
 #[inline]
-pub fn record_checkpoint(shard_id: u64, success: bool) {
+pub fn record_checkpoint(shard_id: u128, success: bool) {
     let status = if success { "success" } else { "failure" };
     counter!(
         "nanograph_wal_checkpoints_total",
@@ -223,7 +223,7 @@ pub fn record_checkpoint(shard_id: u64, success: bool) {
 /// * `shard_id` - The shard identifier
 /// * `count` - Number of records appended
 #[inline]
-pub fn record_records_appended(shard_id: u64, count: u64) {
+pub fn record_records_appended(shard_id: u128, count: u64) {
     counter!(
         "nanograph_wal_records_appended_total",
         "shard_id" => shard_id.to_string()
@@ -237,7 +237,7 @@ pub fn record_records_appended(shard_id: u64, count: u64) {
 /// * `shard_id` - The shard identifier
 /// * `count` - Number of records read
 #[inline]
-pub fn record_records_read(shard_id: u64, count: u64) {
+pub fn record_records_read(shard_id: u128, count: u64) {
     counter!(
         "nanograph_wal_records_read_total",
         "shard_id" => shard_id.to_string()
@@ -251,7 +251,7 @@ pub fn record_records_read(shard_id: u64, count: u64) {
 /// * `shard_id` - The shard identifier
 /// * `size` - Record size in bytes
 #[inline]
-pub fn record_record_size(shard_id: u64, size: usize) {
+pub fn record_record_size(shard_id: u128, size: usize) {
     histogram!(
         "nanograph_wal_record_size_bytes",
         "shard_id" => shard_id.to_string()

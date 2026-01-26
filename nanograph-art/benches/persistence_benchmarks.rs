@@ -19,7 +19,7 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use futures::StreamExt;
 use nanograph_art::{AdaptiveRadixTree, ArtKeyValueStore};
-use nanograph_kvt::{KeyValueShardStore, ShardIndex, TableId};
+use nanograph_kvt::{IndexNumber, KeyValueShardStore, ShardId, TableId};
 use std::hint::black_box;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -50,21 +50,18 @@ fn create_populated_tree(count: usize) -> AdaptiveRadixTree<Vec<u8>> {
     tree
 }
 
-async fn create_populated_store(
-    count: usize,
-) -> (ArtKeyValueStore, nanograph_kvt::ShardId, TempDir) {
+async fn create_populated_store(count: usize) -> (ArtKeyValueStore, ShardId, TempDir) {
     let temp_dir = tempfile::tempdir().unwrap();
     let store = ArtKeyValueStore::default();
-    let table_id = TableId::new(1);
-    let shard_index = ShardIndex::new(0);
-    let shard = store.create_shard(table_id, shard_index).await.unwrap();
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
     let kvs = generate_sequential_kvs(count);
 
     for (key, value) in kvs {
-        store.put(shard, &key, &value).await.unwrap();
+        store.put(shard_id, &key, &value).await.unwrap();
     }
 
-    (store, shard, temp_dir)
+    (store, shard_id, temp_dir)
 }
 
 // ============================================================================
@@ -80,14 +77,13 @@ fn bench_kvstore_put(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             b.to_async(&rt).iter(|| async {
                 let store = ArtKeyValueStore::default();
-                let table_id = TableId::new(1);
-                let shard_index = ShardIndex::new(0);
-                let shard = store.create_shard(table_id, shard_index).await.unwrap();
+                let shard_id = ShardId::new(1);
+                store.create_shard(shard_id).await.unwrap();
                 let kvs = generate_sequential_kvs(size);
 
                 for (key, value) in kvs {
                     store
-                        .put(shard, black_box(&key), black_box(&value))
+                        .put(shard_id, black_box(&key), black_box(&value))
                         .await
                         .unwrap();
                 }
@@ -264,9 +260,8 @@ fn bench_concurrent_writes(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             b.to_async(&rt).iter(|| async {
                 let store = Arc::new(ArtKeyValueStore::default());
-                let table_id = TableId::new(1);
-                let shard_index = ShardIndex::new(0);
-                let shard = store.create_shard(table_id, shard_index).await.unwrap();
+                let shard_id = ShardId::new(1);
+                store.create_shard(shard_id).await.unwrap();
 
                 let mut handles = vec![];
 
@@ -276,7 +271,7 @@ fn bench_concurrent_writes(c: &mut Criterion) {
                         for j in 0..size / 10 {
                             let key = format!("key_{}_{}", i, j).into_bytes();
                             let value = format!("value_{}_{}", i, j).into_bytes();
-                            store.put(shard, &key, &value).await.unwrap();
+                            store.put(shard_id, &key, &value).await.unwrap();
                         }
                     });
                     handles.push(handle);
@@ -358,13 +353,12 @@ fn bench_batch_insert(c: &mut Criterion) {
 
             b.to_async(&rt).iter(|| async {
                 let store = ArtKeyValueStore::default();
-                let table_id = TableId::new(1);
-                let shard_index = ShardIndex::new(0);
-                let shard = store.create_shard(table_id, shard_index).await.unwrap();
+                let shard_id = ShardId::new(1);
+                store.create_shard(shard_id).await.unwrap();
 
                 for (key, value) in &kvs {
                     store
-                        .put(shard, black_box(key), black_box(value))
+                        .put(shard_id, black_box(key), black_box(value))
                         .await
                         .unwrap();
                 }

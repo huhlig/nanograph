@@ -26,8 +26,12 @@ use std::collections::HashMap;
 pub struct DatabaseId(pub u32);
 
 impl DatabaseId {
+    pub fn system() -> DatabaseId {
+        DatabaseId(0)
+    }
     /// Create a new database identifier.
     pub fn new(id: u32) -> Self {
+        assert_ne!(id, 0, "Database ID cannot be zero.");
         Self(id)
     }
 
@@ -45,7 +49,20 @@ impl From<u32> for DatabaseId {
 
 impl std::fmt::Display for DatabaseId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Database({})", self.0)
+        write!(f, "Database({:X})", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_database_id() {
+        let id = DatabaseId::new(0x12345678);
+        assert_eq!(id.as_u32(), 0x12345678);
+        assert_eq!(DatabaseId::from(0x12345678), id);
+        assert_eq!(format!("{}", id), "Database(12345678)");
     }
 }
 
@@ -209,9 +226,9 @@ impl From<DatabaseRecord> for DatabaseMetadata {
         Self {
             id: value.database_id,
             tenant: value.tenant_id,
-            name: value.name,
+            name: value.database_name,
             created_at: value.created_at,
-            last_modified: value.last_modified,
+            last_modified: value.updated_at,
             root_namespace: value.root_namespace,
             default_tablespace: value.default_tablespace,
             options: value.options,
@@ -223,18 +240,18 @@ impl From<DatabaseRecord> for DatabaseMetadata {
 /// Metadata for a Database.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DatabaseRecord {
-    /// Unique identifier for the Database
-    pub database_id: DatabaseId,
     /// Tenant Id
     pub tenant_id: TenantId,
-    /// Name of the Database
-    pub name: String,
+    /// Unique identifier for the Database
+    pub database_id: DatabaseId,
     /// Version of the Database Record
     pub version: u64,
     /// Timestamp when the schema was created
     pub created_at: Timestamp,
     /// Timestamp when the schema was last modified
-    pub last_modified: Timestamp,
+    pub updated_at: Timestamp,
+    /// Name of the Database
+    pub database_name: String,
     /// Root Namespace of Database
     pub root_namespace: NamespaceId,
     /// Default Tablespace for the Database

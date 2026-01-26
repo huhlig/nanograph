@@ -148,7 +148,7 @@ impl SystemMetadataCache {
 
     /// Sets a region record.
     pub fn set_region_record(&mut self, region_record: RegionRecord) {
-        self.regions.insert(region_record.id, region_record);
+        self.regions.insert(region_record.region_id, region_record);
     }
 
     /// Clears a specific region record.
@@ -173,7 +173,7 @@ impl SystemMetadataCache {
 
     /// Sets a server record.
     pub fn set_server_record(&mut self, server_record: ServerRecord) {
-        self.servers.insert(server_record.id, server_record);
+        self.servers.insert(server_record.node_id, server_record);
     }
 
     /// Clears a specific server record.

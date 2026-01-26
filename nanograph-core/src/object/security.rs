@@ -67,6 +67,19 @@ impl From<u32> for UserId {
 
 impl std::fmt::Display for UserId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "User({})", self.0)
+        write!(f, "User({:X})", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_user_id() {
+        let id = UserId::new(0x12345678);
+        assert_eq!(id.as_u64(), 0x12345678);
+        assert_eq!(UserId::from(0x12345678), id);
+        assert_eq!(format!("{}", id), "User(12345678)");
     }
 }

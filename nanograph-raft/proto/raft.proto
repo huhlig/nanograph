@@ -1,0 +1,221 @@
+//
+// Copyright 2026 Hans W. Uhlig, IBM. All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+
+syntax = "proto3";
+
+package nanograph.raft;
+
+// Node Identifier
+message NodeId {
+    uint32 cluster = 1;
+    uint32 region = 2;
+    uint64 server = 3;
+}
+
+// Shard Identifier (used as group identifier)
+message ShardId {
+    uint32 tenant_id = 1;
+    uint32 database_id = 2;
+    uint32 table_id = 3;
+    uint32 shard_number = 4;
+}
+
+// LeaderId represents the leader identifier in Raft
+message LeaderId {
+    uint64 term = 1;
+    NodeId node_id = 2;
+}
+
+// CommittedLeaderId represents a leader identifier that is committed
+message CommittedLeaderId {
+    uint64 term = 1;
+}
+
+// LogId represents the log identifier in Raft
+message LogId {
+    CommittedLeaderId leader_id = 1;
+    uint64 index = 2;
+}
+
+// Vote represents the voting information in Raft leader election
+message Vote {
+    LeaderId leader_id = 1;
+    bool committed = 2;
+}
+
+// LogEntry represents a single log entry
+message LogEntry {
+    uint64 term = 1;
+    uint64 index = 2;
+    bytes data = 3;  // Serialized Operation
+}
+
+// Node represents a single node in the Raft cluster
+message Node {
+    NodeId node_id = 1;
+    string rpc_address = 2;
+}
+
+// Set of Node Identifiers
+message NodeIdSet {
+    repeated NodeId nodes = 1;
+}
+
+// Membership represents the current membership of a Raft group
+message Membership {
+    // Joint (includes more than one NodeIdSet) or uniform (one NodeIdSet) config
+    repeated NodeIdSet configs = 1;
+    
+    // All of the nodes in the cluster, including voters and learners
+    repeated Node nodes = 2;
+}
+
+// Vote Request
+message VoteRequest {
+    Vote vote = 1;
+    LogId last_log_id = 2;
+}
+
+// Vote Response
+message VoteResponse {
+    Vote vote = 1;
+    bool vote_granted = 2;
+    LogId last_log_id = 3;
+}
+
+// AppendEntries Request
+message AppendEntriesRequest {
+    // The leader's vote, used to identify the leader, and must be committed
+    Vote vote = 1;
+    
+    // The previous log id the leader has sent to the follower
+    LogId prev_log_id = 2;
+    
+    // The entries to be appended to the follower's log
+    repeated LogEntry entries = 3;
+    
+    // The leader's last committed log id
+    uint64 leader_commit = 4;
+}
+
+// AppendEntries Response
+message AppendEntriesResponse {
+    // If set, the follower rejected the AppendEntries request due to having a higher vote
+    Vote rejected_by = 1;
+    
+    // The follower accepts this AppendEntries request's vote, but the prev_log_id conflicts
+    bool conflict = 2;
+    
+    // If conflict = false, the last log id the follower accepted from this request
+    // If conflict = true in StreamAppend, this is the conflict log id
+    LogId last_log_id = 3;
+}
+
+// Snapshot Metadata
+message SnapshotMetadata {
+    Vote vote = 1;
+    LogId last_log_id = 2;
+    LogId last_membership_log_id = 3;
+    Membership last_membership = 4;
+    string snapshot_id = 5;
+}
+
+// Snapshot Entry (key-value pair)
+message SnapshotEntry {
+    bytes key = 1;
+    bytes value = 2;
+}
+
+// Snapshot Request (streaming)
+message SnapshotRequest {
+    oneof payload {
+        SnapshotMetadata first_chunk = 1;
+        SnapshotChunk chunk = 2;
+    }
+}
+
+// Snapshot Chunk (contains multiple entries)
+message SnapshotChunk {
+    repeated SnapshotEntry entries = 1;
+}
+
+// Snapshot Response
+message SnapshotResponse {
+    Vote vote = 1;
+}
+
+// InstallSnapshot Request
+message InstallSnapshotRequest {
+    uint64 term = 1;
+    NodeId leader_id = 2;
+    SnapshotMetadata metadata = 3;
+    uint64 offset = 4;
+    bytes data = 5;
+    bool done = 6;
+}
+
+// InstallSnapshot Response
+message InstallSnapshotResponse {
+    uint64 term = 1;
+}
+
+// State Machine Data
+message StateMachineData {
+    LogId last_applied = 1;
+    LogId last_membership_log_id = 2;
+    Membership last_membership = 3;
+    bytes data = 4;
+}
+
+// Raft RPC Service
+service RaftService {
+    // Request a vote from a peer
+    rpc Vote(VoteRequestMessage) returns (VoteResponseMessage);
+    
+    // Append entries to a follower's log
+    rpc AppendEntries(AppendEntriesRequestMessage) returns (AppendEntriesResponseMessage);
+    
+    // Install a snapshot on a follower
+    rpc InstallSnapshot(stream InstallSnapshotRequestMessage) returns (InstallSnapshotResponseMessage);
+}
+
+// Wrapper messages that include the group_id (ShardId)
+message VoteRequestMessage {
+    ShardId group_id = 1;
+    VoteRequest request = 2;
+}
+
+message VoteResponseMessage {
+    VoteResponse response = 1;
+}
+
+message AppendEntriesRequestMessage {
+    ShardId group_id = 1;
+    AppendEntriesRequest request = 2;
+}
+
+message AppendEntriesResponseMessage {
+    AppendEntriesResponse response = 1;
+}
+
+message InstallSnapshotRequestMessage {
+    ShardId group_id = 1;
+    InstallSnapshotRequest request = 2;
+}
+
+message InstallSnapshotResponseMessage {
+    InstallSnapshotResponse response = 1;
+}

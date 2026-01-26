@@ -35,7 +35,7 @@ pub enum WriteAheadLogError {
     /// Version mismatch between the WAL and the segment file
     VersionMismatch,
     /// An unexpected internal error occurred
-    WrappedError(Box<dyn std::error::Error>),
+    WrappedError(Box<dyn std::error::Error + Send + Sync>),
     /// Checksum verification failed
     ChecksumMismatch,
 }
@@ -43,7 +43,7 @@ pub enum WriteAheadLogError {
 impl WriteAheadLogError {
     /// Wrap a generic error into a `WriteAheadLogError`
     #[must_use]
-    pub fn wrap_error<E: std::error::Error + 'static>(err: E) -> WriteAheadLogError {
+    pub fn wrap_error<E: std::error::Error + Send + Sync + 'static>(err: E) -> WriteAheadLogError {
         WriteAheadLogError::WrappedError(Box::new(err))
     }
 }

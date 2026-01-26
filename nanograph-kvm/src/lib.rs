@@ -24,4 +24,4 @@ mod utility;
 
 pub use self::config::KeyValueDatabaseConfig;
 pub use self::manager::KeyValueDatabaseManager;
-pub use self::utility::{deserialize, serialize};
+pub use nanograph_util::{deserialize, serialize};

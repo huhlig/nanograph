@@ -43,7 +43,7 @@
 //!
 //! ```rust,no_run
 //! use nanograph_lsm::LSMKeyValueStore;
-//! use nanograph_kvt::{KeyValueShardStore, TableId, ShardIndex};
+//! use nanograph_kvt::{KeyValueShardStore, TableId, IndexNumber};
 //!
 //! # #[tokio::main]
 //! # async fn main() {
@@ -52,7 +52,7 @@
 //!
 //! // Create a shard with table ID and shard index
 //! let table_id = TableId::from(1u64);
-//! let shard_index = ShardIndex::from(0u32);
+//! let shard_index = IndexNumber::from(0u32);
 //! let shard = store.create_shard(table_id, shard_index).await.unwrap();
 //!
 //! // Insert data
@@ -87,14 +87,14 @@
 //!
 //! ```rust,no_run
 //! use nanograph_lsm::LSMKeyValueStore;
-//! use nanograph_kvt::{KeyValueShardStore, KeyRange, TableId, ShardIndex};
+//! use nanograph_kvt::{KeyValueShardStore, KeyRange, TableId, IndexNumber};
 //! use futures::StreamExt;
 //!
 //! # #[tokio::main]
 //! # async fn main() {
 //! let store = LSMKeyValueStore::new();
 //! let table_id = TableId::from(1u64);
-//! let shard_index = ShardIndex::from(0u32);
+//! let shard_index = IndexNumber::from(0u32);
 //! let shard = store.create_shard(table_id, shard_index).await.unwrap();
 //!
 //! // Insert sorted data
@@ -117,13 +117,13 @@
 //!
 //! ```rust,no_run
 //! use nanograph_lsm::LSMKeyValueStore;
-//! use nanograph_kvt::{KeyValueShardStore, TableId, ShardIndex};
+//! use nanograph_kvt::{KeyValueShardStore, TableId, IndexNumber};
 //!
 //! # #[tokio::main]
 //! # async fn main() {
 //! let store = LSMKeyValueStore::new();
 //! let table_id = TableId::from(1u64);
-//! let shard_index = ShardIndex::from(0u32);
+//! let shard_index = IndexNumber::from(0u32);
 //! let shard = store.create_shard(table_id, shard_index).await.unwrap();
 //!
 //! // Start a transaction

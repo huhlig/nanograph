@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-use nanograph_core::object::{Permission, ResourceScope, ShardId, UserId};
+use nanograph_core::object::{Permission, ResourceScope, ShardId, TablespaceId, UserId};
 use thiserror::Error;
 
 /// Result Type for KeyValue Operations
@@ -42,8 +42,11 @@ pub enum KeyValueError {
 
     // I/O errors (disk-backed implementations)
     /// VFS IO Error
-    #[error("IO error: {0}")]
+    #[error("VFS IO error: {0}")]
     IoError(#[from] nanograph_vfs::FileSystemError),
+    /// VFS IO Error
+    #[error("std::io error: {0}")]
+    StdIoError(#[from] std::io::Error),
     /// WAL IO Error
     #[error("WAL error: {0}")]
     WalError(#[from] nanograph_wal::WriteAheadLogError),
@@ -89,6 +92,14 @@ pub enum KeyValueError {
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
 
+    // Snapshot errors
+    /// Invalid snapshot format
+    #[error("Invalid snapshot format")]
+    InvalidSnapshotFormat,
+    /// Unsupported snapshot version
+    #[error("Unsupported snapshot version")]
+    UnsupportedSnapshotVersion,
+
     // Serialization
     /// Serialization error
     #[error("Serialization error: {0}")]
@@ -106,8 +117,15 @@ pub enum KeyValueError {
         permission: Permission,
         resource: ResourceScope,
     },
+    #[error("Tablespace quota exceeded: {tablespace_id} (max: {size})")]
+    TablespaceQuotaExceeded {
+        tablespace_id: TablespaceId,
+        size: usize,
+    },
 
     /// Internal error
     #[error("Internal error: {0}")]
     Internal(String),
+    #[error("Tablespace not found: {0}")]
+    TablespaceNotFound(TablespaceId),
 }

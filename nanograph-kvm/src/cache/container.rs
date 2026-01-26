@@ -222,7 +222,9 @@ impl ContainerMetadataCache {
 mod tests {
     use super::*;
 
-    use nanograph_core::object::{DatabaseId, ShardIndex, ShardStatus, TableSharding, TenantId};
+    use nanograph_core::object::{
+        DatabaseId, IndexNumber, ShardNumber, ShardStatus, TableSharding, TenantId,
+    };
     use nanograph_core::types::Timestamp;
     use nanograph_kvt::StorageEngineType;
     use std::collections::HashMap;
@@ -232,8 +234,8 @@ mod tests {
         let database_id = DatabaseId::from(1);
         let container_id = ContainerId::from_parts(tenant_id, database_id);
         let table_id = TableId::from(1);
-        let shard_index = ShardIndex::from(5);
-        let shard_id = ShardId::from_parts(table_id, shard_index);
+        let shard_number = ShardNumber::from(5);
+        let shard_id = ShardId::from_parts(tenant_id, database_id, table_id, shard_number);
         ContainerMetadataCache::new(container_id, shard_id, Duration::from_secs(60))
     }
 
@@ -243,8 +245,8 @@ mod tests {
         let database_id = DatabaseId::from(1);
         let container_id = ContainerId::from_parts(tenant_id, database_id);
         let table_id = TableId::from(1);
-        let shard_index = ShardIndex::from(5);
-        let shard_id = ShardId::from_parts(table_id, shard_index);
+        let shard_number = ShardNumber::from(5);
+        let shard_id = ShardId::from_parts(tenant_id, database_id, table_id, shard_number);
         let cache = ContainerMetadataCache::new(
             container_id.clone(),
             shard_id.clone(),
@@ -345,9 +347,12 @@ mod tests {
     #[test]
     fn test_shard_records() {
         let mut cache = create_test_cache();
+        let tenant_id = TenantId::from(1);
+        let database_id = DatabaseId::from(1);
+        let container_id = ContainerId::from_parts(tenant_id, database_id);
         let table_id = TableId::from(500);
-        let shard_index = ShardIndex::from(1);
-        let shard_id = ShardId::from_parts(table_id, shard_index);
+        let shard_number = ShardNumber::from(1);
+        let shard_id = ShardId::from_parts(tenant_id, database_id, table_id, shard_number);
         let shard = ShardRecord {
             id: shard_id.clone(),
             name: "test_shard".to_string(),
@@ -379,10 +384,13 @@ mod tests {
     #[test]
     fn test_shard_assignments() {
         let mut cache = create_test_cache();
+        let tenant_id = TenantId::from(1);
+        let database_id = DatabaseId::from(1);
+        let container_id = ContainerId::from_parts(tenant_id, database_id);
         let table_id = TableId::from(600);
-        let shard_index = ShardIndex::from(0);
-        let shard_id = ShardId::from_parts(table_id, shard_index);
-        let nodes = vec![NodeId::from(1), NodeId::from(2)];
+        let shard_number = ShardNumber::from(1);
+        let shard_id = ShardId::from_parts(tenant_id, database_id, table_id, shard_number);
+        let nodes = vec![NodeId::new(1), NodeId::new(2)];
 
         cache.set_shard_assignment(shard_id.clone(), nodes.clone());
         assert_eq!(cache.get_shard_assignment(&shard_id), Some(&nodes));

@@ -44,7 +44,28 @@ impl From<u32> for TenantGroupId {
 
 impl std::fmt::Display for TenantGroupId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Group({})", self.0)
+        write!(f, "TenantGroup({:X})", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tenant_group_id() {
+        let id = TenantGroupId::new(0x12345678);
+        assert_eq!(id.as_u32(), 0x12345678);
+        assert_eq!(TenantGroupId::from(0x12345678), id);
+        assert_eq!(format!("{}", id), "TenantGroup(12345678)");
+    }
+
+    #[test]
+    fn test_system_group_id() {
+        let id = SystemGroupId::new(0xABCDEF01);
+        assert_eq!(id.as_u32(), 0xABCDEF01);
+        assert_eq!(SystemGroupId::from(0xABCDEF01), id);
+        assert_eq!(format!("{}", id), "SystemGroup(ABCDEF01)");
     }
 }
 
@@ -250,7 +271,7 @@ impl From<u32> for SystemGroupId {
 
 impl std::fmt::Display for SystemGroupId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Group({})", self.0)
+        write!(f, "SystemGroup({:X})", self.0)
     }
 }
 

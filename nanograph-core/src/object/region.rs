@@ -49,7 +49,20 @@ impl From<u32> for RegionId {
 
 impl std::fmt::Display for RegionId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Region({})", self.0)
+        write!(f, "Region({:X})", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_region_id() {
+        let id = RegionId::new(0x12345678);
+        assert_eq!(id.as_u32(), 0x12345678);
+        assert_eq!(RegionId::from(0x12345678), id);
+        assert_eq!(format!("{}", id), "Region(12345678)");
     }
 }
 
@@ -211,11 +224,11 @@ pub struct RegionMetadata {
 impl From<RegionRecord> for RegionMetadata {
     fn from(record: RegionRecord) -> Self {
         Self {
-            id: record.id,
+            id: record.region_id,
             name: record.name,
-            cluster: record.cluster,
+            cluster: record.cluster_id,
             created_at: record.created_at,
-            last_modified: record.last_modified,
+            last_modified: record.updated_at,
             options: record.options,
             metadata: record.metadata,
         }
@@ -225,18 +238,18 @@ impl From<RegionRecord> for RegionMetadata {
 /// Metadata for a region.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RegionRecord {
+    /// Identifier of the cluster this region belongs to
+    pub cluster_id: ClusterId,
     /// Unique identifier for the region
-    pub id: RegionId,
-    /// Name of the region
-    pub name: String,
+    pub region_id: RegionId,
     /// Version of the Region Record
     pub version: u64,
-    /// Identifier of the cluster this region belongs to
-    pub cluster: ClusterId,
     /// Timestamp when the Region was created
     pub created_at: Timestamp,
     /// Timestamp when the schema was last modified
-    pub last_modified: Timestamp,
+    pub updated_at: Timestamp,
+    /// Name of the region
+    pub name: String,
     /// Configuration Options for the Region
     pub options: HashMap<String, String>,
     /// Region Metadata (Informative)

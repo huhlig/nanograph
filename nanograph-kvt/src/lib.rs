@@ -34,12 +34,12 @@
 //! ## Basic Store Operations
 //!
 //! ```rust,no_run
-//! use nanograph_kvt::{KeyValueShardStore, ShardId, KeyRange, TableId, ShardIndex};
+//! use nanograph_kvt::{KeyValueShardStore, ShardId, KeyRange, TableId, IndexNumber};
 //!
 //! async fn example(store: impl KeyValueShardStore) -> Result<(), Box<dyn std::error::Error>> {
 //!     // Create a shard (table ID 1, shard index 0)
 //!     let table_id = TableId::from(1u64);
-//!     let shard = store.create_shard(table_id, ShardIndex::from(0u32)).await?;
+//!     let shard = store.create_shard(table_id, IndexNumber::from(0u32)).await?;
 //!
 //!     // Simple put/get
 //!     store.put(shard, b"key1", b"value1").await?;
@@ -57,12 +57,12 @@
 //! ## Range Scans
 //!
 //! ```rust,no_run
-//! use nanograph_kvt::{KeyValueShardStore, KeyRange, TableId, ShardIndex};
+//! use nanograph_kvt::{KeyValueShardStore, KeyRange, TableId, IndexNumber};
 //! use futures::StreamExt;
 //!
 //! async fn range_example(store: impl KeyValueShardStore) -> Result<(), Box<dyn std::error::Error>> {
 //!     let table_id = TableId::from(1u64);
-//!     let shard = store.create_shard(table_id, ShardIndex::from(0u32)).await?;
+//!     let shard = store.create_shard(table_id, IndexNumber::from(0u32)).await?;
 //!
 //!     // Insert data with common prefix
 //!     store.put(shard, b"product:001", b"Widget A").await?;
@@ -85,11 +85,11 @@
 //! ## Transactions
 //!
 //! ```rust,no_run
-//! use nanograph_kvt::{KeyValueShardStore, TableId, ShardIndex};
+//! use nanograph_kvt::{KeyValueShardStore, TableId, IndexNumber};
 //!
 //! async fn transaction_example(store: impl KeyValueShardStore) -> Result<(), Box<dyn std::error::Error>> {
 //!     let table_id = TableId::from(1u64);
-//!     let shard = store.create_shard(table_id, ShardIndex::from(0u32)).await?;
+//!     let shard = store.create_shard(table_id, IndexNumber::from(0u32)).await?;
 //!
 //!     // Start a transaction
 //!     let txn = store.begin_transaction().await?;
@@ -112,11 +112,11 @@
 //! ## Batch Operations
 //!
 //! ```rust,no_run
-//! use nanograph_kvt::{KeyValueShardStore, TableId, ShardIndex};
+//! use nanograph_kvt::{KeyValueShardStore, TableId, IndexNumber};
 //!
 //! async fn batch_example(store: impl KeyValueShardStore) -> Result<(), Box<dyn std::error::Error>> {
 //!     let table_id = TableId::from(1u64);
-//!     let shard = store.create_shard(table_id, ShardIndex::from(0u32)).await?;
+//!     let shard = store.create_shard(table_id, IndexNumber::from(0u32)).await?;
 //!
 //!     // Batch put - need to convert to slice references
 //!     let entries: &[(&[u8], &[u8])] = &[
@@ -160,21 +160,22 @@
 mod error;
 mod kviter;
 mod kvstore;
+mod memory;
 pub mod metrics;
-mod tablespace;
+mod resolver;
 mod transaction;
-mod types;
 
 // Re-export all public types
 pub use self::error::{KeyValueError, KeyValueResult};
 pub use self::kviter::KeyValueIterator;
 pub use self::kvstore::KeyValueShardStore;
+pub use self::memory::{MemoryKeyValueIterator, MemoryKeyValueShardStore, MemoryTransaction};
 pub use self::metrics::EngineMetrics;
-pub use self::tablespace::{StoragePathResolver, StorageTier, TablespaceConfig};
+pub use self::resolver::{StoragePathResolver, TablespaceStorage};
 pub use self::transaction::Transaction;
 pub use self::transaction::TransactionId;
 pub use nanograph_core::object::{
-    KeyRange, ShardId, ShardIndex, ShardState, StorageEngineType, TableId, TablespaceId,
+    IndexNumber, KeyRange, ShardId, ShardState, StorageEngineType, TableId, TablespaceId,
 };
 pub use nanograph_core::types::Timestamp;
 pub use nanograph_vfs::{DynamicFileSystem, File};

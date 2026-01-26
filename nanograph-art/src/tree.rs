@@ -45,6 +45,12 @@ impl<V: Clone> AdaptiveRadixTree<V> {
         self.size == 0
     }
 
+    /// Clear all entries from the tree
+    pub fn clear(&mut self) {
+        self.root = None;
+        self.size = 0;
+    }
+
     /// Get the root node (for iteration)
     pub fn root(&self) -> Option<Arc<Node<V>>> {
         self.root.clone()

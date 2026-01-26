@@ -22,8 +22,8 @@ use crate::transaction::TransactionManager;
 use async_trait::async_trait;
 use nanograph_kvt::metrics::{ShardStats, StatValue};
 use nanograph_kvt::{
-    KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId,
-    ShardIndex, TableId, Transaction,
+    IndexNumber, KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueShardStore,
+    ShardId, TableId, Transaction,
 };
 use nanograph_vfs::{DynamicFileSystem, MemoryFileSystem, Path};
 use nanograph_wal::{WriteAheadLogConfig, WriteAheadLogManager};
@@ -426,10 +426,7 @@ impl KeyValueShardStore for LSMKeyValueStore {
 
     // ===== Table Management =====
 
-    async fn create_shard(&self, table: TableId, index: ShardIndex) -> KeyValueResult<ShardId> {
-        // Compute deterministic ShardId from TableId and ShardIndex
-        let shard_id = ShardId::from_parts(table, index);
-
+    async fn create_shard(&self, shard_id: ShardId) -> KeyValueResult<()> {
         // Create LSMTreeEngine for this shard
         let engine = self.create_engine_for_table(shard_id)?;
 
@@ -437,7 +434,7 @@ impl KeyValueShardStore for LSMKeyValueStore {
         let mut engines = self.engines.write().unwrap();
         engines.insert(shard_id, engine);
 
-        Ok(shard_id)
+        Ok(())
     }
 
     async fn drop_shard(&self, shard: ShardId) -> KeyValueResult<()> {
@@ -445,6 +442,11 @@ impl KeyValueShardStore for LSMKeyValueStore {
         engines.remove(&shard);
 
         Ok(())
+    }
+
+    async fn clear(&self, shard: ShardId) -> KeyValueResult<()> {
+        let engine = self.get_engine(shard)?;
+        engine.clear()
     }
 
     async fn list_shards(&self) -> KeyValueResult<Vec<ShardId>> {
@@ -491,30 +493,38 @@ mod tests {
         let store = LSMKeyValueStore::new();
 
         // Create Shard
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
-        assert!(store.shard_exists(shard).await.unwrap());
+        assert!(store.shard_exists(shard_id).await.unwrap());
 
         // List tables
         let tables = store.list_shards().await.unwrap();
         assert_eq!(tables.len(), 1);
 
         // Drop table
-        store.drop_shard(shard).await.unwrap();
-        assert!(!store.shard_exists(shard).await.unwrap());
+        store.drop_shard(shard_id).await.unwrap();
+        assert!(!store.shard_exists(shard_id).await.unwrap());
     }
 
     #[tokio::test]
-    async fn test_basic_operations() {
+    async fn test_clear_operation() {
         let store = LSMKeyValueStore::new();
 
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let _shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(1);
+        store.create_shard(shard_id).await.unwrap();
 
-        // Note: These tests will fail until we properly initialize engines
-        // TODO: Add engine initialization in create_table
+        // Put some data
+        store.put(shard_id, b"key1", b"value1").await.unwrap();
+        assert_eq!(
+            store.get(shard_id, b"key1").await.unwrap(),
+            Some(b"value1".to_vec())
+        );
+
+        // Clear
+        store.clear(shard_id).await.unwrap();
+
+        // Verify cleared
+        assert_eq!(store.get(shard_id, b"key1").await.unwrap(), None);
     }
 }

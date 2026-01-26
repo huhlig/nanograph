@@ -264,8 +264,7 @@ impl MemTable {
         data.values().cloned().collect()
     }
 
-    /// Clear all entries (used for testing)
-    #[cfg(test)]
+    /// Clear all entries
     pub fn clear(&self) {
         let mut data = self.data.write().unwrap();
         data.clear();

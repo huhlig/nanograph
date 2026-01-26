@@ -17,3 +17,7 @@ repository.workspace = true
 # Time/Date Handling
 chrono.workspace = true
 serde.workspace = true
+
+
+[dev-dependencies]
+serde_yml.workspace = true

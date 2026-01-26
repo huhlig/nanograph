@@ -49,23 +49,21 @@ pub use self::namespace::{
 pub use self::node::NodeId;
 pub use self::region::{RegionCreate, RegionId, RegionMetadata, RegionRecord, RegionUpdate};
 pub use self::security::{
-    Permission, PermissionGrant, ResourceScope, SecurityPrincipal,
-    SystemGroupId, SystemGroupMetadata, SystemGroupRecord,
-    SystemRoleId, SystemRoleMetadata, SystemRoleRecord,
-    SystemUserCreate, SystemUserMetadata, SystemUserRecord, SystemUserUpdate,
-    TenantGroupId, TenantGroupMetadata, TenantGroupRecord,
-    TenantRoleId, TenantRoleMetadata, TenantRoleRecord,
-    TenantUserCreate, TenantUserMetadata, TenantUserRecord, TenantUserUpdate,
-    UserId,
+    Permission, PermissionGrant, ResourceScope, SecurityPrincipal, SystemGroupId,
+    SystemGroupMetadata, SystemGroupRecord, SystemRoleId, SystemRoleMetadata, SystemRoleRecord,
+    SystemUserCreate, SystemUserMetadata, SystemUserRecord, SystemUserUpdate, TenantGroupId,
+    TenantGroupMetadata, TenantGroupRecord, TenantRoleId, TenantRoleMetadata, TenantRoleRecord,
+    TenantUserCreate, TenantUserMetadata, TenantUserRecord, TenantUserUpdate, UserId,
 };
 pub use self::server::{ServerCreate, ServerId, ServerMetadata, ServerRecord, ServerUpdate};
 pub use self::table::{
-    HashFunction, KeyRange, Partitioner, ShardCreate, ShardId, ShardIndex, ShardRecord, ShardState,
-    ShardStatus, ShardUpdate, StorageEngineType, TableCreate, TableId, TableMetadata, TableRecord,
-    TableSharding, TableUpdate,
+    HashFunction, IndexId, IndexNumber, KeyRange, Partitioner, ShardCreate, ShardId, ShardNumber,
+    ShardRecord, ShardState, ShardStatus, ShardUpdate, StorageEngineType, TableCreate, TableId,
+    TableMetadata, TableRecord, TableSharding, TableUpdate,
 };
 pub use self::tablespace::{
-    TablespaceCreate, TablespaceId, TablespaceMetadata, TablespaceRecord, TablespaceUpdate,
+    TablespaceRecord, LocalTablespaceRecord, StorageTier, TablespaceCreate, TablespaceId,
+    TablespaceMetadata, TablespaceUpdate,
 };
 pub use self::tenant::{TenantCreate, TenantId, TenantMetadata, TenantRecord, TenantUpdate};
 

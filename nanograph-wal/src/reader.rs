@@ -65,7 +65,7 @@ impl WriteAheadLogReader {
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn next(&mut self) -> WriteAheadLogResult<Option<WriteAheadLogEntry>> {
         let start = Instant::now();
-        let shard_id = self.segment_id; // Using segment_id as shard_id for metrics
+        let shard_id = self.segment_id as u128; // Using segment_id as shard_id for metrics
 
         let mut file = self.file.lock().unwrap();
         let size = file.get_size().map_err(WriteAheadLogError::FileSystem)?;

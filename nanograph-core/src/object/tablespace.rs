@@ -14,10 +14,10 @@
 // limitations under the License.
 //
 
+use crate::object::TenantId;
 use crate::types::{PropertyUpdate, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::object::TenantId;
 
 /// Tablespace identifier (cluster-wide)
 ///
@@ -56,7 +56,32 @@ impl From<u32> for TablespaceId {
 
 impl std::fmt::Display for TablespaceId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Tablespace({})", self.0)
+        write!(f, "Tablespace({:X})", self.0)
+    }
+}
+
+/// Storage tier classification
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum StorageTier {
+    /// Hot tier - fastest storage (NVMe, RAM)
+    Hot,
+    /// Warm tier - balanced storage (SSD)
+    Warm,
+    /// Cold tier - slower storage (HDD)
+    Cold,
+    /// Archive tier - archival storage (object storage, tape)
+    Archive,
+}
+
+impl From<&str> for StorageTier {
+    fn from(value: &str) -> Self {
+        match value.to_uppercase().as_str() {
+            "HOT" => StorageTier::Hot,
+            "WARM" => StorageTier::Warm,
+            "COLD" => StorageTier::Cold,
+            "ARCHIVE" => StorageTier::Archive,
+            _ => StorageTier::Warm,
+        }
     }
 }
 
@@ -65,10 +90,8 @@ impl std::fmt::Display for TablespaceId {
 pub struct TablespaceCreate {
     /// Name of the Tablespace
     pub name: String,
-    /// Storage path for the tablespace
-    pub storage_path: String,
     /// Storage tier (Hot, Warm, Cold, Archive)
-    pub tier: String,
+    pub tier: StorageTier,
     /// Configuration Options for the Tablespace
     pub options: HashMap<String, String>,
     /// Tablespace Metadata (Informative)
@@ -82,16 +105,10 @@ impl TablespaceCreate {
     ///
     /// * `id`: The unique identifier for the new Tablespace.
     /// * `name`: The name of the new Tablespace.
-    /// * `storage_path`: The filesystem path for the tablespace.
     /// * `tier`: The storage tier (Hot, Warm, Cold, Archive).
-    pub fn new(
-        name: impl Into<String>,
-        storage_path: impl Into<String>,
-        tier: impl Into<String>,
-    ) -> Self {
+    pub fn new(name: impl Into<String>, tier: impl Into<StorageTier>) -> Self {
         Self {
             name: name.into(),
-            storage_path: storage_path.into(),
             tier: tier.into(),
             options: HashMap::new(),
             metadata: HashMap::new(),
@@ -140,12 +157,8 @@ impl TablespaceCreate {
 /// Configuration for Tablespace update
 #[derive(Clone, Debug, Default)]
 pub struct TablespaceUpdate {
-    /// Name of the Tablespace
-    pub name: Option<String>,
-    /// Storage path for the tablespace
-    pub storage_path: Option<String>,
     /// Storage tier (Hot, Warm, Cold, Archive)
-    pub tier: Option<String>,
+    pub tier: Option<StorageTier>,
     /// Configuration Options for the Tablespace
     pub options: Vec<PropertyUpdate>,
     /// Tablespace Metadata (Informative)
@@ -153,33 +166,13 @@ pub struct TablespaceUpdate {
 }
 
 impl TablespaceUpdate {
-    /// Set the name of the Tablespace.
-    ///
-    /// # Arguments
-    ///
-    /// * `name`: The new name for the Tablespace.
-    pub fn set_name(mut self, name: String) -> Self {
-        self.name = Some(name);
-        self
-    }
-
-    /// Set the storage path of the Tablespace.
-    ///
-    /// # Arguments
-    ///
-    /// * `storage_path`: The new storage path for the Tablespace.
-    pub fn set_storage_path(mut self, storage_path: String) -> Self {
-        self.storage_path = Some(storage_path);
-        self
-    }
-
-    /// Set the storage tier of the Tablespace.
+    /// Change the storage tier of the Tablespace.
     ///
     /// # Arguments
     ///
     /// * `tier`: The new storage tier for the Tablespace.
-    pub fn set_tier(mut self, tier: String) -> Self {
-        self.tier = Some(tier);
+    pub fn set_tier(mut self, tier: impl Into<StorageTier>) -> Self {
+        self.tier = Some(tier.into());
         self
     }
     /// Add or update a configuration option for the Namespace.
@@ -236,34 +229,36 @@ pub struct TablespaceMetadata {
     pub id: TablespaceId,
     /// Name of the Tablespace
     pub name: String,
-    /// Storage path for the tablespace
-    pub storage_path: String,
     /// Storage tier (Hot, Warm, Cold, Archive)
-    pub tier: String,
+    pub tier: StorageTier,
     /// Timestamp when the tablespace was created
     pub created_at: Timestamp,
     /// Timestamp when the tablespace was last modified
     pub last_modified: Timestamp,
     /// Tenants assigned to this tablespace
     pub tenants: Vec<TenantId>,
+    /// Local path for this tablespace on this node if exists
+    pub local_path: Option<String>,
     /// Configuration Options for the Tablespace
     pub options: HashMap<String, String>,
     /// Tablespace Metadata (Informative)
     pub metadata: HashMap<String, String>,
 }
 
-impl From<TablespaceRecord> for TablespaceMetadata {
-    fn from(record: TablespaceRecord) -> Self {
+impl From<(TablespaceRecord, Option<LocalTablespaceRecord>)> for TablespaceMetadata {
+    fn from(
+        (global_record, local_record): (TablespaceRecord, Option<LocalTablespaceRecord>),
+    ) -> Self {
         Self {
-            id: record.id,
-            name: record.name,
-            storage_path: record.storage_path,
-            tier: record.tier,
-            created_at: record.created_at,
-            last_modified: record.last_modified,
+            id: global_record.id,
+            name: global_record.name,
+            tier: global_record.tier,
+            created_at: global_record.created_at,
+            last_modified: global_record.updated_at,
             tenants: vec![],
-            options: record.options,
-            metadata: record.metadata,
+            local_path: local_record.map(|r| r.base_path),
+            options: global_record.options,
+            metadata: global_record.metadata,
         }
     }
 }
@@ -273,22 +268,44 @@ impl From<TablespaceRecord> for TablespaceMetadata {
 pub struct TablespaceRecord {
     /// Unique identifier for the Tablespace
     pub id: TablespaceId,
-    /// Name of the Tablespace
-    pub name: String,
-    /// Storage path for the tablespace
-    pub storage_path: String,
-    /// Storage tier (Hot, Warm, Cold, Archive)
-    pub tier: String,
     /// Version of the Tablespace Record
     pub version: u64,
     /// Timestamp when the tablespace was created
     pub created_at: Timestamp,
     /// Timestamp when the tablespace was last modified
-    pub last_modified: Timestamp,
+    pub updated_at: Timestamp,
+    /// Name of the Tablespace
+    pub name: String,
+    /// Storage tier (Hot, Warm, Cold, Archive)
+    pub tier: StorageTier,
     /// Tenants assigned to this tablespace
     pub tenants: Vec<TenantId>,
     /// Configuration Options for the Tablespace
     pub options: HashMap<String, String>,
     /// Tablespace Metadata (Informative)
     pub metadata: HashMap<String, String>,
+}
+
+/// Local Tablespace Configuration
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LocalTablespaceRecord {
+    /// Unique identifier for the Tablespace
+    pub id: TablespaceId,
+    /// Name of the Tablespace
+    pub name: String,
+    /// Base path for this tablespace on this node
+    pub base_path: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tablespace_id() {
+        let id = TablespaceId::new(0x12345678);
+        assert_eq!(id.as_u32(), 0x12345678);
+        assert_eq!(TablespaceId::from(0x12345678), id);
+        assert_eq!(format!("{}", id), "Tablespace(12345678)");
+    }
 }

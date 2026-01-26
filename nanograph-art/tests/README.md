@@ -225,4 +225,3 @@ Tests are organized by:
 - **Concurrency**: Single-threaded → Multi-threaded
 - **Data Size**: Small (100) → Medium (1K) → Large (10K+)
 
-## Made with Bob

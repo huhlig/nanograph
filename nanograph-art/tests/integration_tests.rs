@@ -20,7 +20,7 @@ mod test_utils;
 
 use futures::StreamExt;
 use nanograph_art::{AdaptiveRadixTree, ArtKeyValueStore};
-use nanograph_kvt::{KeyRange, KeyValueShardStore, ShardId, ShardIndex, TableId};
+use nanograph_kvt::{IndexNumber, KeyRange, KeyValueShardStore, ShardId, TableId};
 use std::ops::Bound;
 use std::sync::Arc;
 use test_utils::*;
@@ -31,9 +31,9 @@ use tokio::task;
 // ============================================================================
 
 async fn create_test_shard(store: &ArtKeyValueStore) -> ShardId {
-    let table_id = TableId::new(1);
-    let shard_index = ShardIndex::new(0);
-    store.create_shard(table_id, shard_index).await.unwrap()
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
+    shard_id
 }
 
 // ============================================================================
@@ -527,11 +527,11 @@ async fn test_memory_usage_tracking() {
 #[tokio::test]
 async fn test_multiple_shards() {
     let store = ArtKeyValueStore::default();
+    let shard1 = ShardId::new(1);
+    let shard2 = ShardId::new(2);
 
-    let shard1 = create_test_shard(&store).await;
-    let table_id = TableId::new(2);
-    let shard_index = ShardIndex::new(0);
-    let shard2 = store.create_shard(table_id, shard_index).await.unwrap();
+    store.create_shard(shard1).await.unwrap();
+    store.create_shard(shard2).await.unwrap();
 
     // Insert into shard1
     store.put(shard1, b"key1", b"value1").await.unwrap();

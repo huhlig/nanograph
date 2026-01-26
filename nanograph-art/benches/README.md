@@ -169,4 +169,3 @@ When adding new benchmarks:
 4. Document expected performance
 5. Test with both sequential and random data
 
-## Made with Bob

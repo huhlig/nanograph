@@ -15,22 +15,51 @@ repository.workspace = true
 
 [dependencies]
 # Internal Crates
-nanograph-core.workspace = true
-nanograph-kvt.workspace = true
-nanograph-wal.workspace = true
+nanograph-core = { workspace = true }
+nanograph-kvt = { workspace = true }
+nanograph-util = { workspace = true }
+nanograph-wal = { workspace = true }
+nanograph-vfs = { workspace = true }
 
 # Async
-async-trait.workspace = true
-tokio.workspace = true
+async-trait = { workspace = true }
+futures-core = { workspace = true }
+futures-util = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true, features = ["default", "compat"] }
+tokio-stream = { workspace = true }
 
 # Consensus
-openraft.workspace = true
+openraft = { workspace = true }
+openraft-multi = { workspace = true }
+
+# Utilities
+# uuid = {workspace = true}
 
 # Serialization
-serde.workspace = true
-postcard.workspace = true
+byteorder = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+postcard = { workspace = true }
+
+# gRPC
+tonic = { workspace = true }
+tonic-prost = { workspace = true }
+prost = { workspace = true }
 
 # Logging
 metrics.workspace = true
 tracing.workspace = true
 tracing-timing.workspace = true
+
+
+[dev-dependencies]
+nanograph-vfs.workspace = true
+criterion = { workspace = true, features = ["async_tokio"] }
+
+[build-dependencies]
+tonic-prost-build.workspace = true
+
+[[bench]]
+name = "consensus_benchmarks"
+harness = false

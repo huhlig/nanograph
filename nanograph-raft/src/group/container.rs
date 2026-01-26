@@ -138,7 +138,7 @@ impl ContainerShardRaftGroup {
 
                 let shard_metadata = ShardRecord {
                     id: shard_id,
-                    name: format!("shard_{}", shard_id.as_u64()),
+                    name: format!("shard_{}", shard_id.as_u128()),
                     version: 0,
                     created_at: Timestamp::now(),
                     engine_type: StorageEngineType::new("lsm"),

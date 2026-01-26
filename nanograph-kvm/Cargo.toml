@@ -33,20 +33,42 @@ chrono.workspace = true
 
 # Serialization
 serde.workspace = true
+serde_json.workspace = true
 postcard.workspace = true
 
 # Async Await
 futures.workspace = true
 
 # Logging and Metrics
-metrics.workspace = true
-tracing.workspace = true
-tracing-timing.workspace = true
+metrics = { workspace = true }
+tracing-timing = { workspace = true }
+
+# Web Framework
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# Async Runtime
+tokio = { workspace = true, features = ["full"] }
+
+# CLI
+clap = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+# Error Handling
+thiserror = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
-tokio-test.workspace = true
-criterion = { version = "0.5", features = ["async_tokio"] }
+tokio-test = { workspace = true }
+criterion = { workspace = true, features = ["async_tokio"] }
+
+[[bin]]
+name = "nanograph-kvm-server"
+path = "../nanograph-kvm/src/bin.rs"
 
 [[bench]]
 name = "manager_bench"

@@ -20,17 +20,10 @@ mod test_utils;
 
 use futures::StreamExt;
 use nanograph_btree::{BPlusTree, BTreeKeyValueStore, tree::BPlusTreeConfig};
-use nanograph_kvt::{KeyRange, KeyValueShardStore, ShardId, ShardIndex, TableId};
+use nanograph_kvt::{IndexNumber, KeyRange, KeyValueShardStore, ShardId, TableId};
 use std::ops::Bound;
 use std::sync::Arc;
 use test_utils::*;
-
-// Helper function to create a test shard
-async fn create_test_shard(store: &BTreeKeyValueStore, id: u32) -> ShardId {
-    let table_id = TableId::new(id);
-    let shard_index = ShardIndex::new(0);
-    store.create_shard(table_id, shard_index).await.unwrap()
-}
 
 // ============================================================================
 // Basic Operations Tests
@@ -39,35 +32,37 @@ async fn create_test_shard(store: &BTreeKeyValueStore, id: u32) -> ShardId {
 #[tokio::test]
 async fn test_basic_put_get() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     // Insert a key-value pair
-    store.put(shard, b"key1", b"value1").await.unwrap();
+    store.put(shard_id, b"key1", b"value1").await.unwrap();
 
     // Retrieve it
-    let value = store.get(shard, b"key1").await.unwrap();
+    let value = store.get(shard_id, b"key1").await.unwrap();
     assert_eq!(value, Some(b"value1".to_vec()));
 
     // Non-existent key
-    let value = store.get(shard, b"nonexistent").await.unwrap();
+    let value = store.get(shard_id, b"nonexistent").await.unwrap();
     assert_eq!(value, None);
 }
 
 #[tokio::test]
 async fn test_update_existing_key() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
-    store.put(shard, b"key1", b"value1").await.unwrap();
+    store.put(shard_id, b"key1", b"value1").await.unwrap();
     assert_eq!(
-        store.get(shard, b"key1").await.unwrap(),
+        store.get(shard_id, b"key1").await.unwrap(),
         Some(b"value1".to_vec())
     );
 
     // Update the value
-    store.put(shard, b"key1", b"value2").await.unwrap();
+    store.put(shard_id, b"key1", b"value2").await.unwrap();
     assert_eq!(
-        store.get(shard, b"key1").await.unwrap(),
+        store.get(shard_id, b"key1").await.unwrap(),
         Some(b"value2".to_vec())
     );
 }
@@ -75,48 +70,53 @@ async fn test_update_existing_key() {
 #[tokio::test]
 async fn test_delete() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
-    store.put(shard, b"key1", b"value1").await.unwrap();
-    store.put(shard, b"key2", b"value2").await.unwrap();
+    store.put(shard_id, b"key1", b"value1").await.unwrap();
+    store.put(shard_id, b"key2", b"value2").await.unwrap();
 
     // Delete key1
-    let deleted = store.delete(shard, b"key1").await.unwrap();
+    let deleted = store.delete(shard_id, b"key1").await.unwrap();
     assert!(deleted);
 
     // Verify it's gone
-    assert_eq!(store.get(shard, b"key1").await.unwrap(), None);
+    assert_eq!(store.get(shard_id, b"key1").await.unwrap(), None);
 
     // key2 should still exist
     assert_eq!(
-        store.get(shard, b"key2").await.unwrap(),
+        store.get(shard_id, b"key2").await.unwrap(),
         Some(b"value2".to_vec())
     );
 
     // Delete non-existent key
-    let deleted = store.delete(shard, b"nonexistent").await.unwrap();
+    let deleted = store.delete(shard_id, b"nonexistent").await.unwrap();
     assert!(!deleted);
 }
 
 #[tokio::test]
 async fn test_empty_key_and_value() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     // Empty key
-    store.put(shard, b"", b"value").await.unwrap();
+    store.put(shard_id, b"", b"value").await.unwrap();
     assert_eq!(
-        store.get(shard, b"").await.unwrap(),
+        store.get(shard_id, b"").await.unwrap(),
         Some(b"value".to_vec())
     );
 
     // Empty value
-    store.put(shard, b"key", b"").await.unwrap();
-    assert_eq!(store.get(shard, b"key").await.unwrap(), Some(b"".to_vec()));
+    store.put(shard_id, b"key", b"").await.unwrap();
+    assert_eq!(
+        store.get(shard_id, b"key").await.unwrap(),
+        Some(b"".to_vec())
+    );
 
     // Both empty
-    store.put(shard, b"", b"").await.unwrap();
-    assert_eq!(store.get(shard, b"").await.unwrap(), Some(b"".to_vec()));
+    store.put(shard_id, b"", b"").await.unwrap();
+    assert_eq!(store.get(shard_id, b"").await.unwrap(), Some(b"".to_vec()));
 }
 
 // ============================================================================
@@ -126,7 +126,8 @@ async fn test_empty_key_and_value() {
 #[tokio::test]
 async fn test_batch_put() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     let pairs = vec![
         (&b"key1"[..], &b"value1"[..]),
@@ -134,19 +135,19 @@ async fn test_batch_put() {
         (&b"key3"[..], &b"value3"[..]),
     ];
 
-    store.batch_put(shard, &pairs).await.unwrap();
+    store.batch_put(shard_id, &pairs).await.unwrap();
 
     // Verify all were inserted
     assert_eq!(
-        store.get(shard, b"key1").await.unwrap(),
+        store.get(shard_id, b"key1").await.unwrap(),
         Some(b"value1".to_vec())
     );
     assert_eq!(
-        store.get(shard, b"key2").await.unwrap(),
+        store.get(shard_id, b"key2").await.unwrap(),
         Some(b"value2".to_vec())
     );
     assert_eq!(
-        store.get(shard, b"key3").await.unwrap(),
+        store.get(shard_id, b"key3").await.unwrap(),
         Some(b"value3".to_vec())
     );
 }
@@ -154,14 +155,15 @@ async fn test_batch_put() {
 #[tokio::test]
 async fn test_batch_get() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
-    store.put(shard, b"key1", b"value1").await.unwrap();
-    store.put(shard, b"key2", b"value2").await.unwrap();
-    store.put(shard, b"key3", b"value3").await.unwrap();
+    store.put(shard_id, b"key1", b"value1").await.unwrap();
+    store.put(shard_id, b"key2", b"value2").await.unwrap();
+    store.put(shard_id, b"key3", b"value3").await.unwrap();
 
     let keys = vec![&b"key1"[..], &b"key2"[..], &b"nonexistent"[..]];
-    let results = store.batch_get(shard, &keys).await.unwrap();
+    let results = store.batch_get(shard_id, &keys).await.unwrap();
 
     assert_eq!(results.len(), 3);
     assert_eq!(results[0], Some(b"value1".to_vec()));
@@ -172,21 +174,22 @@ async fn test_batch_get() {
 #[tokio::test]
 async fn test_batch_delete() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
-    store.put(shard, b"key1", b"value1").await.unwrap();
-    store.put(shard, b"key2", b"value2").await.unwrap();
-    store.put(shard, b"key3", b"value3").await.unwrap();
+    store.put(shard_id, b"key1", b"value1").await.unwrap();
+    store.put(shard_id, b"key2", b"value2").await.unwrap();
+    store.put(shard_id, b"key3", b"value3").await.unwrap();
 
     let keys = vec![&b"key1"[..], &b"key2"[..], &b"nonexistent"[..]];
-    let deleted_count = store.batch_delete(shard, &keys).await.unwrap();
+    let deleted_count = store.batch_delete(shard_id, &keys).await.unwrap();
 
     assert_eq!(deleted_count, 2); // Only key1 and key2 existed
 
-    assert_eq!(store.get(shard, b"key1").await.unwrap(), None);
-    assert_eq!(store.get(shard, b"key2").await.unwrap(), None);
+    assert_eq!(store.get(shard_id, b"key1").await.unwrap(), None);
+    assert_eq!(store.get(shard_id, b"key2").await.unwrap(), None);
     assert_eq!(
-        store.get(shard, b"key3").await.unwrap(),
+        store.get(shard_id, b"key3").await.unwrap(),
         Some(b"value3".to_vec())
     );
 }
@@ -198,12 +201,13 @@ async fn test_batch_delete() {
 #[tokio::test]
 async fn test_scan_all() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     // Insert in random order
-    store.put(shard, b"key3", b"value3").await.unwrap();
-    store.put(shard, b"key1", b"value1").await.unwrap();
-    store.put(shard, b"key2", b"value2").await.unwrap();
+    store.put(shard_id, b"key3", b"value3").await.unwrap();
+    store.put(shard_id, b"key1", b"value1").await.unwrap();
+    store.put(shard_id, b"key2", b"value2").await.unwrap();
 
     let range = KeyRange {
         start: Bound::Unbounded,
@@ -212,7 +216,7 @@ async fn test_scan_all() {
         reverse: false,
     };
 
-    let iter = store.scan(shard, range).await.unwrap();
+    let iter = store.scan(shard_id, range).await.unwrap();
     let mut iter = Box::pin(iter);
     let mut results = Vec::new();
 
@@ -233,13 +237,14 @@ async fn test_scan_all() {
 #[tokio::test]
 async fn test_scan_with_bounds() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     for i in 0..10 {
         let key = format!("key{:02}", i);
         let value = format!("value{}", i);
         store
-            .put(shard, key.as_bytes(), value.as_bytes())
+            .put(shard_id, key.as_bytes(), value.as_bytes())
             .await
             .unwrap();
     }
@@ -252,7 +257,7 @@ async fn test_scan_with_bounds() {
         reverse: false,
     };
 
-    let iter = store.scan(shard, range).await.unwrap();
+    let iter = store.scan(shard_id, range).await.unwrap();
     let mut iter = Box::pin(iter);
     let mut results = Vec::new();
 
@@ -271,11 +276,12 @@ async fn test_scan_with_bounds() {
 #[tokio::test]
 async fn test_scan_with_limit() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     for i in 0..100 {
         let key = format!("key{:03}", i);
-        store.put(shard, key.as_bytes(), b"value").await.unwrap();
+        store.put(shard_id, key.as_bytes(), b"value").await.unwrap();
     }
 
     let range = KeyRange {
@@ -285,7 +291,7 @@ async fn test_scan_with_limit() {
         reverse: false,
     };
 
-    let iter = store.scan(shard, range).await.unwrap();
+    let iter = store.scan(shard_id, range).await.unwrap();
     let mut iter = Box::pin(iter);
     let mut count = 0;
 
@@ -301,11 +307,12 @@ async fn test_scan_with_limit() {
 #[tokio::test]
 async fn test_scan_reverse() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
-    store.put(shard, b"key1", b"value1").await.unwrap();
-    store.put(shard, b"key2", b"value2").await.unwrap();
-    store.put(shard, b"key3", b"value3").await.unwrap();
+    store.put(shard_id, b"key1", b"value1").await.unwrap();
+    store.put(shard_id, b"key2", b"value2").await.unwrap();
+    store.put(shard_id, b"key3", b"value3").await.unwrap();
 
     let range = KeyRange {
         start: Bound::Unbounded,
@@ -314,7 +321,7 @@ async fn test_scan_reverse() {
         reverse: true,
     };
 
-    let iter = store.scan(shard, range).await.unwrap();
+    let iter = store.scan(shard_id, range).await.unwrap();
     let mut iter = Box::pin(iter);
     let mut results = Vec::new();
 
@@ -339,7 +346,8 @@ async fn test_scan_reverse() {
 #[tokio::test]
 async fn test_large_sequential_inserts() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     let count = 10_000;
 
@@ -348,26 +356,26 @@ async fn test_large_sequential_inserts() {
         let key = format!("key{:08}", i);
         let value = format!("value{}", i);
         store
-            .put(shard, key.as_bytes(), value.as_bytes())
+            .put(shard_id, key.as_bytes(), value.as_bytes())
             .await
             .unwrap();
     }
 
     // Verify count
-    let key_count = store.key_count(shard).await.unwrap();
+    let key_count = store.key_count(shard_id).await.unwrap();
     assert_eq!(key_count, count);
 
     // Spot check some values
     assert_eq!(
-        store.get(shard, b"key00000000").await.unwrap(),
+        store.get(shard_id, b"key00000000").await.unwrap(),
         Some(b"value0".to_vec())
     );
     assert_eq!(
-        store.get(shard, b"key00005000").await.unwrap(),
+        store.get(shard_id, b"key00005000").await.unwrap(),
         Some(b"value5000".to_vec())
     );
     assert_eq!(
-        store.get(shard, b"key00009999").await.unwrap(),
+        store.get(shard_id, b"key00009999").await.unwrap(),
         Some(b"value9999".to_vec())
     );
 }
@@ -375,13 +383,14 @@ async fn test_large_sequential_inserts() {
 #[tokio::test]
 async fn test_large_random_inserts() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     let kvs = generate_random_kvs(1000, 42);
 
     // Insert all key-value pairs
     for (key, value) in &kvs {
-        store.put(shard, key, value).await.unwrap();
+        store.put(shard_id, key, value).await.unwrap();
     }
 
     // Build a map of the final value for each key (last write wins)
@@ -392,7 +401,7 @@ async fn test_large_random_inserts() {
 
     // Verify all unique keys can be retrieved with their final values
     for (key, expected_value) in &final_values {
-        let value = store.get(shard, key).await.unwrap();
+        let value = store.get(shard_id, key).await.unwrap();
         assert_eq!(
             value.as_ref(),
             Some(expected_value),
@@ -442,36 +451,38 @@ async fn test_tree_splits() {
 #[tokio::test]
 async fn test_key_count() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
-    assert_eq!(store.key_count(shard).await.unwrap(), 0);
+    assert_eq!(store.key_count(shard_id).await.unwrap(), 0);
 
-    store.put(shard, b"key1", b"value1").await.unwrap();
-    assert_eq!(store.key_count(shard).await.unwrap(), 1);
+    store.put(shard_id, b"key1", b"value1").await.unwrap();
+    assert_eq!(store.key_count(shard_id).await.unwrap(), 1);
 
-    store.put(shard, b"key2", b"value2").await.unwrap();
-    assert_eq!(store.key_count(shard).await.unwrap(), 2);
+    store.put(shard_id, b"key2", b"value2").await.unwrap();
+    assert_eq!(store.key_count(shard_id).await.unwrap(), 2);
 
-    store.delete(shard, b"key1").await.unwrap();
-    assert_eq!(store.key_count(shard).await.unwrap(), 1);
+    store.delete(shard_id, b"key1").await.unwrap();
+    assert_eq!(store.key_count(shard_id).await.unwrap(), 1);
 }
 
 #[tokio::test]
 async fn test_table_stats() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     // Insert some data
     for i in 0..100 {
         let key = format!("key{:03}", i);
         let value = format!("value{}", i);
         store
-            .put(shard, key.as_bytes(), value.as_bytes())
+            .put(shard_id, key.as_bytes(), value.as_bytes())
             .await
             .unwrap();
     }
 
-    let stats = store.shard_stats(shard).await.unwrap();
+    let stats = store.shard_stats(shard_id).await.unwrap();
 
     assert_eq!(stats.key_count, 100);
     assert!(stats.total_bytes > 0);
@@ -484,9 +495,10 @@ async fn test_table_stats() {
 #[tokio::test]
 async fn test_multiple_tables() {
     let store = BTreeKeyValueStore::default();
-
-    let shard1 = create_test_shard(&store, 1).await;
-    let shard2 = create_test_shard(&store, 2).await;
+    let shard1 = ShardId::new(1);
+    store.create_shard(shard1).await.unwrap();
+    let shard2 = ShardId::new(2);
+    store.create_shard(shard2).await.unwrap();
 
     // Insert different data in each shard
     store.put(shard1, b"key1", b"value1_shard1").await.unwrap();
@@ -507,9 +519,12 @@ async fn test_multiple_tables() {
 async fn test_list_tables() {
     let store = BTreeKeyValueStore::default();
 
-    let shard1 = create_test_shard(&store, 1).await;
-    let shard2 = create_test_shard(&store, 2).await;
-    let shard3 = create_test_shard(&store, 3).await;
+    let shard1 = ShardId::new(1);
+    store.create_shard(shard1).await.unwrap();
+    let shard2 = ShardId::new(2);
+    store.create_shard(shard2).await.unwrap();
+    let shard3 = ShardId::new(3);
+    store.create_shard(shard3).await.unwrap();
 
     let shards = store.list_shards().await.unwrap();
 
@@ -523,15 +538,17 @@ async fn test_list_tables() {
 async fn test_drop_table() {
     let store = BTreeKeyValueStore::default();
 
-    let shard = create_test_shard(&store, 1).await;
-    store.put(shard, b"key1", b"value1").await.unwrap();
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
+
+    store.put(shard_id, b"key1", b"value1").await.unwrap();
 
     // Drop the shard
-    store.drop_shard(shard).await.unwrap();
+    store.drop_shard(shard_id).await.unwrap();
 
     // Shard should no longer exist
     let shards = store.list_shards().await.unwrap();
-    assert!(!shards.contains(&shard));
+    assert!(!shards.contains(&shard_id));
 }
 
 // ============================================================================
@@ -541,14 +558,16 @@ async fn test_drop_table() {
 #[tokio::test]
 async fn test_concurrent_reads() {
     let store = Arc::new(BTreeKeyValueStore::default());
-    let shard = create_test_shard(&store, 1).await;
+
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     // Insert test data
     for i in 0..100 {
         let key = format!("key{:03}", i);
         let value = format!("value{}", i);
         store
-            .put(shard, key.as_bytes(), value.as_bytes())
+            .put(shard_id, key.as_bytes(), value.as_bytes())
             .await
             .unwrap();
     }
@@ -560,7 +579,7 @@ async fn test_concurrent_reads() {
         let handle = tokio::spawn(async move {
             for i in 0..100 {
                 let key = format!("key{:03}", i);
-                let value = store_clone.get(shard, key.as_bytes()).await.unwrap();
+                let value = store_clone.get(shard_id, key.as_bytes()).await.unwrap();
                 assert!(value.is_some());
             }
         });
@@ -576,7 +595,9 @@ async fn test_concurrent_reads() {
 #[tokio::test]
 async fn test_concurrent_writes() {
     let store = Arc::new(BTreeKeyValueStore::default());
-    let shard = create_test_shard(&store, 1).await;
+
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     // Spawn multiple concurrent writers
     let mut handles = vec![];
@@ -587,7 +608,7 @@ async fn test_concurrent_writes() {
                 let key = format!("key_{}_{:03}", thread_id, i);
                 let value = format!("value_{}_{}", thread_id, i);
                 store_clone
-                    .put(shard, key.as_bytes(), value.as_bytes())
+                    .put(shard_id, key.as_bytes(), value.as_bytes())
                     .await
                     .unwrap();
             }
@@ -601,7 +622,7 @@ async fn test_concurrent_writes() {
     }
 
     // Verify all writes succeeded
-    let count = store.key_count(shard).await.unwrap();
+    let count = store.key_count(shard_id).await.unwrap();
     assert_eq!(count, 1000); // 10 threads * 100 keys each
 }
 
@@ -612,14 +633,15 @@ async fn test_concurrent_writes() {
 #[tokio::test]
 async fn test_very_large_keys() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     let large_key = vec![b'k'; 10_000];
     let value = b"value";
 
-    store.put(shard, &large_key, value).await.unwrap();
+    store.put(shard_id, &large_key, value).await.unwrap();
     assert_eq!(
-        store.get(shard, &large_key).await.unwrap(),
+        store.get(shard_id, &large_key).await.unwrap(),
         Some(value.to_vec())
     );
 }
@@ -627,30 +649,26 @@ async fn test_very_large_keys() {
 #[tokio::test]
 async fn test_very_large_values() {
     let store = BTreeKeyValueStore::default();
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     let key = b"key";
     let large_value = vec![b'v'; 1_000_000];
 
-    store.put(shard, key, &large_value).await.unwrap();
-    assert_eq!(store.get(shard, key).await.unwrap(), Some(large_value));
+    store.put(shard_id, key, &large_value).await.unwrap();
+    assert_eq!(store.get(shard_id, key).await.unwrap(), Some(large_value));
 }
 
 #[tokio::test]
 async fn test_duplicate_table_creation() {
     let store = BTreeKeyValueStore::default();
 
-    let table_id = TableId::new(1);
-    let shard_index = ShardIndex::new(0);
-
-    let _shard1 = store.create_shard(table_id, shard_index).await.unwrap();
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     // Creating a shard with the same table and index should succeed (idempotent)
     // but return the same ShardId
-    let shard2 = store.create_shard(table_id, shard_index).await.unwrap();
-
-    // Both should have the same ShardId
-    assert_eq!(_shard1, shard2);
+    store.create_shard(shard_id).await.unwrap();
 }
 
 // ============================================================================
@@ -660,34 +678,35 @@ async fn test_duplicate_table_creation() {
 #[tokio::test]
 async fn test_transaction_basic_operations() {
     let store = Arc::new(BTreeKeyValueStore::default());
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     // Insert initial data
-    store.put(shard, b"key1", b"value1").await.unwrap();
-    store.put(shard, b"key2", b"value2").await.unwrap();
+    store.put(shard_id, b"key1", b"value1").await.unwrap();
+    store.put(shard_id, b"key2", b"value2").await.unwrap();
 
     // Begin transaction
     let tx = store.begin_transaction().await.unwrap();
 
     // Read existing data
-    let val = tx.get(shard, b"key1").await.unwrap();
+    let val = tx.get(shard_id, b"key1").await.unwrap();
     assert_eq!(val, Some(b"value1".to_vec()));
 
     // Write in transaction
-    tx.put(shard, b"key3", b"value3").await.unwrap();
-    tx.put(shard, b"key1", b"updated1").await.unwrap();
+    tx.put(shard_id, b"key3", b"value3").await.unwrap();
+    tx.put(shard_id, b"key1", b"updated1").await.unwrap();
 
     // Read from transaction buffer
-    let val = tx.get(shard, b"key3").await.unwrap();
+    let val = tx.get(shard_id, b"key3").await.unwrap();
     assert_eq!(val, Some(b"value3".to_vec()));
 
-    let val = tx.get(shard, b"key1").await.unwrap();
+    let val = tx.get(shard_id, b"key1").await.unwrap();
     assert_eq!(val, Some(b"updated1".to_vec()));
 
     // Data not yet visible outside transaction
-    assert_eq!(store.get(shard, b"key3").await.unwrap(), None);
+    assert_eq!(store.get(shard_id, b"key3").await.unwrap(), None);
     assert_eq!(
-        store.get(shard, b"key1").await.unwrap(),
+        store.get(shard_id, b"key1").await.unwrap(),
         Some(b"value1".to_vec())
     );
 
@@ -696,11 +715,11 @@ async fn test_transaction_basic_operations() {
 
     // Data now visible
     assert_eq!(
-        store.get(shard, b"key3").await.unwrap(),
+        store.get(shard_id, b"key3").await.unwrap(),
         Some(b"value3".to_vec())
     );
     assert_eq!(
-        store.get(shard, b"key1").await.unwrap(),
+        store.get(shard_id, b"key1").await.unwrap(),
         Some(b"updated1".to_vec())
     );
 }
@@ -708,49 +727,51 @@ async fn test_transaction_basic_operations() {
 #[tokio::test]
 async fn test_transaction_rollback() {
     let store = Arc::new(BTreeKeyValueStore::default());
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     // Insert initial data
-    store.put(shard, b"key1", b"value1").await.unwrap();
+    store.put(shard_id, b"key1", b"value1").await.unwrap();
 
     // Begin transaction
     let tx = store.begin_transaction().await.unwrap();
 
     // Modify data
-    tx.put(shard, b"key1", b"updated1").await.unwrap();
-    tx.put(shard, b"key2", b"value2").await.unwrap();
-    tx.delete(shard, b"key1").await.unwrap();
+    tx.put(shard_id, b"key1", b"updated1").await.unwrap();
+    tx.put(shard_id, b"key2", b"value2").await.unwrap();
+    tx.delete(shard_id, b"key1").await.unwrap();
 
     // Rollback
     tx.rollback().await.unwrap();
 
     // Original data unchanged
     assert_eq!(
-        store.get(shard, b"key1").await.unwrap(),
+        store.get(shard_id, b"key1").await.unwrap(),
         Some(b"value1".to_vec())
     );
-    assert_eq!(store.get(shard, b"key2").await.unwrap(), None);
+    assert_eq!(store.get(shard_id, b"key2").await.unwrap(), None);
 }
 
 #[tokio::test]
 async fn test_transaction_delete() {
     let store = Arc::new(BTreeKeyValueStore::default());
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     // Insert data
-    store.put(shard, b"key1", b"value1").await.unwrap();
-    store.put(shard, b"key2", b"value2").await.unwrap();
+    store.put(shard_id, b"key1", b"value1").await.unwrap();
+    store.put(shard_id, b"key2", b"value2").await.unwrap();
 
     // Begin transaction and delete
     let tx = store.begin_transaction().await.unwrap();
-    tx.delete(shard, b"key1").await.unwrap();
+    tx.delete(shard_id, b"key1").await.unwrap();
 
     // Deleted in transaction
-    assert_eq!(tx.get(shard, b"key1").await.unwrap(), None);
+    assert_eq!(tx.get(shard_id, b"key1").await.unwrap(), None);
 
     // Still exists outside transaction
     assert_eq!(
-        store.get(shard, b"key1").await.unwrap(),
+        store.get(shard_id, b"key1").await.unwrap(),
         Some(b"value1".to_vec())
     );
 
@@ -758,9 +779,9 @@ async fn test_transaction_delete() {
     tx.commit().await.unwrap();
 
     // Now deleted
-    assert_eq!(store.get(shard, b"key1").await.unwrap(), None);
+    assert_eq!(store.get(shard_id, b"key1").await.unwrap(), None);
     assert_eq!(
-        store.get(shard, b"key2").await.unwrap(),
+        store.get(shard_id, b"key2").await.unwrap(),
         Some(b"value2".to_vec())
     );
 }
@@ -768,10 +789,11 @@ async fn test_transaction_delete() {
 #[tokio::test]
 async fn test_transaction_isolation() {
     let store = Arc::new(BTreeKeyValueStore::default());
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     // Insert initial data
-    store.put(shard, b"key1", b"value1").await.unwrap();
+    store.put(shard_id, b"key1", b"value1").await.unwrap();
 
     // Begin two transactions
     let tx1 = store.begin_transaction().await.unwrap();
@@ -779,20 +801,20 @@ async fn test_transaction_isolation() {
 
     // Both see initial data
     assert_eq!(
-        tx1.get(shard, b"key1").await.unwrap(),
+        tx1.get(shard_id, b"key1").await.unwrap(),
         Some(b"value1".to_vec())
     );
     assert_eq!(
-        tx2.get(shard, b"key1").await.unwrap(),
+        tx2.get(shard_id, b"key1").await.unwrap(),
         Some(b"value1".to_vec())
     );
 
     // tx1 modifies in its buffer
-    tx1.put(shard, b"key1", b"tx1_value").await.unwrap();
+    tx1.put(shard_id, b"key1", b"tx1_value").await.unwrap();
 
     // tx2 doesn't see tx1's uncommitted changes (still in tx1's buffer)
     assert_eq!(
-        tx2.get(shard, b"key1").await.unwrap(),
+        tx2.get(shard_id, b"key1").await.unwrap(),
         Some(b"value1".to_vec())
     );
 
@@ -803,27 +825,27 @@ async fn test_transaction_isolation() {
     // tx2 will see tx1's committed changes when reading from the tree
     // For true SNAPSHOT isolation, we would need MVCC with version tracking
     assert_eq!(
-        tx2.get(shard, b"key1").await.unwrap(),
+        tx2.get(shard_id, b"key1").await.unwrap(),
         Some(b"tx1_value".to_vec())
     );
 
     // New reads also see tx1's changes
     assert_eq!(
-        store.get(shard, b"key1").await.unwrap(),
+        store.get(shard_id, b"key1").await.unwrap(),
         Some(b"tx1_value".to_vec())
     );
 
     // tx2 can still make its own changes
-    tx2.put(shard, b"key2", b"tx2_value").await.unwrap();
+    tx2.put(shard_id, b"key2", b"tx2_value").await.unwrap();
     tx2.commit().await.unwrap();
 
     // Verify both transactions' changes are persisted
     assert_eq!(
-        store.get(shard, b"key1").await.unwrap(),
+        store.get(shard_id, b"key1").await.unwrap(),
         Some(b"tx1_value".to_vec())
     );
     assert_eq!(
-        store.get(shard, b"key2").await.unwrap(),
+        store.get(shard_id, b"key2").await.unwrap(),
         Some(b"tx2_value".to_vec())
     );
 }
@@ -831,7 +853,8 @@ async fn test_transaction_isolation() {
 #[tokio::test]
 async fn test_transaction_multiple_operations() {
     let store = Arc::new(BTreeKeyValueStore::default());
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     let tx = store.begin_transaction().await.unwrap();
 
@@ -839,7 +862,7 @@ async fn test_transaction_multiple_operations() {
     for i in 0..100 {
         let key = format!("key{:03}", i);
         let value = format!("value{}", i);
-        tx.put(shard, key.as_bytes(), value.as_bytes())
+        tx.put(shard_id, key.as_bytes(), value.as_bytes())
             .await
             .unwrap();
     }
@@ -847,7 +870,7 @@ async fn test_transaction_multiple_operations() {
     // Verify in transaction
     for i in 0..100 {
         let key = format!("key{:03}", i);
-        let value = tx.get(shard, key.as_bytes()).await.unwrap();
+        let value = tx.get(shard_id, key.as_bytes()).await.unwrap();
         assert!(value.is_some());
     }
 
@@ -855,59 +878,61 @@ async fn test_transaction_multiple_operations() {
     tx.commit().await.unwrap();
 
     // Verify after commit
-    let count = store.key_count(shard).await.unwrap();
+    let count = store.key_count(shard_id).await.unwrap();
     assert_eq!(count, 100);
 }
 
 #[tokio::test]
 async fn test_transaction_commit_applies_changes() {
     let store = Arc::new(BTreeKeyValueStore::default());
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     // Insert initial data
-    store.put(shard, b"existing", b"value").await.unwrap();
+    store.put(shard_id, b"existing", b"value").await.unwrap();
 
     let tx = store.begin_transaction().await.unwrap();
-    tx.put(shard, b"key1", b"value1").await.unwrap();
-    tx.put(shard, b"key2", b"value2").await.unwrap();
-    tx.delete(shard, b"existing").await.unwrap();
+    tx.put(shard_id, b"key1", b"value1").await.unwrap();
+    tx.put(shard_id, b"key2", b"value2").await.unwrap();
+    tx.delete(shard_id, b"existing").await.unwrap();
 
     // Commit
     tx.commit().await.unwrap();
 
     // Verify all changes applied
     assert_eq!(
-        store.get(shard, b"key1").await.unwrap(),
+        store.get(shard_id, b"key1").await.unwrap(),
         Some(b"value1".to_vec())
     );
     assert_eq!(
-        store.get(shard, b"key2").await.unwrap(),
+        store.get(shard_id, b"key2").await.unwrap(),
         Some(b"value2".to_vec())
     );
-    assert_eq!(store.get(shard, b"existing").await.unwrap(), None);
+    assert_eq!(store.get(shard_id, b"existing").await.unwrap(), None);
 }
 
 #[tokio::test]
 async fn test_transaction_rollback_discards_changes() {
     let store = Arc::new(BTreeKeyValueStore::default());
-    let shard = create_test_shard(&store, 1).await;
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
 
     // Insert initial data
-    store.put(shard, b"existing", b"value").await.unwrap();
+    store.put(shard_id, b"existing", b"value").await.unwrap();
 
     let tx = store.begin_transaction().await.unwrap();
-    tx.put(shard, b"key1", b"value1").await.unwrap();
-    tx.put(shard, b"key2", b"value2").await.unwrap();
-    tx.delete(shard, b"existing").await.unwrap();
+    tx.put(shard_id, b"key1", b"value1").await.unwrap();
+    tx.put(shard_id, b"key2", b"value2").await.unwrap();
+    tx.delete(shard_id, b"existing").await.unwrap();
 
     // Rollback
     tx.rollback().await.unwrap();
 
     // Verify no changes applied
-    assert_eq!(store.get(shard, b"key1").await.unwrap(), None);
-    assert_eq!(store.get(shard, b"key2").await.unwrap(), None);
+    assert_eq!(store.get(shard_id, b"key1").await.unwrap(), None);
+    assert_eq!(store.get(shard_id, b"key2").await.unwrap(), None);
     assert_eq!(
-        store.get(shard, b"existing").await.unwrap(),
+        store.get(shard_id, b"existing").await.unwrap(),
         Some(b"value".to_vec())
     );
 }

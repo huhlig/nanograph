@@ -187,20 +187,22 @@ pub enum Permission {
     // Table Operations
     /// Create new Tables
     TableCreate,
-    /// Read data from table
-    TableRead,
-    /// Write data to table
-    TableWrite,
-    /// Delete data from table
+    /// Drop table
     TableDelete,
     /// Alter table structure
     TableAlter,
-    /// Drop table
-    TableDrop,
+    /// Read data from table
+    TableDataQuery,
+    /// Able to Insert new keys
+    TableDataInsert,
+    /// Able to update keys
+    TableDataUpdate,
+    /// Able to delete keys
+    TableDataDelete,
     /// Create indexes on table
     TableIndexCreate,
     /// Drop indexes from table
-    TableIndexDrop,
+    TableIndexDelete,
 
     // Function Operations
     /// Execute functions

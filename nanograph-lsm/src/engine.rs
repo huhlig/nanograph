@@ -194,7 +194,7 @@ impl LSMTreeEngine {
     }
 
     /// Get the shard ID for this engine
-    pub fn shard_id(&self) -> u64 {
+    pub fn shard_id(&self) -> u128 {
         self.options.shard_id
     }
 
@@ -265,7 +265,17 @@ impl LSMTreeEngine {
         let contents = serde_json::to_vec_pretty(&manifest)
             .map_err(|e| nanograph_kvt::KeyValueError::StorageCorruption(e.to_string()))?;
 
-        // Write to file
+        // Write to file (remove first if it exists because some VFS implementations fail on existing file)
+        if self
+            .fs
+            .exists(&manifest_path)
+            .map_err(|e| nanograph_kvt::KeyValueError::StorageCorruption(e.to_string()))?
+        {
+            self.fs
+                .remove_file(&manifest_path)
+                .map_err(|e| nanograph_kvt::KeyValueError::StorageCorruption(e.to_string()))?;
+        }
+
         let mut file = self
             .fs
             .create_file(&manifest_path)
@@ -820,7 +830,17 @@ impl LSMTreeEngine {
             "Flushing memtable to SSTable"
         );
 
-        // Create SSTable file using VFS
+        // Create SSTable file using VFS (remove first if it exists)
+        if self
+            .fs
+            .exists(&path)
+            .map_err(|e| nanograph_kvt::KeyValueError::StorageCorruption(e.to_string()))?
+        {
+            self.fs
+                .remove_file(&path)
+                .map_err(|e| nanograph_kvt::KeyValueError::StorageCorruption(e.to_string()))?;
+        }
+
         let mut file = self
             .fs
             .create_file(&path)
@@ -1281,6 +1301,36 @@ impl LSMTreeEngine {
     pub fn compact(&self) -> KeyValueResult<()> {
         self.maybe_compact()
     }
+
+    /// Clear all data from the engine
+    pub fn clear(&self) -> KeyValueResult<()> {
+        // Clear memtables
+        self.memtable.read().unwrap().clear();
+        *self.immutable_memtable.write().unwrap() = None;
+
+        // Clear levels and delete SSTable files
+        {
+            let mut levels = self.levels.write().unwrap();
+            for level in levels.iter_mut() {
+                for sstable_meta in &level.sstables {
+                    let path = self.sstable_path(sstable_meta.file_number);
+                    let _ = self.fs.remove_file(&path);
+                }
+                level.sstables.clear();
+                level.total_size = 0;
+            }
+        }
+
+        // Save empty manifest
+        self.save_manifest()?;
+
+        // Truncate WAL
+        if let Ok(head_lsn) = self.wal.head_lsn() {
+            let _ = self.wal.truncate_before(head_lsn);
+        }
+
+        Ok(())
+    }
 }
 
 /// Engine statistics
@@ -1363,5 +1413,53 @@ mod tests {
         assert_eq!(stats.total_writes, 2);
         assert_eq!(stats.total_reads, 1);
         assert!(stats.memtable_size > 0);
+    }
+
+    #[test]
+    fn test_engine_clear() {
+        let (engine, _temp_dir) = create_test_engine();
+
+        // 1. Put some data in memtable
+        engine.put(b"key1".to_vec(), b"value1".to_vec()).unwrap();
+        assert_eq!(engine.get(b"key1").unwrap(), Some(b"value1".to_vec()));
+
+        // 2. Force flush to create SSTable
+        engine.flush().unwrap();
+        assert_eq!(engine.get(b"key1").unwrap(), Some(b"value1".to_vec()));
+
+        // Verify SSTable exists in level 0
+        {
+            let levels = engine.levels.read().unwrap();
+            assert_eq!(levels[0].sstables.len(), 1);
+        }
+
+        // 3. Put more data in memtable
+        engine.put(b"key2".to_vec(), b"value2".to_vec()).unwrap();
+        assert_eq!(engine.get(b"key2").unwrap(), Some(b"value2".to_vec()));
+
+        // 4. Clear the engine
+        engine.clear().unwrap();
+
+        // 5. Verify data is gone
+        assert_eq!(engine.get(b"key1").unwrap(), None);
+        assert_eq!(engine.get(b"key2").unwrap(), None);
+
+        // 6. Verify internal state is cleared
+        assert_eq!(engine.memtable.read().unwrap().entry_count(), 0);
+        assert!(engine.immutable_memtable.read().unwrap().is_none());
+
+        let levels = engine.levels.read().unwrap();
+        for level in levels.iter() {
+            assert_eq!(level.sstables.len(), 0);
+            assert_eq!(level.total_size, 0);
+        }
+
+        // 7. Verify files are gone (manifest should be empty but exist)
+        let manifest_path = format!("{}/MANIFEST", engine.base_path);
+        assert!(engine.fs.exists(&manifest_path).unwrap());
+
+        // SSTable for file 1 should be gone
+        let sstable_path = engine.sstable_path(1);
+        assert!(!engine.fs.exists(&sstable_path).unwrap());
     }
 }

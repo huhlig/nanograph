@@ -13,5 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
+
+//! Nanograph Core Library
+pub mod config;
 pub mod object;
 pub mod types;

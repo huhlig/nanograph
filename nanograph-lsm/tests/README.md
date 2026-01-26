@@ -58,4 +58,3 @@ When adding new integration tests:
 3. Test both success and failure cases
 4. Document what the test validates
 
-## Made with Bob

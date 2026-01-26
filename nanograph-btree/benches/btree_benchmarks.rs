@@ -19,7 +19,7 @@
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use futures::StreamExt;
 use nanograph_btree::{BPlusTree, BTreeKeyValueStore, tree::BPlusTreeConfig};
-use nanograph_kvt::{KeyRange, KeyValueShardStore, ShardIndex, TableId};
+use nanograph_kvt::{IndexNumber, KeyRange, KeyValueShardStore, ShardId, TableId};
 use std::ops::Bound;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -57,16 +57,15 @@ fn create_populated_tree(count: usize) -> Arc<BPlusTree> {
 
 async fn create_populated_store(count: usize) -> (BTreeKeyValueStore, nanograph_kvt::ShardId) {
     let store = BTreeKeyValueStore::default();
-    let table_id = TableId::new(1);
-    let shard_index = ShardIndex::new(0);
-    let shard = store.create_shard(table_id, shard_index).await.unwrap();
+    let shard_id = ShardId::new(1);
+    store.create_shard(shard_id).await.unwrap();
     let kvs = generate_sequential_kvs(count);
 
     for (key, value) in kvs {
-        store.put(shard, &key, &value).await.unwrap();
+        store.put(shard_id, &key, &value).await.unwrap();
     }
 
-    (store, shard)
+    (store, shard_id)
 }
 
 // ============================================================================
@@ -388,10 +387,9 @@ fn bench_batch_put(c: &mut Criterion) {
 
                 b.to_async(&rt).iter(|| async {
                     let store = BTreeKeyValueStore::default();
-                    let table_id = TableId::new(1);
-                    let shard_index = ShardIndex::new(0);
-                    let shard = store.create_shard(table_id, shard_index).await.unwrap();
-                    store.batch_put(shard, black_box(&pairs)).await.unwrap();
+                    let shard_id = ShardId::new(1);
+                    store.create_shard(shard_id).await.unwrap();
+                    store.batch_put(shard_id, black_box(&pairs)).await.unwrap();
                 });
             },
         );

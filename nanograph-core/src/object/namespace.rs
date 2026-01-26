@@ -47,7 +47,20 @@ impl From<u32> for NamespaceId {
 
 impl std::fmt::Display for NamespaceId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Namespace({})", self.0)
+        write!(f, "Namespace({:X})", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_namespace_id() {
+        let id = NamespaceId::new(0x12345678);
+        assert_eq!(id.as_u64(), 0x12345678);
+        assert_eq!(NamespaceId::from(0x12345678), id);
+        assert_eq!(format!("{}", id), "Namespace(12345678)");
     }
 }
 

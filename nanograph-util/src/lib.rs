@@ -156,14 +156,16 @@
 //! assert_eq!(original_data.as_slice(), decompressed.as_slice());
 //! ```
 
+mod cache;
 mod compression;
 mod encryption;
 mod error;
 mod integrity;
-mod cache;
+mod serde;
 
-pub use compression::CompressionAlgorithm;
-pub use encryption::{EncryptionAlgorithm, EncryptionKey, Nonce};
-pub use error::{Error, Result};
-pub use integrity::{IntegrityAlgorithm, IntegrityHash, IntegrityHasher};
-pub use cache::CacheMap;
+pub use self::cache::CacheMap;
+pub use self::compression::CompressionAlgorithm;
+pub use self::encryption::{EncryptionAlgorithm, EncryptionKey, EncryptionKeyId, Nonce};
+pub use self::error::{Error, Result};
+pub use self::integrity::{IntegrityAlgorithm, IntegrityHash, IntegrityHasher};
+pub use self::serde::{deserialize, serialize};

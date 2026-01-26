@@ -329,7 +329,11 @@ fn test_encryption_nonce_generation() {
 
 #[test]
 fn test_encryption_key_from_bytes_invalid_size() {
-    let result = EncryptionKey::from_bytes(EncryptionAlgorithm::Aes256Gcm, vec![0u8; 16]);
+    let result = EncryptionKey::from_bytes(
+        EncryptionAlgorithm::Aes256Gcm,
+        EncryptionKeyId::new(1),
+        vec![0u8; 16],
+    );
     assert!(result.is_err());
     match result {
         Err(Error::InvalidKeySize { expected, actual }) => {
@@ -452,11 +456,12 @@ fn test_encryption_algorithm_mismatch() {
 #[test]
 fn test_encryption_key_as_bytes() {
     let algo = EncryptionAlgorithm::Aes256Gcm;
+    let key_id = EncryptionKeyId::new(1);
     let key = algo.generate_key();
     let bytes = key.as_bytes();
     assert_eq!(bytes.len(), 32);
 
-    let restored = EncryptionKey::from_bytes(algo, bytes.to_vec()).unwrap();
+    let restored = EncryptionKey::from_bytes(algo, key_id, bytes.to_vec()).unwrap();
     assert_eq!(key, restored);
 }
 

@@ -30,7 +30,7 @@ const SEGMENT_MAGIC: u32 = 0x474e414e;
 const RECORD_MAGIC: u32 = 0x474e414f;
 
 /// Size of the Segment Header in Bytes
-pub const HEADER_SIZE: usize = 4 + 2 + 8 + 8 + 8 + 8 + 1 + 1 + 1 + 16 + 4; // Magic + Version + ShardID + SegmentID + StartOffset + CreatedAt + Integrity + Compression + Encryption + EncryptionKeyID(u128) + Checksum
+pub const HEADER_SIZE: usize = 4 + 2 + 16 + 8 + 8 + 8 + 1 + 1 + 1 + 16 + 4; // Magic + Version + ShardID + SegmentID + StartOffset + CreatedAt + Integrity + Compression + Encryption + EncryptionKeyID(u128) + Checksum
 
 /// Write Ahead Log Segment Header.
 /// This header is at the beginning of every WAL segment file.
@@ -39,7 +39,7 @@ pub struct WriteAheadLogSegmentHeader {
     /// Segment Header Version
     pub version: u16,
     /// Data Shard Id
-    pub shard_id: u64,
+    pub shard_id: u128,
     /// WAL Segment Id
     pub segment_id: u64,
     /// WAL Segment Start Offset
@@ -59,6 +59,19 @@ pub struct WriteAheadLogSegmentHeader {
 }
 
 impl WriteAheadLogSegmentHeader {
+    const RANGE_HEADER: std::ops::Range<usize> = 0x00..0x31;
+    const RANGE_MAGIC: std::ops::Range<usize> = 0x00..0x04;
+    const RANGE_VERSION: std::ops::Range<usize> = 0x04..0x06;
+    const RANGE_SHARD_ID: std::ops::Range<usize> = 0x06..0x16;
+    const RANGE_SEGMENT_ID: std::ops::Range<usize> = 0x16..0x1E;
+    const RANGE_START_OFFSET: std::ops::Range<usize> = 0x1E..0x26;
+    const RANGE_CREATED_AT_UNIX_MS: std::ops::Range<usize> = 0x26..0x2E;
+    const RANGE_INTEGRITY: usize = 0x2E;
+    const RANGE_COMPRESSION: usize = 0x2F;
+    const RANGE_ENCRYPTION: usize = 0x30;
+    const RANGE_ENCRYPTION_KEY_ID: std::ops::Range<usize> = 0x31..0x41;
+    const RANGE_CHECKSUM: std::ops::Range<usize> = 0x41..0x45;
+
     /// Get the starting Log Sequence Number for this segment
     pub fn start_lsn(&self) -> LogSequenceNumber {
         LogSequenceNumber {
@@ -74,19 +87,29 @@ impl WriteAheadLogSegmentHeader {
 
     /// Encode the header into a byte buffer
     pub fn encode(&self, buffer: &mut [u8]) {
-        BigEndian::write_u32(&mut buffer[0..4], SEGMENT_MAGIC);
-        BigEndian::write_u16(&mut buffer[4..6], self.version);
-        BigEndian::write_u64(&mut buffer[6..14], self.shard_id);
-        BigEndian::write_u64(&mut buffer[14..22], self.segment_id);
-        BigEndian::write_u64(&mut buffer[22..30], self.start_offset);
-        BigEndian::write_u64(&mut buffer[30..38], self.created_at_unix_ms);
-        buffer[38] = self.integrity.as_u8();
-        buffer[39] = self.compression.as_u8();
-        buffer[40] = self.encryption.as_u8();
-        BigEndian::write_u128(&mut buffer[41..57], self.encryption_key_id);
+        BigEndian::write_u32(&mut buffer[Self::RANGE_MAGIC], SEGMENT_MAGIC);
+        BigEndian::write_u16(&mut buffer[Self::RANGE_VERSION], self.version);
+        BigEndian::write_u128(&mut buffer[Self::RANGE_SHARD_ID], self.shard_id);
+        BigEndian::write_u64(&mut buffer[Self::RANGE_SEGMENT_ID], self.segment_id);
+        BigEndian::write_u64(&mut buffer[Self::RANGE_START_OFFSET], self.start_offset);
+        BigEndian::write_u64(
+            &mut buffer[Self::RANGE_CREATED_AT_UNIX_MS],
+            self.created_at_unix_ms,
+        );
+        buffer[Self::RANGE_INTEGRITY] = self.integrity.as_u8();
+        buffer[Self::RANGE_COMPRESSION] = self.compression.as_u8();
+        buffer[Self::RANGE_ENCRYPTION] = self.encryption.as_u8();
+        BigEndian::write_u128(
+            &mut buffer[Self::RANGE_ENCRYPTION_KEY_ID],
+            self.encryption_key_id,
+        );
 
-        let checksum = self.integrity.hash(&buffer[0..57]).as_u32().unwrap_or(0);
-        BigEndian::write_u32(&mut buffer[57..61], checksum);
+        let checksum = self
+            .integrity
+            .hash(&buffer[Self::RANGE_HEADER])
+            .as_u32()
+            .unwrap_or(0);
+        BigEndian::write_u32(&mut buffer[Self::RANGE_CHECKSUM], checksum);
     }
 
     /// Decode a header from a byte buffer
@@ -99,33 +122,36 @@ impl WriteAheadLogSegmentHeader {
             return Err(WriteAheadLogError::VersionMismatch);
         }
 
-        let integrity =
-            IntegrityAlgorithm::from_u8(buffer[38]).ok_or(WriteAheadLogError::VersionMismatch)?;
-        let compression =
-            CompressionAlgorithm::from_u8(buffer[39]).ok_or(WriteAheadLogError::VersionMismatch)?;
-        let encryption =
-            EncryptionAlgorithm::from_u8(buffer[40]).ok_or(WriteAheadLogError::VersionMismatch)?;
+        let integrity = IntegrityAlgorithm::from_u8(buffer[Self::RANGE_INTEGRITY])
+            .ok_or(WriteAheadLogError::VersionMismatch)?;
+        let compression = CompressionAlgorithm::from_u8(buffer[Self::RANGE_COMPRESSION])
+            .ok_or(WriteAheadLogError::VersionMismatch)?;
+        let encryption = EncryptionAlgorithm::from_u8(buffer[Self::RANGE_ENCRYPTION])
+            .ok_or(WriteAheadLogError::VersionMismatch)?;
 
-        let read_checksum = BigEndian::read_u32(&buffer[57..61]);
+        let read_checksum = BigEndian::read_u32(&buffer[Self::RANGE_CHECKSUM]);
 
         // Verify checksum if integrity checking is enabled
         if integrity != IntegrityAlgorithm::None {
-            let calc_checksum = integrity.hash(&buffer[0..57]).as_u32().unwrap_or(0);
+            let calc_checksum = integrity
+                .hash(&buffer[Self::RANGE_HEADER])
+                .as_u32()
+                .unwrap_or(0);
             if read_checksum != calc_checksum {
                 return Err(WriteAheadLogError::ChecksumMismatch);
             }
         }
 
         let header = Self {
-            version: BigEndian::read_u16(&buffer[4..6]),
-            shard_id: BigEndian::read_u64(&buffer[6..14]),
-            segment_id: BigEndian::read_u64(&buffer[14..22]),
-            start_offset: BigEndian::read_u64(&buffer[22..30]),
-            created_at_unix_ms: BigEndian::read_u64(&buffer[30..38]),
+            version: BigEndian::read_u16(&buffer[Self::RANGE_VERSION]),
+            shard_id: BigEndian::read_u128(&buffer[Self::RANGE_SHARD_ID]),
+            segment_id: BigEndian::read_u64(&buffer[Self::RANGE_SEGMENT_ID]),
+            start_offset: BigEndian::read_u64(&buffer[Self::RANGE_START_OFFSET]),
+            created_at_unix_ms: BigEndian::read_u64(&buffer[Self::RANGE_CREATED_AT_UNIX_MS]),
             integrity,
             compression,
             encryption,
-            encryption_key_id: BigEndian::read_u128(&buffer[41..57]),
+            encryption_key_id: BigEndian::read_u128(&buffer[Self::RANGE_ENCRYPTION_KEY_ID]),
             checksum: read_checksum,
         };
 
@@ -137,7 +163,7 @@ impl WriteAheadLogSegmentHeader {
 #[derive(Clone)]
 pub struct WriteAheadLogFile {
     file: Arc<Mutex<dyn File>>,
-    shard_id: u64,
+    shard_id: u128,
     segment_id: u64,
     start_offset: u64,
     write_offset: u64,
@@ -148,7 +174,7 @@ impl WriteAheadLogFile {
     /// Create a new WAL segment file
     pub fn create<F: File + 'static>(
         mut file: F,
-        shard_id: u64,
+        shard_id: u128,
         segment_id: u64,
         start_offset: u64,
         integrity: IntegrityAlgorithm,
@@ -276,7 +302,7 @@ impl WriteAheadLogFile {
     }
 
     /// Get the shard ID
-    pub fn shard_id(&self) -> u64 {
+    pub fn shard_id(&self) -> u128 {
         self.shard_id
     }
 

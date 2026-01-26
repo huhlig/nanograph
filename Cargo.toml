@@ -1,12 +1,15 @@
 [workspace]
 resolver = "3"
 members = [
-    "nanograph-art", "nanograph-auth",
+    "nanograph-art",
+    "nanograph-auth",
     "nanograph-btree",
-    "nanograph-core", "nanograph-kvm",
+    "nanograph-core",
+    "nanograph-kvm",
     "nanograph-kvt",
     "nanograph-lsm",
     "nanograph-raft",
+    "nanograph-serde",
     "nanograph-util",
     "nanograph-vfs",
     "nanograph-wal",
@@ -40,12 +43,21 @@ nanograph-util = { path = "nanograph-util" }
 nanograph-vfs = { path = "nanograph-vfs" }
 nanograph-wal = { path = "nanograph-wal" }
 
-# Async
+# Async, Consensus, and Networking
 async-trait = { version = "0.1" }
 futures = { version = "0.3" }
 futures-core = { version = "0.3", features = ["default"] }
+futures-util = { version = "0.3", features = ["default"] }
+# (TODO: Fix this on release of openraft v0.10 https://github.com/databendlabs/openraft/issues/1637)
+openraft = { git = "https://github.com/databendlabs/openraft.git", branch = "release-0.10", features = ["serde", "tracing-log"] }
+openraft-multi = { git = "https://github.com/databendlabs/openraft.git", branch = "release-0.10" }
 tokio = { version = "1", features = ["full"] }
 tokio-test = { version = "0.4" }
+tokio-util = { version = "0.7", features = ["default"] }
+tokio-stream = { version = "0.1" }
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
 
 # Integrity
 crc = { version = "3" }
@@ -62,18 +74,9 @@ snap = { version = "1.1" }
 # Error handling
 thiserror = { version = "2", features = ["default"] }
 
-# Consensus
-openraft = { version = "0.9" }
-
 # Date/Time Handling
 atomic-time = { version = "0.1", features = ["default"] }
 chrono = { version = "0.4", features = ["default", "now"] }
-
-# Serialization
-byteorder = { version = "1.5", features = ["default"] }
-postcard = { version = "1", features = ["use-crc", "use-std"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["default"] }
 
 # Logging
 metrics = { version = "0.24" }
@@ -81,7 +84,30 @@ tracing = { version = "0.1", features = ["default"] }
 tracing-timing = { version = "0.7", features = ["default"] }
 tracing-subscriber = { version = "0.3", features = ["default"] }
 
+# Serialization
+byteorder = { version = "1.5", features = ["default"] }
+capnp = { version = "0.25", features = ["default"] }
+capnp-rpc = { version = "0.25" }
+capnpc = { version = "0.25" }
+postcard = { version = "1", features = ["use-crc", "use-std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["default"] }
+serde_yml = { version = "0.0.12", features = ["default"] }
+
+# gRPC
+tonic = { version = "0.14", features = ["default"] }
+tonic-prost = { version = "0.14" }
+tonic-prost-build = { version = "0.14", features = ["default"] }
+prost = { version = "0.14" }
+
 # Testing & Benchmarking
 criterion = { version = "0.8", features = ["html_reports", "csv_output", "plotters", "async_tokio"] }
 tracing-test = { version = "0.2" }
 tempfile = { version = "3.24" }
+
+# Web Framework
+axum = { version = "0.8", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+
+

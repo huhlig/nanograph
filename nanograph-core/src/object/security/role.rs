@@ -43,7 +43,28 @@ impl From<u32> for TenantRoleId {
 
 impl std::fmt::Display for TenantRoleId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TenantRole({})", self.0)
+        write!(f, "TenantRole({:X})", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tenant_role_id() {
+        let id = TenantRoleId::new(0x12345678);
+        assert_eq!(id.as_u64(), 0x12345678);
+        assert_eq!(TenantRoleId::from(0x12345678), id);
+        assert_eq!(format!("{}", id), "TenantRole(12345678)");
+    }
+
+    #[test]
+    fn test_system_role_id() {
+        let id = SystemRoleId::new(0xABCDEF01);
+        assert_eq!(id.as_u64(), 0xABCDEF01);
+        assert_eq!(SystemRoleId::from(0xABCDEF01), id);
+        assert_eq!(format!("{}", id), "SystemRole(ABCDEF01)");
     }
 }
 
@@ -241,7 +262,7 @@ impl From<u32> for SystemRoleId {
 
 impl std::fmt::Display for SystemRoleId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SystemRole({})", self.0)
+        write!(f, "SystemRole({:X})", self.0)
     }
 }
 

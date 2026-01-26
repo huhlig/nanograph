@@ -28,6 +28,8 @@ pub enum WalRecordKind {
     Delete = 2,
     /// Checkpoint: marks a consistent state
     Checkpoint = 3,
+    /// Clear operation: remove all keys from shard
+    Clear = 4,
 }
 
 impl WalRecordKind {
@@ -37,6 +39,7 @@ impl WalRecordKind {
             1 => Some(Self::Put),
             2 => Some(Self::Delete),
             3 => Some(Self::Checkpoint),
+            4 => Some(Self::Clear),
             _ => None,
         }
     }
@@ -168,6 +171,20 @@ pub fn decode_checkpoint(_payload: &[u8]) -> ArtResult<()> {
     Ok(())
 }
 
+/// Encode a Clear operation into WAL payload format
+///
+/// Clear records have no payload, just a marker
+pub fn encode_clear() -> Vec<u8> {
+    Vec::new()
+}
+
+/// Decode a Clear operation from WAL payload format
+///
+/// Clear records have no payload
+pub fn decode_clear(_payload: &[u8]) -> ArtResult<()> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,10 +238,12 @@ mod tests {
         assert_eq!(WalRecordKind::from_u16(1), Some(WalRecordKind::Put));
         assert_eq!(WalRecordKind::from_u16(2), Some(WalRecordKind::Delete));
         assert_eq!(WalRecordKind::from_u16(3), Some(WalRecordKind::Checkpoint));
+        assert_eq!(WalRecordKind::from_u16(4), Some(WalRecordKind::Clear));
         assert_eq!(WalRecordKind::from_u16(99), None);
 
         assert_eq!(WalRecordKind::Put.to_u16(), 1);
         assert_eq!(WalRecordKind::Delete.to_u16(), 2);
         assert_eq!(WalRecordKind::Checkpoint.to_u16(), 3);
+        assert_eq!(WalRecordKind::Clear.to_u16(), 4);
     }
 }

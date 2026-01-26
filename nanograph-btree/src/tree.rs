@@ -152,6 +152,29 @@ impl BPlusTree {
         Ok(())
     }
 
+    /// Clear all data from the tree
+    pub fn clear(&self) -> BTreeResult<()> {
+        let root_id = BTreeNodeId::new(0);
+        let root = BPlusTreeNode::new_leaf(root_id);
+
+        {
+            let mut nodes = self.nodes.write().unwrap();
+            nodes.clear();
+            nodes.insert(root_id, root.clone());
+        }
+
+        *self.root_id.write().unwrap() = root_id;
+        *self.next_node_id.write().unwrap() = 1;
+        *self.leftmost_leaf.write().unwrap() = Some(root_id);
+
+        if let Some(ref persistence) = self.persistence {
+            persistence.save_node(&root)?;
+            self.save_manifest()?;
+        }
+
+        Ok(())
+    }
+
     /// Allocate a new node ID
     fn allocate_node_id(&self) -> BTreeNodeId {
         let mut next_id = self.next_node_id.write().unwrap();

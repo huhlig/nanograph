@@ -14,10 +14,11 @@ homepage.workspace = true
 repository.workspace = true
 
 [dependencies]
-# Internal Crates
+# Integrity
 nanograph-core.workspace = true
 nanograph-vfs.workspace = true
 nanograph-wal.workspace = true
+rand.workspace = true
 
 # Async
 async-trait.workspace = true
@@ -36,4 +37,5 @@ tracing-timing.workspace = true
 [dev-dependencies]
 criterion.workspace = true
 futures.workspace = true
+tokio = { workspace = true, features = ["full"] }
 

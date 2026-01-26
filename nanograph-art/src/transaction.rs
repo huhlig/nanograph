@@ -233,25 +233,24 @@ impl TransactionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nanograph_kvt::{ShardIndex, TableId};
+    use nanograph_kvt::{IndexNumber, TableId};
 
     #[tokio::test]
     async fn test_transaction_basic() {
         let store = Arc::new(ArtKeyValueStore::new());
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         let tx_manager = TransactionManager::new(store.clone());
         let tx = tx_manager.begin();
 
         // Write within transaction
-        tx.put(shard, b"key1", b"value1").await.unwrap();
-        tx.put(shard, b"key2", b"value2").await.unwrap();
+        tx.put(shard_id, b"key1", b"value1").await.unwrap();
+        tx.put(shard_id, b"key2", b"value2").await.unwrap();
 
         // Read within transaction (should see uncommitted writes)
         assert_eq!(
-            tx.get(shard, b"key1").await.unwrap(),
+            tx.get(shard_id, b"key1").await.unwrap(),
             Some(b"value1".to_vec())
         );
 
@@ -260,11 +259,11 @@ mod tests {
 
         // Verify data is persisted
         assert_eq!(
-            store.get(shard, b"key1").await.unwrap(),
+            store.get(shard_id, b"key1").await.unwrap(),
             Some(b"value1".to_vec())
         );
         assert_eq!(
-            store.get(shard, b"key2").await.unwrap(),
+            store.get(shard_id, b"key2").await.unwrap(),
             Some(b"value2".to_vec())
         );
     }
@@ -272,48 +271,46 @@ mod tests {
     #[tokio::test]
     async fn test_transaction_rollback() {
         let store = Arc::new(ArtKeyValueStore::new());
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         let tx_manager = TransactionManager::new(store.clone());
         let tx = tx_manager.begin();
 
         // Write within transaction
-        tx.put(shard, b"key1", b"value1").await.unwrap();
+        tx.put(shard_id, b"key1", b"value1").await.unwrap();
 
         // Rollback
         tx.rollback().await.unwrap();
 
         // Verify data is NOT persisted
-        assert_eq!(store.get(shard, b"key1").await.unwrap(), None);
+        assert_eq!(store.get(shard_id, b"key1").await.unwrap(), None);
     }
 
     #[tokio::test]
     async fn test_transaction_isolation() {
         let store = Arc::new(ArtKeyValueStore::new());
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Insert initial data
-        store.put(shard, b"key1", b"initial").await.unwrap();
+        store.put(shard_id, b"key1", b"initial").await.unwrap();
 
         let tx_manager = TransactionManager::new(store.clone());
 
         // Start transaction 1
         let tx1 = tx_manager.begin();
-        tx1.put(shard, b"key1", b"tx1_value").await.unwrap();
+        tx1.put(shard_id, b"key1", b"tx1_value").await.unwrap();
 
         // Transaction 1 should see its own write
         assert_eq!(
-            tx1.get(shard, b"key1").await.unwrap(),
+            tx1.get(shard_id, b"key1").await.unwrap(),
             Some(b"tx1_value".to_vec())
         );
 
         // Store should still see initial value (tx1 not committed)
         assert_eq!(
-            store.get(shard, b"key1").await.unwrap(),
+            store.get(shard_id, b"key1").await.unwrap(),
             Some(b"initial".to_vec())
         );
 
@@ -322,7 +319,7 @@ mod tests {
 
         // Now store should see tx1's value
         assert_eq!(
-            store.get(shard, b"key1").await.unwrap(),
+            store.get(shard_id, b"key1").await.unwrap(),
             Some(b"tx1_value".to_vec())
         );
     }
@@ -330,25 +327,24 @@ mod tests {
     #[tokio::test]
     async fn test_transaction_delete() {
         let store = Arc::new(ArtKeyValueStore::new());
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Insert initial data
-        store.put(shard, b"key1", b"value1").await.unwrap();
+        store.put(shard_id, b"key1", b"value1").await.unwrap();
 
         let tx_manager = TransactionManager::new(store.clone());
         let tx = tx_manager.begin();
 
         // Delete within transaction
-        tx.delete(shard, b"key1").await.unwrap();
+        tx.delete(shard_id, b"key1").await.unwrap();
 
         // Transaction should see deletion
-        assert_eq!(tx.get(shard, b"key1").await.unwrap(), None);
+        assert_eq!(tx.get(shard_id, b"key1").await.unwrap(), None);
 
         // Store should still see the value
         assert_eq!(
-            store.get(shard, b"key1").await.unwrap(),
+            store.get(shard_id, b"key1").await.unwrap(),
             Some(b"value1".to_vec())
         );
 
@@ -356,33 +352,32 @@ mod tests {
         tx.commit().await.unwrap();
 
         // Now store should see deletion
-        assert_eq!(store.get(shard, b"key1").await.unwrap(), None);
+        assert_eq!(store.get(shard_id, b"key1").await.unwrap(), None);
     }
 
     #[tokio::test]
     async fn test_transaction_multiple_operations() {
         let store = Arc::new(ArtKeyValueStore::new());
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         let tx_manager = TransactionManager::new(store.clone());
         let tx = tx_manager.begin();
 
         // Multiple operations
-        tx.put(shard, b"key1", b"value1").await.unwrap();
-        tx.put(shard, b"key2", b"value2").await.unwrap();
-        tx.delete(shard, b"key1").await.unwrap(); // Delete key1
-        tx.put(shard, b"key3", b"value3").await.unwrap();
+        tx.put(shard_id, b"key1", b"value1").await.unwrap();
+        tx.put(shard_id, b"key2", b"value2").await.unwrap();
+        tx.delete(shard_id, b"key1").await.unwrap(); // Delete key1
+        tx.put(shard_id, b"key3", b"value3").await.unwrap();
 
         // Check within transaction
-        assert_eq!(tx.get(shard, b"key1").await.unwrap(), None); // Deleted
+        assert_eq!(tx.get(shard_id, b"key1").await.unwrap(), None); // Deleted
         assert_eq!(
-            tx.get(shard, b"key2").await.unwrap(),
+            tx.get(shard_id, b"key2").await.unwrap(),
             Some(b"value2".to_vec())
         );
         assert_eq!(
-            tx.get(shard, b"key3").await.unwrap(),
+            tx.get(shard_id, b"key3").await.unwrap(),
             Some(b"value3".to_vec())
         );
 
@@ -390,13 +385,13 @@ mod tests {
         tx.commit().await.unwrap();
 
         // Verify final state
-        assert_eq!(store.get(shard, b"key1").await.unwrap(), None);
+        assert_eq!(store.get(shard_id, b"key1").await.unwrap(), None);
         assert_eq!(
-            store.get(shard, b"key2").await.unwrap(),
+            store.get(shard_id, b"key2").await.unwrap(),
             Some(b"value2".to_vec())
         );
         assert_eq!(
-            store.get(shard, b"key3").await.unwrap(),
+            store.get(shard_id, b"key3").await.unwrap(),
             Some(b"value3".to_vec())
         );
     }

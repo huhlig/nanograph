@@ -29,10 +29,10 @@ use nanograph_core::object::{
 };
 use nanograph_kvt::KeyValueResult;
 use nanograph_raft::{
-    ClusterCreate, ClusterUpdate, ConsensusRouter, RegionCreate, RegionUpdate, ServerCreate,
+    ClusterCreate, ClusterUpdate, ConsensusManager, RegionCreate, RegionUpdate, ServerCreate,
     ServerUpdate,
 };
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 /// The main entry point for managing a key-value database system.
 ///
@@ -171,7 +171,7 @@ impl KeyValueDatabaseManager {
     /// ```
     pub fn new_distributed(
         config: KeyValueDatabaseConfig,
-        raft_router: Arc<ConsensusRouter>,
+        raft_router: Arc<ConsensusManager>,
     ) -> Self {
         Self {
             context: Arc::new(KeyValueDatabaseContext::new_distributed(
@@ -210,13 +210,13 @@ impl KeyValueDatabaseManager {
         self.context.cluster_id()
     }
 
-    /// Get the Raft consensus router.
+    /// Get the Raft consensus manager.
     ///
     /// # Returns
     ///
-    /// * `Some(&Arc<ConsensusRouter>)` - The router in distributed mode
+    /// * `Some(Arc<ConsensusManager>)` - The consensus manager in distributed mode
     /// * `None` - Not applicable in standalone mode
-    pub fn consensus_router(&self) -> Option<Arc<ConsensusRouter>> {
+    pub fn consensus_router(&self) -> Option<Arc<ConsensusManager>> {
         self.context.consensus_router()
     }
 
@@ -1755,11 +1755,11 @@ impl KeyValueDatabaseManager {
     }
 
     /// Register a storage engine.
-    pub fn register_engine(
+    pub async fn register_engine(
         &self,
         engine_type: nanograph_kvt::StorageEngineType,
         engine: Arc<dyn nanograph_kvt::KeyValueShardStore>,
     ) -> nanograph_kvt::KeyValueResult<()> {
-        self.context.register_engine(engine_type, engine)
+        self.context.register_engine(engine_type, engine).await
     }
 }

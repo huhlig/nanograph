@@ -20,12 +20,14 @@ use nanograph_core::{
     object::{NodeId, ShardId},
     types::Timestamp,
 };
+use openraft::{OptionalSend, OptionalSerde};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Result type for Raft operations
 pub type ConsensusResult<T> = Result<T, ConsensusError>;
 
 /// Errors that can occur during Raft operations
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConsensusError {
     /// Not the leader for this shard
     NotLeader {
@@ -45,6 +47,9 @@ pub enum ConsensusError {
 
     /// Node not found
     NodeNotFound { node_id: NodeId },
+
+    /// Node not Connected
+    NodeNotConnected { node_id: NodeId },
 
     /// Operation timeout
     Timeout {
@@ -126,17 +131,52 @@ impl std::fmt::Display for ConsensusError {
             ConsensusError::Internal { message } => {
                 write!(f, "Internal error: {}", message)
             }
+            ConsensusError::NodeNotConnected { node_id } => {
+                write!(f, "Node {} not connected", node_id)
+            }
         }
     }
 }
 
 impl std::error::Error for ConsensusError {}
 
-// Conversion from openraft errors
-impl From<openraft::error::RaftError<NodeId>> for ConsensusError {
-    fn from(err: openraft::error::RaftError<NodeId>) -> Self {
-        ConsensusError::Protocol {
-            message: err.to_string(),
+impl openraft::error::ErrorSource for ConsensusError {
+    fn from_error<E: std::error::Error + 'static>(error: &E) -> Self {
+        ConsensusError::Internal {
+            message: error.to_string(),
+        }
+    }
+
+    fn from_string(msg: impl ToString) -> Self {
+        ConsensusError::Internal {
+            message: msg.to_string(),
+        }
+    }
+}
+
+impl From<std::io::Error> for ConsensusError {
+    fn from(error: std::io::Error) -> Self {
+        ConsensusError::Network {
+            message: format!("IO error: {}", error),
+        }
+    }
+}
+
+impl From<std::convert::Infallible> for ConsensusError {
+    fn from(_: std::convert::Infallible) -> Self {
+        unreachable!()
+    }
+}
+
+// Generic conversion for any RaftError type
+impl<C, E> From<openraft::error::RaftError<C, E>> for ConsensusError
+where
+    C: openraft::RaftTypeConfig,
+    E: std::fmt::Display,
+{
+    fn from(error: openraft::error::RaftError<C, E>) -> Self {
+        ConsensusError::Internal {
+            message: format!("Raft error: {}", error),
         }
     }
 }

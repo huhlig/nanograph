@@ -44,7 +44,7 @@ pub struct WriteAheadLogManager {
     #[allow(dead_code)]
     root_folder: Path,
     #[allow(dead_code)]
-    shard_id: u64,
+    shard_id: u128,
     active_segment: Arc<Mutex<WriteAheadLogFile>>,
     archived_segments: Arc<Mutex<Vec<WriteAheadLogFile>>>,
 }

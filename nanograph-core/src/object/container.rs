@@ -26,8 +26,12 @@ use serde::{Deserialize, Serialize};
 pub struct ContainerId(pub u64);
 
 impl ContainerId {
+    pub fn system() -> Self {
+        Self(0)
+    }
     /// Create a new container identifier.
     pub fn new(id: u64) -> Self {
+        assert_ne!(id, 0, "Container ID cannot be zero.");
         Self(id)
     }
 
@@ -57,6 +61,25 @@ impl From<u64> for ContainerId {
 
 impl std::fmt::Display for ContainerId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Container({})", self.0)
+        write!(f, "Container({:X})", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_container_id() {
+        let tenant = TenantId(0x12345678);
+        let database = DatabaseId(0xABCDEF01);
+        let container_id = ContainerId::from_parts(tenant, database);
+
+        assert_eq!(container_id.tenant(), tenant);
+        assert_eq!(container_id.database(), database);
+        assert_eq!(container_id.as_u64(), 0x12345678_ABCDEF01);
+        assert_eq!(ContainerId::new(0x12345678_ABCDEF01), container_id);
+        assert_eq!(ContainerId::from(0x12345678_ABCDEF01), container_id);
+        assert_eq!(format!("{}", container_id), "Container(12345678ABCDEF01)");
     }
 }

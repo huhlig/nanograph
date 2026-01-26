@@ -20,13 +20,14 @@ use crate::metrics::BTreeMetrics;
 use crate::transaction::TransactionManager;
 use crate::tree::{BPlusTree, BPlusTreeConfig};
 use crate::wal_record::{
-    WalRecordKind, decode_delete, decode_put, encode_checkpoint, encode_delete, encode_put,
+    WalRecordKind, decode_delete, decode_put, encode_checkpoint, encode_clear, encode_delete,
+    encode_put,
 };
 use async_trait::async_trait;
 use nanograph_kvt::metrics::{ShardStats, StatValue};
 use nanograph_kvt::{
-    KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId,
-    ShardIndex, TableId, Transaction,
+    IndexNumber, KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueShardStore,
+    ShardId, TableId, Transaction,
 };
 use nanograph_vfs::{DynamicFileSystem, MemoryFileSystem, Path};
 use nanograph_wal::{
@@ -270,6 +271,11 @@ impl BTreeKeyValueStore {
                     Some(WalRecordKind::Checkpoint) => {
                         // Checkpoint marker - we can stop here if we want
                         // For now, continue replaying
+                    }
+                    Some(WalRecordKind::Clear) => {
+                        tree.clear().map_err(|e| {
+                            KeyValueError::StorageCorruption(format!("Failed to clear: {}", e))
+                        })?;
                     }
                     None => {
                         // Unknown record type - skip it
@@ -560,10 +566,7 @@ impl KeyValueShardStore for BTreeKeyValueStore {
 
     // ===== Table Management =====
 
-    async fn create_shard(&self, table: TableId, index: ShardIndex) -> KeyValueResult<ShardId> {
-        // Compute deterministic ShardId from TableId and ShardIndex
-        let shard_id = ShardId::from_parts(table, index);
-
+    async fn create_shard(&self, shard_id: ShardId) -> KeyValueResult<()> {
         // Create a new B+Tree for this shard
         let tree = Arc::new(BPlusTree::new(self.config.clone()));
 
@@ -615,7 +618,7 @@ impl KeyValueShardStore for BTreeKeyValueStore {
         // Recover from WAL if it exists
         self.recover_from_wal(shard_id, &tree)?;
 
-        Ok(shard_id)
+        Ok(())
     }
 
     async fn drop_shard(&self, shard: ShardId) -> KeyValueResult<()> {
@@ -624,6 +627,36 @@ impl KeyValueShardStore for BTreeKeyValueStore {
 
         let mut metrics = self.metrics.write().unwrap();
         metrics.remove(&shard);
+
+        Ok(())
+    }
+
+    async fn clear(&self, shard: ShardId) -> KeyValueResult<()> {
+        let shard_data = self.get_shard(shard)?;
+
+        // Clear the tree
+        shard_data
+            .tree
+            .clear()
+            .map_err(|e| KeyValueError::StorageCorruption(e.to_string()))?;
+
+        // Write clear record to WAL if enabled
+        if let Some(ref wal_writer_mutex) = shard_data.wal_writer {
+            let mut wal_writer = wal_writer_mutex.lock().unwrap();
+            let payload = encode_clear();
+            let record = WriteAheadLogRecord {
+                kind: WalRecordKind::Clear.to_u16(),
+                payload: &payload,
+            };
+
+            wal_writer
+                .append(record, nanograph_wal::Durability::Sync)
+                .map_err(|e| KeyValueError::StorageCorruption(e.to_string()))?;
+        }
+
+        // Reset metrics
+        let metrics = self.get_metrics(shard);
+        metrics.reset();
 
         Ok(())
     }
@@ -653,6 +686,12 @@ impl KeyValueShardStore for BTreeKeyValueStore {
     }
 }
 
+impl Default for BTreeKeyValueStore {
+    fn default() -> Self {
+        Self::new(BPlusTreeConfig::default())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -662,61 +701,90 @@ mod tests {
         let store = BTreeKeyValueStore::default();
 
         // Create table
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        let shard = store.create_shard(shard_id).await.unwrap();
 
-        assert!(store.shard_exists(shard).await.unwrap());
+        assert!(store.shard_exists(shard_id).await.unwrap());
 
         // List tables
         let shards = store.list_shards().await.unwrap();
         assert_eq!(shards.len(), 1);
 
         // Drop table
-        store.drop_shard(shard).await.unwrap();
-        assert!(!store.shard_exists(shard).await.unwrap());
+        store.drop_shard(shard_id).await.unwrap();
+        assert!(!store.shard_exists(shard_id).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_clear_operation() {
+        let store = BTreeKeyValueStore::default();
+
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
+
+        // Put some data
+        store.put(shard_id, b"key1", b"value1").await.unwrap();
+        store.put(shard_id, b"key2", b"value2").await.unwrap();
+        assert_eq!(store.key_count(shard_id).await.unwrap(), 2);
+
+        // Clear the shard
+        store.clear(shard_id).await.unwrap();
+
+        // Verify it's empty
+        assert_eq!(store.key_count(shard_id).await.unwrap(), 0);
+        assert_eq!(store.get(shard_id, b"key1").await.unwrap(), None);
+        assert_eq!(store.get(shard_id, b"key2").await.unwrap(), None);
+
+        // Verify shard still exists
+        assert!(store.shard_exists(shard_id).await.unwrap());
+
+        // Put data again
+        store.put(shard_id, b"key3", b"value3").await.unwrap();
+        assert_eq!(store.key_count(shard_id).await.unwrap(), 1);
+        assert_eq!(
+            store.get(shard_id, b"key3").await.unwrap(),
+            Some(b"value3".to_vec())
+        );
     }
 
     #[tokio::test]
     async fn test_basic_operations() {
         let store = BTreeKeyValueStore::default();
 
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Put
-        store.put(shard, b"key1", b"value1").await.unwrap();
-        store.put(shard, b"key2", b"value2").await.unwrap();
+        store.put(shard_id, b"key1", b"value1").await.unwrap();
+        store.put(shard_id, b"key2", b"value2").await.unwrap();
 
         // Get
         assert_eq!(
-            store.get(shard, b"key1").await.unwrap(),
+            store.get(shard_id, b"key1").await.unwrap(),
             Some(b"value1".to_vec())
         );
         assert_eq!(
-            store.get(shard, b"key2").await.unwrap(),
+            store.get(shard_id, b"key2").await.unwrap(),
             Some(b"value2".to_vec())
         );
-        assert_eq!(store.get(shard, b"key3").await.unwrap(), None);
+        assert_eq!(store.get(shard_id, b"key3").await.unwrap(), None);
 
         // Exists
-        assert!(store.exists(shard, b"key1").await.unwrap());
-        assert!(!store.exists(shard, b"key3").await.unwrap());
+        assert!(store.exists(shard_id, b"key1").await.unwrap());
+        assert!(!store.exists(shard_id, b"key3").await.unwrap());
 
         // Delete
-        assert!(store.delete(shard, b"key1").await.unwrap());
-        assert!(!store.delete(shard, b"key3").await.unwrap());
-        assert_eq!(store.get(shard, b"key1").await.unwrap(), None);
+        assert!(store.delete(shard_id, b"key1").await.unwrap());
+        assert!(!store.delete(shard_id, b"key3").await.unwrap());
+        assert_eq!(store.get(shard_id, b"key1").await.unwrap(), None);
     }
 
     #[tokio::test]
     async fn test_batch_operations() {
         let store = BTreeKeyValueStore::default();
 
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Batch put
         let pairs = vec![
@@ -724,11 +792,11 @@ mod tests {
             (&b"key2"[..], &b"value2"[..]),
             (&b"key3"[..], &b"value3"[..]),
         ];
-        store.batch_put(shard, &pairs).await.unwrap();
+        store.batch_put(shard_id, &pairs).await.unwrap();
 
         // Batch get
         let keys = vec![&b"key1"[..], &b"key2"[..], &b"key3"[..], &b"key4"[..]];
-        let results = store.batch_get(shard, &keys).await.unwrap();
+        let results = store.batch_get(shard_id, &keys).await.unwrap();
         assert_eq!(results[0], Some(b"value1".to_vec()));
         assert_eq!(results[1], Some(b"value2".to_vec()));
         assert_eq!(results[2], Some(b"value3".to_vec()));
@@ -736,32 +804,31 @@ mod tests {
 
         // Batch delete
         let delete_keys = vec![&b"key1"[..], &b"key2"[..], &b"key4"[..]];
-        let deleted = store.batch_delete(shard, &delete_keys).await.unwrap();
+        let deleted = store.batch_delete(shard_id, &delete_keys).await.unwrap();
         assert_eq!(deleted, 2);
     }
 
     #[tokio::test]
     async fn test_statistics() {
         let store = BTreeKeyValueStore::default();
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Insert data
         for i in 0..100 {
             let key = format!("key{:03}", i);
             let value = format!("value{}", i);
             store
-                .put(shard, key.as_bytes(), value.as_bytes())
+                .put(shard_id, key.as_bytes(), value.as_bytes())
                 .await
                 .unwrap();
         }
 
         // Check stats
-        let count = store.key_count(shard).await.unwrap();
+        let count = store.key_count(shard_id).await.unwrap();
         assert_eq!(count, 100);
 
-        let stats = store.shard_stats(shard).await.unwrap();
+        let stats = store.shard_stats(shard_id).await.unwrap();
         assert_eq!(stats.key_count, 100);
         assert!(stats.total_bytes > 0);
     }
@@ -770,9 +837,8 @@ mod tests {
     async fn test_transactions() {
         let store = BTreeKeyValueStore::default();
 
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let _shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Begin transaction
         let tx = store.begin_transaction().await.unwrap();
@@ -788,11 +854,5 @@ mod tests {
 
         // Rollback
         tx2.rollback().await.unwrap();
-    }
-}
-
-impl Default for BTreeKeyValueStore {
-    fn default() -> Self {
-        Self::new(BPlusTreeConfig::default())
     }
 }

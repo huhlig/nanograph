@@ -28,36 +28,91 @@
 //!
 //! ## Key Components
 //!
-//! - [`ShardRaftGroup`]: Manages consensus for a single shard
-//! - [`MetadataRaftGroup`]: Manages cluster metadata
-//! - [`ConsensusRouter`]: Routes operations to the correct shard
-//! - [`RaftStorageAdapter`]: Bridges Raft with KeyValueStore trait
+//! - [`TableShardRaftGroup`]: Manages consensus for a single table shard
+//! - [`SystemShardRaftGroup`]: Manages cluster system metadata
+//! - [`ContainerShardRaftGroup`]: Manages container metadata
+//! - [`ConsensusManager`]: Routes operations to the correct shard and manages server lifecycle
+//! - [`ConsensusLogStore`]: Raft log storage implementation
+//! - [`ConsensusStateStore`]: Raft state storage implementation
 //!
 //! ## Examples
 //!
-//! ### Basic Router Setup
+//! ### Basic Manager Setup with Runtime Integration
 //!
 //! ```rust,ignore
-//! use nanograph_raft::{Router, ReplicationConfig};
-//! use nanograph_kvt::ShardId;
+//! use nanograph_raft::{ConsensusManager, ReplicationConfig, NodeInfo};
+//! use nanograph_core::object::NodeId;
+//! use std::sync::Arc;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Create a router for distributed operations
-//! let node_id = 1;
+//! // Create a consensus manager
+//! let node_id = NodeId::new(1);
 //! let config = ReplicationConfig::default();
-//! let router = Router::new(node_id, config).await?;
+//! let manager = Arc::new(ConsensusManager::new(node_id, config));
+//!
+//! // Start the gRPC server for Raft communication
+//! let bind_addr = "127.0.0.1:50051".parse()?;
+//! manager.clone().start_server(bind_addr).await?;
+//!
+//! // Add peer nodes
+//! let peer_info = NodeInfo {
+//!     node: NodeId::new(2),
+//!     raft_addr: "127.0.0.1:50052".parse()?,
+//!     api_addr: "127.0.0.1:8082".parse()?,
+//!     status: Default::default(),
+//!     capacity: Default::default(),
+//!     availability_zone: None,
+//! };
+//! manager.add_peer(NodeId::new(2), peer_info).await;
 //!
 //! // Add shards with their storage backends
 //! let shard_id = ShardId::new(0);
-//! let peers = vec![2, 3]; // Other node IDs in the Raft group
-//! router.add_shard(shard_id, storage, peers).await?;
+//! let peers = vec![NodeId::new(2), NodeId::new(3)];
+//! manager.add_table_shard(shard_id, log_store, state_store, peers).await?;
 //!
 //! // Route operations to the correct shard
 //! let key = b"my_key";
-//! router.put(key, b"my_value").await?;
-//! let value = router.get(key).await?;
+//! manager.put(key.to_vec(), b"my_value".to_vec()).await?;
+//! let value = manager.get(key).await?;
+//!
+//! // Gracefully shutdown
+//! manager.stop_server().await?;
 //! # Ok(())
 //! # }
+//! ```
+//!
+//! ### Using with Tokio Runtime
+//!
+//! ```rust,ignore
+//! use nanograph_raft::{ConsensusManager, ReplicationConfig};
+//! use nanograph_core::object::NodeId;
+//! use std::sync::Arc;
+//!
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Create a tokio runtime
+//!     let runtime = tokio::runtime::Runtime::new()?;
+//!
+//!     runtime.block_on(async {
+//!         let node_id = NodeId::new(1);
+//!         let config = ReplicationConfig::default();
+//!         let manager = Arc::new(ConsensusManager::new(node_id, config));
+//!
+//!         // Start server on the runtime
+//!         let bind_addr = "127.0.0.1:50051".parse()?;
+//!         manager.clone().start_server(bind_addr).await?;
+//!
+//!         // Server is now running and handling requests
+//!         println!("Server running on {}", bind_addr);
+//!
+//!         // Do work...
+//!
+//!         // Shutdown when done
+//!         manager.stop_server().await?;
+//!         Ok::<_, Box<dyn std::error::Error>>(())
+//!     })?;
+//!
+//!     Ok(())
+//! }
 //! ```
 //!
 //! ### Configuring Replication
@@ -148,19 +203,22 @@
 
 mod config;
 mod error;
+mod grpc;
 mod group;
-mod router;
+mod manager;
+mod network;
 mod storage;
 mod types;
 
 // Re-export public API
 pub use self::error::{ConsensusError, ConsensusResult};
 pub use self::group::{ContainerShardRaftGroup, SystemShardRaftGroup, TableShardRaftGroup};
-pub use self::router::ConsensusRouter;
-pub use self::storage::{LogEntry, RaftStorageAdapter, ShardSnapshot, SnapshotMeta};
+pub use self::manager::ConsensusManager;
+pub use self::network::ConsensusNetworkFactory;
+pub use self::storage::{ConsensusLogStore, ConsensusStateStore, SnapshotConfig, SnapshotManager};
 pub use self::types::{
-    MetadataChange, NodeInfo, NodeStatus, Operation, OperationResponse, PlacementStrategy,
-    RaftClusterState, ReadConsistency, ReplicationConfig, ResourceCapacity,
+    ConsensusTypeConfig, MetadataChange, NodeInfo, NodeStatus, Operation, OperationResponse,
+    PlacementStrategy, RaftClusterState, ReadConsistency, ReplicationConfig, ResourceCapacity,
 };
 pub use nanograph_core::object::{
     ClusterCreate, ClusterId, ClusterRecord, ClusterUpdate, ContainerId, NodeId, RegionCreate,

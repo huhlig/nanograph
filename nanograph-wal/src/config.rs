@@ -35,7 +35,7 @@ pub use nanograph_util::{
 #[derive(Debug, Clone)]
 pub struct WriteAheadLogConfig {
     /// Unique identifier for this shard's WAL
-    pub shard_id: u64,
+    pub shard_id: u128,
     /// Maximum size of a single WAL segment before rotation
     pub max_segment_size: u64,
     /// Whether to force fsync when rotating segments
@@ -66,7 +66,7 @@ impl Default for WriteAheadLogConfig {
 
 impl WriteAheadLogConfig {
     /// Create a new configuration with the given shard ID
-    pub fn new(shard_id: u64) -> Self {
+    pub fn new(shard_id: u128) -> Self {
         Self {
             shard_id,
             ..Default::default()

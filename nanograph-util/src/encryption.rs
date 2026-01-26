@@ -168,12 +168,15 @@ impl EncryptionAlgorithm {
     pub fn generate_key(self) -> EncryptionKey {
         use aes_gcm::aead::rand_core::RngCore;
         let size = self.key_size();
+        let key_id =
+            EncryptionKeyId((OsRng.next_u64() as u128) << 64 | (OsRng.next_u64() as u128) << 00);
         let mut key = vec![0u8; size];
         if size > 0 {
             OsRng.fill_bytes(&mut key);
         }
         EncryptionKey {
             algorithm: self,
+            key_id,
             key,
         }
     }
@@ -308,11 +311,43 @@ impl EncryptionAlgorithm {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct EncryptionKeyId(u128);
+
+impl EncryptionKeyId {
+    pub fn new(id: u128) -> EncryptionKeyId {
+        EncryptionKeyId(id)
+    }
+}
+
+impl From<u128> for EncryptionKeyId {
+    fn from(value: u128) -> Self {
+        EncryptionKeyId(value)
+    }
+}
+
+impl std::fmt::Display for EncryptionKeyId {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Encryption key with associated algorithm
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EncryptionKey {
     pub algorithm: EncryptionAlgorithm,
+    pub key_id: EncryptionKeyId,
     pub key: Vec<u8>,
+}
+
+impl EncryptionKey {
+    pub fn default() -> EncryptionKey {
+        EncryptionKey {
+            algorithm: EncryptionAlgorithm::None,
+            key_id: EncryptionKeyId::default(),
+            key: Vec::new(),
+        }
+    }
 }
 
 impl EncryptionKey {
@@ -327,7 +362,11 @@ impl EncryptionKey {
     /// let key_bytes = vec![0u8; 32];
     /// let key = EncryptionKey::from_bytes(algorithm, key_bytes).unwrap();
     /// ```
-    pub fn from_bytes(algorithm: EncryptionAlgorithm, key: Vec<u8>) -> Result<Self> {
+    pub fn from_bytes(
+        algorithm: EncryptionAlgorithm,
+        key_id: EncryptionKeyId,
+        key: Vec<u8>,
+    ) -> Result<Self> {
         let expected_size = algorithm.key_size();
         if key.len() != expected_size {
             return Err(Error::InvalidKeySize {
@@ -335,7 +374,11 @@ impl EncryptionKey {
                 actual: key.len(),
             });
         }
-        Ok(Self { algorithm, key })
+        Ok(Self {
+            algorithm,
+            key_id,
+            key,
+        })
     }
 
     /// Get the key bytes

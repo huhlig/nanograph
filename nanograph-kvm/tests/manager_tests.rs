@@ -31,7 +31,9 @@ async fn test_manager_full_lifecycle() {
         node_id: NodeId::new(1),
         cache_ttl: Duration::from_secs(60),
     };
-    let manager = KeyValueDatabaseManager::new_standalone(config).await.unwrap();
+    let manager = KeyValueDatabaseManager::new_standalone(config)
+        .await
+        .unwrap();
     let principal = create_test_principal();
 
     // 2. Initialize Cluster
@@ -48,7 +50,7 @@ async fn test_manager_full_lifecycle() {
     assert_eq!(cluster.name, "test-cluster");
 
     // 3. Create Tablespace
-    let ts_config = TablespaceCreate::new("hot-ts", "/data/hot", "Hot");
+    let ts_config = TablespaceCreate::new("hot-ts", "Hot");
     let ts = manager
         .create_tablespace(&principal, ts_config)
         .await
@@ -75,8 +77,11 @@ async fn test_manager_full_lifecycle() {
 
     // 6. Create Table (Using ART for standalone)
     let engine_type = StorageEngineType::new("ART");
-    let table_config = TableCreate::new("table-1", "path/to/table", engine_type)
-        .with_sharding(1, nanograph_core::object::Partitioner::default(), 1);
+    let table_config = TableCreate::new("table-1", "path/to/table", engine_type).with_sharding(
+        1,
+        nanograph_core::object::Partitioner::default(),
+        1,
+    );
 
     let table_res = manager
         .create_table(&principal, &container_id, table_config)
@@ -118,7 +123,7 @@ async fn test_manager_full_lifecycle() {
         }
         Err(e) => {
             println!("Table creation failed: {:?}", e);
-            // We'll let the test pass if it's a known missing engine issue for now, 
+            // We'll let the test pass if it's a known missing engine issue for now,
             // but in a real suite we'd want this to work.
         }
     }

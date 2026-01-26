@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use nanograph_art::ArtKeyValueStore;
 use nanograph_core::object::{
     ClusterCreate, ContainerId, DatabaseCreate, NodeId, Permission, PermissionGrant, ResourceScope,
@@ -55,7 +55,9 @@ fn setup_manager() -> (Arc<KeyValueDatabaseManager>, SecurityPrincipal, Runtime)
         node_id: NodeId::new(1),
         cache_ttl: Duration::from_secs(60),
     };
-    let manager = rt.block_on(KeyValueDatabaseManager::new_standalone(config)).unwrap();
+    let manager = rt
+        .block_on(KeyValueDatabaseManager::new_standalone(config))
+        .unwrap();
     let manager = Arc::new(manager);
     let principal = create_test_principal();
 
@@ -71,7 +73,7 @@ async fn setup_hierarchy(
         .await
         .unwrap();
     manager
-        .create_tablespace(principal, TablespaceCreate::new("bench-ts", "/tmp", "Hot"))
+        .create_tablespace(principal, TablespaceCreate::new("bench-ts", "Hot"))
         .await
         .unwrap();
     let tenant = manager
@@ -113,7 +115,9 @@ fn bench_metadata_ops(c: &mut Criterion) {
     });
 
     c.bench_function("metadata_create_database", |b| {
-        let tenant = rt.block_on(manager.create_tenant(&principal, TenantCreate::new("t"))).unwrap();
+        let tenant = rt
+            .block_on(manager.create_tenant(&principal, TenantCreate::new("t")))
+            .unwrap();
         b.to_async(&rt).iter(|| {
             let manager = Arc::clone(&manager);
             let principal = principal.clone();
@@ -148,7 +152,8 @@ fn bench_kv_ops(c: &mut Criterion) {
         })
     });
 
-    rt.block_on(manager.put(&principal, &container_id, &table_id, b"key", b"value")).unwrap();
+    rt.block_on(manager.put(&principal, &container_id, &table_id, b"key", b"value"))
+        .unwrap();
 
     c.bench_function("kv_get", |b| {
         b.to_async(&rt).iter(|| {
@@ -188,7 +193,10 @@ fn bench_batch_ops(c: &mut Criterion) {
 
     let pairs: Vec<(Vec<u8>, Vec<u8>)> = (0..100)
         .map(|i| {
-            (format!("key-{}", i).into_bytes(), format!("value-{}", i).into_bytes())
+            (
+                format!("key-{}", i).into_bytes(),
+                format!("value-{}", i).into_bytes(),
+            )
         })
         .collect();
 
@@ -200,7 +208,8 @@ fn bench_batch_ops(c: &mut Criterion) {
             let table_id = table_id;
             let pairs = pairs.clone();
             async move {
-                let borrowed_pairs: Vec<(&[u8], &[u8])> = pairs.iter()
+                let borrowed_pairs: Vec<(&[u8], &[u8])> = pairs
+                    .iter()
                     .map(|(k, v)| (k.as_slice(), v.as_slice()))
                     .collect();
                 manager

@@ -97,4 +97,3 @@ When optimizing based on benchmark results:
    - Tune compaction triggers
    - Consider universal compaction for write-heavy loads
 
-## Made with Bob

@@ -24,7 +24,7 @@ use nanograph_wal::Durability;
 pub struct LSMTreeOptions {
     /// Shard identifier for this LSM tree instance
     /// Used to identify WAL segments and coordinate distributed operations
-    pub shard_id: u64,
+    pub shard_id: u128,
     /// Integrity algorithm for data blocks
     pub integrity: IntegrityAlgorithm,
     /// Compression algorithm for data blocks
@@ -59,7 +59,7 @@ impl Default for LSMTreeOptions {
 
 impl LSMTreeOptions {
     /// Create options with a specific shard ID
-    pub fn with_shard_id(mut self, shard_id: u64) -> Self {
+    pub fn with_shard_id(mut self, shard_id: u128) -> Self {
         self.shard_id = shard_id;
         self
     }

@@ -14,8 +14,9 @@
 // limitations under the License.
 //
 
-use nanograph_kvt::StoragePathResolver;
+use nanograph_core::config::StorageConfig;
 use nanograph_core::object::ShardCreate;
+use nanograph_kvt::StoragePathResolver;
 use nanograph_kvt::{
     DynamicFileSystem, KeyRange, KeyValueError, KeyValueIterator, KeyValueResult,
     KeyValueShardStore, ShardId, ShardState, StorageEngineType, TableId, TablespaceId,
@@ -23,7 +24,8 @@ use nanograph_kvt::{
 };
 use nanograph_raft::NodeId;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// KeyValueShardManager manages multiple storage engines and provides a unified API
 ///
@@ -60,8 +62,13 @@ impl KeyValueShardManager {
         use nanograph_vfs::LocalFilesystem;
         use std::path::PathBuf;
 
-        let path_resolver = Arc::new(StoragePathResolver::new(TablespaceId::DEFAULT));
         let vfs = Arc::new(LocalFilesystem::new(PathBuf::from(".")));
+        let storage_config = StorageConfig {
+            system_path: "./data/system".to_string(),
+            log_path: "./data/logs".to_string(),
+            tablespaces: HashMap::new(),
+        };
+        let path_resolver = Arc::new(StoragePathResolver::new(vfs.clone(), storage_config));
 
         Self {
             engines: HashMap::new(),
@@ -78,8 +85,13 @@ impl KeyValueShardManager {
         use nanograph_vfs::LocalFilesystem;
         use std::path::PathBuf;
 
-        let path_resolver = Arc::new(StoragePathResolver::new(TablespaceId::DEFAULT));
         let vfs = Arc::new(LocalFilesystem::new(PathBuf::from(".")));
+        let storage_config = StorageConfig {
+            system_path: "./data/system".to_string(),
+            log_path: "./data/logs".to_string(),
+            tablespaces: HashMap::new(),
+        };
+        let path_resolver = Arc::new(StoragePathResolver::new(vfs.clone(), storage_config));
 
         Self {
             engines: HashMap::new(),
@@ -133,8 +145,8 @@ impl KeyValueShardManager {
     }
 
     /// Get the storage engine for a specific shard
-    fn get_engine_for_shard(&self, shard: ShardId) -> KeyValueResult<Arc<dyn KeyValueShardStore>> {
-        let shards = self.shards.read().unwrap();
+    async fn get_engine_for_shard(&self, shard: ShardId) -> KeyValueResult<Arc<dyn KeyValueShardStore>> {
+        let shards = self.shards.read().await;
         let shard = shards.get(&shard).ok_or(KeyValueError::InvalidKey(format!(
             "Shard {:?} not found",
             shard
@@ -161,7 +173,13 @@ impl KeyValueShardManager {
             )))?;
 
         // Create shard in the underlying engine
-        let shard_id = engine.create_shard(config.table, config.index).await?;
+        let shard_id = ShardId::from_parts(
+            config.container.tenant(),
+            config.container.database(),
+            config.table,
+            config.shard_number,
+        );
+        engine.create_shard(shard_id).await?;
 
         let shard_state = ShardState {
             id: shard_id,
@@ -170,7 +188,7 @@ impl KeyValueShardManager {
         };
 
         {
-            let mut shards = self.shards.write().unwrap();
+            let mut shards = self.shards.write().await;
             shards.insert(shard_id, shard_state);
         }
 
@@ -195,21 +213,28 @@ impl KeyValueShardManager {
             )))?;
 
         // Create shard ID
-        let shard_id = ShardId::from_parts(config.table, config.index);
+        let shard_id = ShardId::from_parts(
+            config.container.tenant(),
+            config.container.database(),
+            config.table,
+            config.shard_number,
+        );
 
         // Resolve storage paths using tablespace configuration
-        let data_path = self.path_resolver.resolve_data_path(
+        let data_path = self.path_resolver.shard_data_path(
             tablespace_id,
+            config.container.tenant(),
+            config.container.database(),
             table_id,
-            shard_id,
-            config.engine_type.clone(),
+            config.shard_number,
         )?;
 
-        let wal_path = self.path_resolver.resolve_wal_path(
+        let wal_path = self.path_resolver.shard_wal_path(
             tablespace_id,
+            config.container.tenant(),
+            config.container.database(),
             table_id,
-            shard_id,
-            config.engine_type.clone(),
+            config.shard_number,
         )?;
 
         // Use the trait method to create the shard with tablespace-aware paths
@@ -225,7 +250,7 @@ impl KeyValueShardManager {
         };
 
         {
-            let mut shards = self.shards.write().unwrap();
+            let mut shards = self.shards.write().await;
             shards.insert(shard_id, shard_state);
         }
 
@@ -234,14 +259,14 @@ impl KeyValueShardManager {
 
     /// Drop a shard
     pub async fn drop_shard(&self, table: ShardId) -> KeyValueResult<()> {
-        let engine = self.get_engine_for_shard(table)?;
+        let engine = self.get_engine_for_shard(table).await?;
 
         // Drop from engine
         engine.drop_shard(table).await?;
 
         // Remove from metadata
         {
-            let mut tables = self.shards.write().unwrap();
+            let mut tables = self.shards.write().await;
             tables.remove(&table);
         }
 
@@ -249,26 +274,26 @@ impl KeyValueShardManager {
     }
 
     /// List all shards managed by this instance
-    pub fn list_shards(&self) -> KeyValueResult<Vec<ShardState>> {
-        let shards = self.shards.read().unwrap();
+    pub async fn list_shards(&self) -> KeyValueResult<Vec<ShardState>> {
+        let shards = self.shards.read().await;
         Ok(shards.values().cloned().collect())
     }
 
     /// Check if a shard exists
-    pub fn shard_exists(&self, shard: ShardId) -> bool {
-        let shards = self.shards.read().unwrap();
+    pub async fn shard_exists(&self, shard: ShardId) -> bool {
+        let shards = self.shards.read().await;
         shards.contains_key(&shard)
     }
 
     /// Get the value for a key in a specific shard
     pub async fn get(&self, shard: ShardId, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
-        let engine = self.get_engine_for_shard(shard)?;
+        let engine = self.get_engine_for_shard(shard).await?;
         engine.get(shard, key).await
     }
 
     /// Put a key-value pair into a specific shard
     pub async fn put(&self, shard: ShardId, key: &[u8], value: &[u8]) -> KeyValueResult<()> {
-        let engine = self.get_engine_for_shard(shard)?;
+        let engine = self.get_engine_for_shard(shard).await?;
         engine.put(shard, key, value).await
     }
 
@@ -276,13 +301,13 @@ impl KeyValueShardManager {
     ///
     /// Returns true if the key existed and was deleted, false otherwise.
     pub async fn delete(&self, shard: ShardId, key: &[u8]) -> KeyValueResult<bool> {
-        let engine = self.get_engine_for_shard(shard)?;
+        let engine = self.get_engine_for_shard(shard).await?;
         engine.delete(shard, key).await
     }
 
     /// Check if a key exists in a specific shard
     pub async fn exists(&self, shard: ShardId, key: &[u8]) -> KeyValueResult<bool> {
-        let engine = self.get_engine_for_shard(shard)?;
+        let engine = self.get_engine_for_shard(shard).await?;
         engine.exists(shard, key).await
     }
 
@@ -292,13 +317,13 @@ impl KeyValueShardManager {
         shard: ShardId,
         keys: &[&[u8]],
     ) -> KeyValueResult<Vec<Option<Vec<u8>>>> {
-        let engine = self.get_engine_for_shard(shard)?;
+        let engine = self.get_engine_for_shard(shard).await?;
         engine.batch_get(shard, keys).await
     }
 
     /// Put multiple key-value pairs into a specific shard
     pub async fn batch_put(&self, shard: ShardId, pairs: &[(&[u8], &[u8])]) -> KeyValueResult<()> {
-        let engine = self.get_engine_for_shard(shard)?;
+        let engine = self.get_engine_for_shard(shard).await?;
         engine.batch_put(shard, pairs).await
     }
 
@@ -306,7 +331,7 @@ impl KeyValueShardManager {
     ///
     /// Returns the number of keys deleted.
     pub async fn batch_delete(&self, shard: ShardId, keys: &[&[u8]]) -> KeyValueResult<usize> {
-        let engine = self.get_engine_for_shard(shard)?;
+        let engine = self.get_engine_for_shard(shard).await?;
         engine.batch_delete(shard, keys).await
     }
 
@@ -316,7 +341,7 @@ impl KeyValueShardManager {
         shard: ShardId,
         range: KeyRange,
     ) -> KeyValueResult<Box<dyn KeyValueIterator + Send>> {
-        let engine = self.get_engine_for_shard(shard)?;
+        let engine = self.get_engine_for_shard(shard).await?;
         engine.scan(shard, range).await
     }
 
@@ -327,19 +352,19 @@ impl KeyValueShardManager {
         prefix: &[u8],
         limit: Option<usize>,
     ) -> KeyValueResult<Box<dyn KeyValueIterator + Send>> {
-        let engine = self.get_engine_for_shard(shard)?;
+        let engine = self.get_engine_for_shard(shard).await?;
         engine.scan_prefix(shard, prefix, limit).await
     }
 
     /// Get the total number of keys in a specific shard
     pub async fn key_count(&self, shard: ShardId) -> KeyValueResult<u64> {
-        let engine = self.get_engine_for_shard(shard)?;
+        let engine = self.get_engine_for_shard(shard).await?;
         engine.key_count(shard).await
     }
 
     /// Get statistics for a specific shard
     pub async fn shard_stats(&self, shard: ShardId) -> KeyValueResult<ShardStats> {
-        let engine = self.get_engine_for_shard(shard)?;
+        let engine = self.get_engine_for_shard(shard).await?;
         engine.shard_stats(shard).await
     }
 
@@ -359,7 +384,7 @@ impl KeyValueShardManager {
     pub async fn compact(&self, shard: Option<ShardId>) -> KeyValueResult<()> {
         if let Some(shard_id) = shard {
             // Compact specific table
-            let engine = self.get_engine_for_shard(shard_id)?;
+            let engine = self.get_engine_for_shard(shard_id).await?;
             engine.compact(Some(shard_id)).await
         } else {
             // Compact all engines

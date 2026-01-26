@@ -14,302 +14,470 @@
 // limitations under the License.
 //
 
-//! Storage adapter for openraft integration
+mod logstore;
+mod statestore;
+mod snapshot;
 
-use crate::error::{ConsensusError, ConsensusResult};
-use crate::types::{Operation, OperationResponse};
-use nanograph_core::object::{NodeId, ShardId};
-use nanograph_kvt::KeyValueShardStore;
-use std::sync::Arc;
-use tokio::sync::RwLock;
+pub use self::logstore::ConsensusLogStore;
+pub use self::statestore::ConsensusStateStore;
+pub use self::snapshot::{SnapshotConfig, SnapshotManager};
 
-/// Snapshot data for a shard
-#[derive(Clone, Debug)]
-pub struct ShardSnapshot {
-    /// Snapshot metadata
-    pub meta: SnapshotMeta,
+#[cfg(test)]
+mod tests {
+    use crate::storage::{ConsensusLogStore, ConsensusStateStore, SnapshotManager};
+    use crate::types::ConsensusTypeConfig;
+    use nanograph_core::object::{
+        DatabaseId, TablespaceRecord, NodeId, ShardId, ShardNumber, StorageTier, TableId,
+        TablespaceId, TenantId,
+    };
+    use nanograph_kvt::{KeyValueShardStore, MemoryKeyValueShardStore, StoragePathResolver, Timestamp};
+    use nanograph_vfs::MemoryFileSystem;
+    use nanograph_wal::{WriteAheadLogConfig, WriteAheadLogManager};
+    use openraft::testing::log::StoreBuilder;
+    use openraft::StorageError;
+    use std::sync::Arc;
+    use nanograph_core::config::StorageConfig;
 
-    /// Snapshot data (serialized key-value pairs)
-    pub data: Vec<u8>,
-}
+    pub struct ConsensusStorageBuilder;
 
-/// Snapshot metadata
-#[derive(Clone, Debug)]
-pub struct SnapshotMeta {
-    /// Last included index
-    pub last_included_index: u64,
+    impl StoreBuilder<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore>
+        for ConsensusStorageBuilder
+    {
+        async fn build(
+            &self,
+        ) -> Result<((), ConsensusLogStore, ConsensusStateStore), StorageError<ConsensusTypeConfig>>
+        {
+            use nanograph_vfs::FileSystem;
+            
+            // create a *fresh* instance every time
+            let filesystem = Arc::new(MemoryFileSystem::new());
+            
+            // Create required directories
+            filesystem.create_directory_all("/data").unwrap();
+            filesystem.create_directory_all("/data/system").unwrap();
+            filesystem.create_directory_all("/data/log").unwrap();
+            
+            let shard_id = ShardId::from_parts(
+                TenantId::new(0),
+                DatabaseId::new(0),
+                TableId::new(0),
+                ShardNumber::new(0),
+            );
 
-    /// Last included term
-    pub last_included_term: u64,
+            let config = WriteAheadLogConfig {
+                shard_id: shard_id.as_u128(),
+                max_segment_size: 100,
+                sync_on_rotate: false,
+                checksum: Default::default(),
+                compression: Default::default(),
+                encryption: Default::default(),
+                encryption_key: None,
+            };
+            let wal = Arc::new(WriteAheadLogManager::new(filesystem.clone(), "/data/log", config).unwrap());
+            let memstore = Arc::new(MemoryKeyValueShardStore::new());
+            // Pre-create the shard so it exists in the memstore
+            memstore.create_shard(shard_id).await.unwrap();
+            // Create basic directories for the resolver to be happy if it validates paths
+            filesystem.create_directory_all("/data/system/system/metadata/snapshots").unwrap();
+            filesystem.create_directory_all("/data/system/system/metadata/logs").unwrap();
+            filesystem.create_directory_all("/data/system/system/data").unwrap();
+            filesystem.create_directory_all("/data/system/system/wal").unwrap();
+            filesystem.create_directory_all("/data/log").unwrap();
 
-    /// Shard ID
-    pub shard_id: ShardId,
-
-    /// Snapshot size in bytes
-    pub size_bytes: u64,
-}
-
-/// Storage adapter that implements openraft's RaftStorage trait
-///
-/// This bridges openraft's consensus layer with Nanograph's KeyValueStore trait.
-/// Each shard has its own storage adapter backed by a storage engine (LSM, B+Tree, etc).
-pub struct RaftStorageAdapter {
-    /// Underlying storage engine
-    storage: Arc<RwLock<Box<dyn KeyValueShardStore>>>,
-
-    /// Shard identifier
-    shard_id: ShardId,
-
-    /// Current Raft state (term, voted_for, etc)
-    raft_state: Arc<RwLock<RaftState>>,
-
-    /// Log entries (in-memory for now, will be backed by WAL)
-    log_entries: Arc<RwLock<Vec<LogEntry>>>,
-}
-
-/// Raft state (persisted)
-#[derive(Clone, Debug)]
-struct RaftState {
-    /// Current term
-    term: u64,
-
-    /// Node we voted for in current term
-    voted_for: Option<NodeId>,
-
-    /// Last applied index
-    last_applied: u64,
-
-    /// Commit index
-    commit_index: u64,
-}
-
-impl Default for RaftState {
-    fn default() -> Self {
-        Self {
-            term: 0,
-            voted_for: None,
-            last_applied: 0,
-            commit_index: 0,
-        }
-    }
-}
-
-/// Log entry
-#[derive(Clone, Debug)]
-pub struct LogEntry {
-    /// Log index
-    pub index: u64,
-
-    /// Term when entry was received
-    pub term: u64,
-
-    /// Operation to apply
-    pub operation: Operation,
-}
-
-impl RaftStorageAdapter {
-    /// Create a new storage adapter
-    pub fn new(storage: Box<dyn KeyValueShardStore>, shard_id: ShardId) -> Self {
-        Self {
-            storage: Arc::new(RwLock::new(storage)),
-            shard_id,
-            raft_state: Arc::new(RwLock::new(RaftState::default())),
-            log_entries: Arc::new(RwLock::new(Vec::new())),
-        }
-    }
-
-    /// Apply an operation to the storage engine
-    pub async fn apply_operation(
-        &self,
-        operation: &Operation,
-    ) -> ConsensusResult<OperationResponse> {
-        match operation {
-            Operation::Put { key, value } => {
-                let storage = self.storage.write().await;
-                storage.put(self.shard_id, key, value).await.map_err(|e| {
-                    ConsensusError::Storage {
-                        message: e.to_string(),
-                    }
-                })?;
-
-                Ok(OperationResponse {
-                    success: true,
-                    value: None,
-                    error: None,
-                })
-            }
-
-            Operation::Delete { key } => {
-                let storage = self.storage.write().await;
-                storage
-                    .delete(self.shard_id, key)
-                    .await
-                    .map_err(|e| ConsensusError::Storage {
-                        message: e.to_string(),
-                    })?;
-
-                Ok(OperationResponse {
-                    success: true,
-                    value: None,
-                    error: None,
-                })
-            }
-
-            Operation::Batch { operations } => {
-                // Apply all operations in the batch
-                // Use Box::pin to avoid infinite recursion
-                for op in operations {
-                    Box::pin(self.apply_operation(op)).await?;
-                }
-
-                Ok(OperationResponse {
-                    success: true,
-                    value: None,
-                    error: None,
-                })
-            }
+            let resolver =
+                StoragePathResolver::new(filesystem.clone(), StorageConfig{
+                    system_path: "/data/system".to_string(),
+                    log_path: "/data/log".to_string(),
+                    tablespaces: std::collections::HashMap::from([(
+                        "default".to_string(),
+                        nanograph_core::config::TablespaceConfig {
+                            storage_path: "/data/system".to_string(),
+                        }
+                    )]),
+                });
+            resolver.register_tablespace(TablespaceRecord {
+                id: TablespaceId::DEFAULT,
+                version: 0,
+                created_at: Timestamp::epoch(),
+                updated_at: Timestamp::epoch(),
+                name: "default".to_string(),
+                tier: StorageTier::Hot,
+                tenants: vec![],
+                options: Default::default(),
+                metadata: Default::default(),
+            }).unwrap();
+            let snapshot_path = resolver
+                .system_raft_snapshots_path(TablespaceId::DEFAULT)
+                .unwrap();
+            
+            // Create snapshot directory
+            filesystem.create_directory_all(&snapshot_path.to_string()).unwrap();
+            
+            let snapshot_manager = Arc::new(SnapshotManager::new(
+                filesystem.clone(),
+                snapshot_path,
+            ));
+            Ok((
+                (),
+                ConsensusLogStore::new(wal),
+                ConsensusStateStore::new(shard_id, memstore, snapshot_manager),
+            ))
         }
     }
 
-    /// Append log entries
-    pub async fn append_entries(&self, entries: Vec<LogEntry>) -> ConsensusResult<()> {
-        let mut log = self.log_entries.write().await;
-        log.extend(entries);
-        Ok(())
+    // Disabled: This test runs the full openraft test suite which can be very slow
+    // It has been replaced with individual tests.
+    #[ignore]
+    #[tokio::test]
+    async fn test_consensus_log_store_all() {
+        openraft::testing::log::Suite::test_all(ConsensusStorageBuilder)
+            .await
+            .unwrap();
     }
 
-    /// Get log entry at index
-    pub async fn get_log_entry(&self, index: u64) -> ConsensusResult<Option<LogEntry>> {
-        let log = self.log_entries.read().await;
-        Ok(log.iter().find(|e| e.index == index).cloned())
+    // Individual tests from openraft::testing::log::Suite
+    // These tests are extracted from Suite::test_all for granular testing
+
+    #[tokio::test]
+    async fn test_last_membership_in_log_initial() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::last_membership_in_log_initial(store, sm).await.unwrap();
     }
 
-    /// Get log entries in range [start, end)
-    pub async fn get_log_entries(&self, start: u64, end: u64) -> ConsensusResult<Vec<LogEntry>> {
-        let log = self.log_entries.read().await;
-        Ok(log
-            .iter()
-            .filter(|e| e.index >= start && e.index < end)
-            .cloned()
-            .collect())
+    #[tokio::test]
+    async fn test_last_membership_in_log() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::last_membership_in_log(store, sm).await.unwrap();
     }
 
-    /// Get last log index
-    pub async fn last_log_index(&self) -> ConsensusResult<u64> {
-        let log = self.log_entries.read().await;
-        Ok(log.last().map(|e| e.index).unwrap_or(0))
+    #[tokio::test]
+    async fn test_last_membership_in_log_multi_step() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::last_membership_in_log_multi_step(store, sm).await.unwrap();
     }
 
-    /// Get last log term
-    pub async fn last_log_term(&self) -> ConsensusResult<u64> {
-        let log = self.log_entries.read().await;
-        Ok(log.last().map(|e| e.term).unwrap_or(0))
+    #[tokio::test]
+    async fn test_get_membership_initial() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_membership_initial(store, sm).await.unwrap();
     }
 
-    /// Truncate log from index onwards
-    pub async fn truncate_log(&self, from_index: u64) -> ConsensusResult<()> {
-        let mut log = self.log_entries.write().await;
-        log.retain(|e| e.index < from_index);
-        Ok(())
+    #[tokio::test]
+    async fn test_get_membership_from_log_and_empty_sm() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_membership_from_log_and_empty_sm(store, sm).await.unwrap();
     }
 
-    /// Get current term
-    pub async fn current_term(&self) -> ConsensusResult<u64> {
-        let state = self.raft_state.read().await;
-        Ok(state.term)
+    #[tokio::test]
+    async fn test_get_membership_from_empty_log_and_sm() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_membership_from_empty_log_and_sm(store, sm).await.unwrap();
     }
 
-    /// Set current term
-    pub async fn set_term(&self, term: u64) -> ConsensusResult<()> {
-        let mut state = self.raft_state.write().await;
-        state.term = term;
-        Ok(())
+    #[tokio::test]
+    async fn test_get_membership_from_log_le_sm_last_applied() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_membership_from_log_le_sm_last_applied(store, sm).await.unwrap();
     }
 
-    /// Get voted for
-    pub async fn voted_for(&self) -> ConsensusResult<Option<NodeId>> {
-        let state = self.raft_state.read().await;
-        Ok(state.voted_for)
+    #[tokio::test]
+    async fn test_get_membership_from_log_gt_sm_last_applied_1() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_membership_from_log_gt_sm_last_applied_1(store, sm).await.unwrap();
     }
 
-    /// Set voted for
-    pub async fn set_voted_for(&self, node_id: Option<NodeId>) -> ConsensusResult<()> {
-        let mut state = self.raft_state.write().await;
-        state.voted_for = node_id;
-        Ok(())
+    #[tokio::test]
+    async fn test_get_membership_from_log_gt_sm_last_applied_2() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_membership_from_log_gt_sm_last_applied_2(store, sm).await.unwrap();
     }
 
-    /// Get commit index
-    pub async fn commit_index(&self) -> ConsensusResult<u64> {
-        let state = self.raft_state.read().await;
-        Ok(state.commit_index)
+    #[tokio::test]
+    async fn test_get_initial_state_without_init() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_initial_state_without_init(store, sm).await.unwrap();
     }
 
-    /// Set commit index and apply committed entries
-    pub async fn set_commit_index(&self, index: u64) -> ConsensusResult<()> {
-        let mut state = self.raft_state.write().await;
-        state.commit_index = index;
-
-        // Apply entries from last_applied to commit_index
-        let last_applied = state.last_applied;
-        drop(state); // Release lock before applying
-
-        if index > last_applied {
-            let entries = self.get_log_entries(last_applied + 1, index + 1).await?;
-            for entry in entries {
-                self.apply_operation(&entry.operation).await?;
-            }
-
-            let mut state = self.raft_state.write().await;
-            state.last_applied = index;
-        }
-
-        Ok(())
+    #[tokio::test]
+    async fn test_get_initial_state_membership_from_empty_log_and_sm() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_initial_state_membership_from_empty_log_and_sm(store, sm).await.unwrap();
     }
 
-    /// Create a snapshot of current state
-    pub async fn create_snapshot(&self) -> ConsensusResult<ShardSnapshot> {
-        let state = self.raft_state.read().await;
-        let last_applied = state.last_applied;
-        let term = state.term;
-        drop(state);
-
-        // Get last applied log entry for term
-        let last_entry = self.get_log_entry(last_applied).await?;
-        let last_term = last_entry.map(|e| e.term).unwrap_or(term);
-
-        // Serialize storage state (simplified - in production would use SSTable snapshots)
-        let _storage = self.storage.read().await;
-        let data = Vec::new(); // TODO: Implement actual snapshot serialization
-
-        Ok(ShardSnapshot {
-            meta: SnapshotMeta {
-                last_included_index: last_applied,
-                last_included_term: last_term,
-                shard_id: self.shard_id,
-                size_bytes: data.len() as u64,
-            },
-            data,
-        })
+    #[tokio::test]
+    async fn test_get_initial_state_membership_from_sm_inlog_is_smaller() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_initial_state_membership_from_sm_inlog_is_smaller(store, sm).await.unwrap();
     }
 
-    /// Install a snapshot
-    pub async fn install_snapshot(&self, snapshot: ShardSnapshot) -> ConsensusResult<()> {
-        // Truncate log up to snapshot
-        self.truncate_log(snapshot.meta.last_included_index + 1)
-            .await?;
+    #[tokio::test]
+    async fn test_get_initial_state_membership_from_log_insm_is_smaller() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_initial_state_membership_from_log_insm_is_smaller(store, sm).await.unwrap();
+    }
 
-        // Update state
-        let mut state = self.raft_state.write().await;
-        state.last_applied = snapshot.meta.last_included_index;
-        state.commit_index = snapshot.meta.last_included_index;
+    #[tokio::test]
+    async fn test_get_initial_state_with_state() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_initial_state_with_state(store, sm).await.unwrap();
+    }
 
-        // TODO: Restore storage state from snapshot data
+    #[tokio::test]
+    async fn test_get_initial_state_last_log_gt_sm() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_initial_state_last_log_gt_sm(store, sm).await.unwrap();
+    }
 
-        Ok(())
+    #[tokio::test]
+    async fn test_get_initial_state_last_log_lt_sm() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_initial_state_last_log_lt_sm(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_initial_state_log_ids() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_initial_state_log_ids(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_initial_state_re_apply_committed() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_initial_state_re_apply_committed(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_save_vote() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::save_vote(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_log_entries() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_log_entries(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_limited_get_log_entries() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::limited_get_log_entries(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_leader_bounded_stream() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::leader_bounded_stream(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_entries_stream() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::entries_stream(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_try_get_log_entry() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::try_get_log_entry(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_log_reader_reads_new_entries() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::log_reader_reads_new_entries(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_initial_logs() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::initial_logs(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_log_state() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_log_state(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_log_id() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::get_log_id(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_last_id_in_log() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::last_id_in_log(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_last_applied_state() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::last_applied_state(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_purge_logs_upto_0() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::purge_logs_upto_0(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_purge_logs_upto_5() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::purge_logs_upto_5(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_purge_logs_upto_20() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::purge_logs_upto_20(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_delete_logs_after_11() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::delete_logs_after_11(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_delete_logs_after_5() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::delete_logs_after_5(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_delete_logs_after_0() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::delete_logs_after_0(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_delete_logs_after_none() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::delete_logs_after_none(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_append_to_log() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::append_to_log(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_meta() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::snapshot_meta(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_meta_optional() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::snapshot_meta_optional(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_apply_single() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::apply_single(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_apply_multiple() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        let (_, store, sm) = builder.build().await.unwrap();
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::apply_multiple(store, sm).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_transfer_snapshot() {
+        use openraft::testing::log::Suite;
+        let builder = ConsensusStorageBuilder;
+        Suite::<ConsensusTypeConfig, ConsensusLogStore, ConsensusStateStore, ConsensusStorageBuilder, ()>::transfer_snapshot(&builder).await.unwrap();
     }
 }
-
-// Note: Full openraft::RaftStorage trait implementation will be added
-// once we integrate the openraft dependency properly. This provides
-// the foundation for that integration.

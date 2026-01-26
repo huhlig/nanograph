@@ -48,7 +48,20 @@ impl From<u64> for ServerId {
 
 impl std::fmt::Display for ServerId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Server({})", self.0)
+        write!(f, "Server({:X})", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_server_id() {
+        let id = ServerId::new(0x12345678ABCDEF01);
+        assert_eq!(id.as_u64(), 0x12345678ABCDEF01);
+        assert_eq!(ServerId::from(0x12345678ABCDEF01), id);
+        assert_eq!(format!("{}", id), "Server(12345678ABCDEF01)");
     }
 }
 
@@ -263,7 +276,7 @@ impl ServerUpdate {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ServerMetadata {
     /// Unique identifier for the server.
-    pub id: NodeId,
+    pub node_id: NodeId,
     /// Name of the server.
     pub name: String,
     /// Timestamp when the Server was created.
@@ -279,10 +292,10 @@ pub struct ServerMetadata {
 impl From<ServerRecord> for ServerMetadata {
     fn from(record: ServerRecord) -> Self {
         Self {
-            id: record.id,
+            node_id: record.node_id,
             name: record.name,
             created_at: record.created_at,
-            last_modified: record.last_modified,
+            last_modified: record.updated_at,
             options: record.options,
             metadata: record.metadata,
         }
@@ -293,15 +306,17 @@ impl From<ServerRecord> for ServerMetadata {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ServerRecord {
     /// Unique identifier for the server.
-    pub id: NodeId,
-    /// Name of the server.
-    pub name: String,
+    pub node_id: NodeId,
     /// Version of the Server Record.
     pub version: u64,
     /// Timestamp when the Server was created.
     pub created_at: Timestamp,
     /// Timestamp when the server metadata was last modified.
-    pub last_modified: Timestamp,
+    pub updated_at: Timestamp,
+    /// Name of the server.
+    pub name: String,
+    /// Public Key for the server.
+    pub pubkey: Vec<u8>,
     /// Configuration Options for the Server.
     pub options: HashMap<String, String>,
     /// Server Metadata (Informative).

@@ -26,8 +26,12 @@ use std::collections::HashMap;
 pub struct TenantId(pub u32);
 
 impl TenantId {
+    pub fn system() -> Self {
+        Self(0)
+    }
     /// Create a new tenant identifier.
     pub fn new(id: u32) -> Self {
+        assert_ne!(id, 0, "Tenant ID cannot be zero.");
         Self(id)
     }
 
@@ -45,7 +49,20 @@ impl From<u32> for TenantId {
 
 impl std::fmt::Display for TenantId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Tenant({})", self.0)
+        write!(f, "Tenant({:X})", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tenant_id() {
+        let id = TenantId::new(0x12345678);
+        assert_eq!(id.as_u32(), 0x12345678);
+        assert_eq!(TenantId::from(0x12345678), id);
+        assert_eq!(format!("{}", id), "Tenant(12345678)");
     }
 }
 
@@ -206,7 +223,7 @@ impl From<TenantRecord> for TenantMetadata {
             id: rec.id,
             name: rec.name,
             created_at: rec.created_at,
-            last_modified: rec.last_modified,
+            last_modified: rec.updated_at,
             default_tablespace: rec.default_tablespace,
             options: rec.options,
             metadata: rec.metadata,
@@ -219,14 +236,14 @@ impl From<TenantRecord> for TenantMetadata {
 pub struct TenantRecord {
     /// Unique identifier for the Tenant
     pub id: TenantId,
-    /// Name of the Tenant
-    pub name: String,
     /// Version of the Tenant Record
     pub version: u64,
     /// Timestamp when the schema was created
     pub created_at: Timestamp,
     /// Timestamp when the schema was last modified
-    pub last_modified: Timestamp,
+    pub updated_at: Timestamp,
+    /// Name of the Tenant
+    pub name: String,
     /// Default Tablespace for the Tenant
     pub default_tablespace: Option<TablespaceId>,
     /// Configuration Options for the Cluster

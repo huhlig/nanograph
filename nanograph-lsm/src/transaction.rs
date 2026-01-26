@@ -343,7 +343,7 @@ impl TransactionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nanograph_kvt::{ShardIndex, TableId};
+    use nanograph_kvt::{IndexNumber, TableId};
 
     #[tokio::test]
     async fn test_transaction_basic() {
@@ -351,25 +351,24 @@ mod tests {
         store.init_tx_manager();
         let tx_mgr = store.get_tx_manager();
 
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Begin transaction
         let tx = tx_mgr.begin();
 
         // Write within transaction
-        tx.put(shard, b"key1", b"value1").await.unwrap();
+        tx.put(shard_id, b"key1", b"value1").await.unwrap();
 
         // Read within transaction (should see buffered write)
-        let value = tx.get(shard, b"key1").await.unwrap();
+        let value = tx.get(shard_id, b"key1").await.unwrap();
         assert_eq!(value, Some(b"value1".to_vec()));
 
         // Commit
         tx.commit().await.unwrap();
 
         // Verify committed data
-        let value = store.get(shard, b"key1").await.unwrap();
+        let value = store.get(shard_id, b"key1").await.unwrap();
         assert_eq!(value, Some(b"value1".to_vec()));
     }
 
@@ -379,21 +378,20 @@ mod tests {
         store.init_tx_manager();
         let tx_mgr = store.get_tx_manager();
 
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Begin transaction
         let tx = tx_mgr.begin();
 
         // Write within transaction
-        tx.put(shard, b"key1", b"value1").await.unwrap();
+        tx.put(shard_id, b"key1", b"value1").await.unwrap();
 
         // Rollback
         tx.rollback().await.unwrap();
 
         // Verify data was not committed
-        let value = store.get(shard, b"key1").await.unwrap();
+        let value = store.get(shard_id, b"key1").await.unwrap();
         assert_eq!(value, None);
     }
 
@@ -403,12 +401,11 @@ mod tests {
         store.init_tx_manager();
         let tx_mgr = store.get_tx_manager();
 
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Write initial value
-        store.put(shard, b"key1", b"value1").await.unwrap();
+        store.put(shard_id, b"key1", b"value1").await.unwrap();
 
         // Begin transaction 1
         let tx1 = tx_mgr.begin();
@@ -417,10 +414,10 @@ mod tests {
         let tx2 = tx_mgr.begin();
 
         // TX1 updates the value
-        tx1.put(shard, b"key1", b"value2").await.unwrap();
+        tx1.put(shard_id, b"key1", b"value2").await.unwrap();
 
         // TX2 should still see old value (snapshot isolation)
-        let _value = tx2.get(shard, b"key1").await.unwrap();
+        let _value = tx2.get(shard_id, b"key1").await.unwrap();
         // TODO: This should be value1 with proper snapshot isolation
         // For now, it will see the uncommitted value
 
@@ -428,7 +425,7 @@ mod tests {
         tx1.commit().await.unwrap();
 
         // TX2 should still see old value (snapshot isolation)
-        let _value = tx2.get(shard, b"key1").await.unwrap();
+        let _value = tx2.get(shard_id, b"key1").await.unwrap();
         // TODO: This should still be value1
 
         tx2.rollback().await.unwrap();
@@ -440,29 +437,28 @@ mod tests {
         store.init_tx_manager();
         let tx_mgr = store.get_tx_manager();
 
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Write initial value
-        store.put(shard, b"key1", b"value1").await.unwrap();
+        store.put(shard_id, b"key1", b"value1").await.unwrap();
 
         // Begin transaction
         let tx = tx_mgr.begin();
 
         // Delete within transaction
-        let deleted = tx.delete(shard, b"key1").await.unwrap();
+        let deleted = tx.delete(shard_id, b"key1").await.unwrap();
         assert!(deleted);
 
         // Should not see the key anymore
-        let value = tx.get(shard, b"key1").await.unwrap();
+        let value = tx.get(shard_id, b"key1").await.unwrap();
         assert_eq!(value, None);
 
         // Commit
         tx.commit().await.unwrap();
 
         // Verify deletion
-        let value = store.get(shard, b"key1").await.unwrap();
+        let value = store.get(shard_id, b"key1").await.unwrap();
         assert_eq!(value, None);
     }
 
@@ -472,32 +468,31 @@ mod tests {
         store.init_tx_manager();
         let tx_mgr = store.get_tx_manager();
 
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Begin transaction
         let tx = tx_mgr.begin();
 
         // Write within transaction
-        tx.put(shard, b"key1", b"value1").await.unwrap();
+        tx.put(shard_id, b"key1", b"value1").await.unwrap();
 
         // Should be able to read own write before commit
-        let value = tx.get(shard, b"key1").await.unwrap();
+        let value = tx.get(shard_id, b"key1").await.unwrap();
         assert_eq!(value, Some(b"value1".to_vec()));
 
         // Update the value
-        tx.put(shard, b"key1", b"value2").await.unwrap();
+        tx.put(shard_id, b"key1", b"value2").await.unwrap();
 
         // Should see the updated value
-        let value = tx.get(shard, b"key1").await.unwrap();
+        let value = tx.get(shard_id, b"key1").await.unwrap();
         assert_eq!(value, Some(b"value2".to_vec()));
 
         // Commit
         tx.commit().await.unwrap();
 
         // Verify final value
-        let value = store.get(shard, b"key1").await.unwrap();
+        let value = store.get(shard_id, b"key1").await.unwrap();
         assert_eq!(value, Some(b"value2".to_vec()));
     }
 
@@ -511,12 +506,11 @@ mod tests {
         let tx_mgr = Arc::new(tx_mgr);
         let success_count = Arc::new(AtomicUsize::new(0));
 
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Insert initial data
-        store.put(shard, b"key1", b"initial").await.unwrap();
+        store.put(shard_id, b"key1", b"initial").await.unwrap();
 
         // Spawn multiple concurrent transactions
         let mut handles = vec![];
@@ -530,7 +524,7 @@ mod tests {
 
                 // Write to unique key
                 if tx
-                    .put(shard, key.as_bytes(), value.as_bytes())
+                    .put(shard_id, key.as_bytes(), value.as_bytes())
                     .await
                     .is_ok()
                 {
@@ -556,13 +550,13 @@ mod tests {
         );
 
         // Verify we can still read data (no deadlock occurred)
-        let value = store.get(shard, b"key1").await.unwrap();
+        let value = store.get(shard_id, b"key1").await.unwrap();
         assert!(value.is_some(), "key1 should still exist");
 
         // Verify all individual keys were written successfully
         for i in 0..10 {
             let key = format!("key{}", i);
-            let value = store.get(shard, key.as_bytes()).await.unwrap();
+            let value = store.get(shard_id, key.as_bytes()).await.unwrap();
             assert!(value.is_some(), "key{} should exist", i);
         }
     }
@@ -573,9 +567,8 @@ mod tests {
         store.init_tx_manager();
         let tx_mgr = store.get_tx_manager();
 
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Begin transaction
         let tx = tx_mgr.begin();
@@ -584,7 +577,7 @@ mod tests {
         for i in 0..100 {
             let key = format!("key{:03}", i);
             let value = format!("value{}", i);
-            tx.put(shard, key.as_bytes(), value.as_bytes())
+            tx.put(shard_id, key.as_bytes(), value.as_bytes())
                 .await
                 .unwrap();
         }
@@ -592,7 +585,7 @@ mod tests {
         // Verify in transaction
         for i in 0..100 {
             let key = format!("key{:03}", i);
-            let value = tx.get(shard, key.as_bytes()).await.unwrap();
+            let value = tx.get(shard_id, key.as_bytes()).await.unwrap();
             assert!(value.is_some());
         }
 
@@ -602,7 +595,7 @@ mod tests {
         // Verify after commit
         for i in 0..100 {
             let key = format!("key{:03}", i);
-            let value = store.get(shard, key.as_bytes()).await.unwrap();
+            let value = store.get(shard_id, key.as_bytes()).await.unwrap();
             assert!(value.is_some());
         }
     }
@@ -613,25 +606,24 @@ mod tests {
         store.init_tx_manager();
         let tx_mgr = store.get_tx_manager();
 
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Begin transaction
         let tx = tx_mgr.begin();
         let tx_clone = Arc::clone(&tx);
 
         // Write data
-        tx.put(shard, b"key1", b"value1").await.unwrap();
+        tx.put(shard_id, b"key1", b"value1").await.unwrap();
 
         // Commit (consumes tx)
         tx.commit().await.unwrap();
 
         // Try to use transaction after commit - should fail
-        let result = tx_clone.put(shard, b"key2", b"value2").await;
+        let result = tx_clone.put(shard_id, b"key2", b"value2").await;
         assert!(result.is_err());
 
-        let result = tx_clone.get(shard, b"key1").await;
+        let result = tx_clone.get(shard_id, b"key1").await;
         assert!(result.is_err());
     }
 
@@ -641,25 +633,24 @@ mod tests {
         store.init_tx_manager();
         let tx_mgr = store.get_tx_manager();
 
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Begin transaction
         let tx = tx_mgr.begin();
         let tx_clone = Arc::clone(&tx);
 
         // Write data
-        tx.put(shard, b"key1", b"value1").await.unwrap();
+        tx.put(shard_id, b"key1", b"value1").await.unwrap();
 
         // Rollback (consumes tx)
         tx.rollback().await.unwrap();
 
         // Try to use transaction after rollback - should fail
-        let result = tx_clone.put(shard, b"key2", b"value2").await;
+        let result = tx_clone.put(shard_id, b"key2", b"value2").await;
         assert!(result.is_err());
 
-        let result = tx_clone.get(shard, b"key1").await;
+        let result = tx_clone.get(shard_id, b"key1").await;
         assert!(result.is_err());
     }
 }

@@ -18,12 +18,15 @@ use crate::config::ARTStorageConfig;
 use crate::iterator::ArtIterator;
 use crate::metrics::ArtMetrics;
 use crate::tree::AdaptiveRadixTree;
-use crate::wal_record::{WalRecordKind, decode_put};
+use crate::wal_record::{
+    WalRecordKind, decode_checkpoint, decode_clear, decode_delete, decode_put, encode_checkpoint,
+    encode_clear, encode_delete, encode_put,
+};
 use async_trait::async_trait;
 use futures_core::Stream;
 use nanograph_kvt::{
-    KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId,
-    ShardIndex, TableId, Transaction,
+     KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueShardStore,
+    ShardId,  Transaction,
     metrics::{ShardStats, StatValue},
 };
 use nanograph_vfs::{DynamicFileSystem, MemoryFileSystem, Path};
@@ -268,14 +271,16 @@ impl ArtKeyValueStore {
             flushed_lsn: Arc::new(RwLock::new(None)),
         });
 
+        // Store shard data
+        {
+            let mut shards = self.shards.write().unwrap();
+            shards.insert(shard, shard_data);
+        }
+
         // Recover from WAL if it exists
         if self.wal_enabled {
             self.recover_from_wal(shard, &tree)?;
         }
-
-        // Store shard data
-        let mut shards = self.shards.write().unwrap();
-        shards.insert(shard, shard_data);
 
         // Initialize metrics
         let mut metrics = self.metrics.write().unwrap();
@@ -352,9 +357,32 @@ impl ArtKeyValueStore {
 
         let shard_data = self.get_shard(shard)?;
         if let Some(wal_writer) = &shard_data.wal_writer {
-            let record_data = crate::wal_record::encode_delete(key);
+            let record_data = encode_delete(key);
             let record = WriteAheadLogRecord {
                 kind: WalRecordKind::Delete as u16,
+                payload: &record_data,
+            };
+            let mut writer = wal_writer.lock().unwrap();
+            writer
+                .append(record, nanograph_wal::Durability::Flush)
+                .map_err(|e| {
+                    KeyValueError::StorageCorruption(format!("WAL write failed: {}", e))
+                })?;
+        }
+        Ok(())
+    }
+
+    /// Write a WAL record for a clear operation
+    fn wal_write_clear(&self, shard: ShardId) -> KeyValueResult<()> {
+        if !self.wal_enabled {
+            return Ok(());
+        }
+
+        let shard_data = self.get_shard(shard)?;
+        if let Some(wal_writer) = &shard_data.wal_writer {
+            let record_data = encode_clear();
+            let record = WriteAheadLogRecord {
+                kind: WalRecordKind::Clear as u16,
                 payload: &record_data,
             };
             let mut writer = wal_writer.lock().unwrap();
@@ -403,15 +431,23 @@ impl ArtKeyValueStore {
                         recovered_count += 1;
                     }
                     Some(WalRecordKind::Delete) => {
-                        let key =
-                            crate::wal_record::decode_delete(&entry.payload).map_err(|e| {
-                                KeyValueError::StorageCorruption(format!(
-                                    "Failed to decode delete: {}",
-                                    e
-                                ))
-                            })?;
+                        let key = decode_delete(&entry.payload).map_err(|e| {
+                            KeyValueError::StorageCorruption(format!(
+                                "Failed to decode delete: {}",
+                                e
+                            ))
+                        })?;
                         let _ = tree_guard.remove(&key);
                         recovered_count += 1;
+                    }
+                    Some(WalRecordKind::Clear) => {
+                        decode_clear(&entry.payload).map_err(|e| {
+                            KeyValueError::StorageCorruption(format!(
+                                "Failed to decode clear: {}",
+                                e
+                            ))
+                        })?;
+                        tree_guard.clear();
                     }
                     Some(WalRecordKind::Checkpoint) => {
                         // Checkpoint marker - we can stop here if we want
@@ -747,10 +783,7 @@ impl KeyValueShardStore for ArtKeyValueStore {
     // ===== Shard Management =====
 
     /// Create a new shard
-    async fn create_shard(&self, table: TableId, index: ShardIndex) -> KeyValueResult<ShardId> {
-        // Compute deterministic ShardId from TableId and ShardIndex
-        let shard_id = ShardId::from_parts(table, index);
-
+    async fn create_shard(&self, shard_id: ShardId) -> KeyValueResult<()> {
         // Create a new ART for this shard
         let tree = Arc::new(RwLock::new(AdaptiveRadixTree::new()));
 
@@ -802,7 +835,7 @@ impl KeyValueShardStore for ArtKeyValueStore {
         // Recover from WAL if it exists
         self.recover_from_wal(shard_id, &tree)?;
 
-        Ok(shard_id)
+        Ok(())
     }
 
     /// Drop a shard
@@ -868,6 +901,23 @@ impl KeyValueShardStore for ArtKeyValueStore {
 
         Ok(Box::new(iterator) as Box<dyn KeyValueIterator + Send>)
     }
+
+    async fn clear(&self, shard: ShardId) -> KeyValueResult<()> {
+        let metrics = self.get_metrics(shard);
+        let tree = self.get_tree(shard)?;
+
+        // Write to WAL
+        self.wal_write_clear(shard)?;
+
+        // Update in-memory tree
+        let mut tree_guard = tree.write().unwrap();
+        tree_guard.clear();
+
+        // Update metrics
+        metrics.record_delete(); // Increment delete counter
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -879,61 +929,68 @@ mod tests {
         let store = ArtKeyValueStore::default();
 
         // Create shard
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
-        assert!(store.shard_exists(shard).await.unwrap());
+        assert!(store.shard_exists(shard_id).await.unwrap());
 
         // List shards
         let shards = store.list_shards().await.unwrap();
         assert_eq!(shards.len(), 1);
 
         // Drop shard
-        store.drop_shard(shard).await.unwrap();
-        assert!(!store.shard_exists(shard).await.unwrap());
+        store.drop_shard(shard_id).await.unwrap();
+        assert!(!store.shard_exists(shard_id).await.unwrap());
     }
 
     #[tokio::test]
     async fn test_basic_operations() {
         let store = ArtKeyValueStore::default();
 
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Put
-        store.put(shard, b"key1", b"value1").await.unwrap();
-        store.put(shard, b"key2", b"value2").await.unwrap();
+        store.put(shard_id, b"key1", b"value1").await.unwrap();
+        store.put(shard_id, b"key2", b"value2").await.unwrap();
 
         // Get
         assert_eq!(
-            store.get(shard, b"key1").await.unwrap(),
+            store.get(shard_id, b"key1").await.unwrap(),
             Some(b"value1".to_vec())
         );
         assert_eq!(
-            store.get(shard, b"key2").await.unwrap(),
+            store.get(shard_id, b"key2").await.unwrap(),
             Some(b"value2".to_vec())
         );
-        assert_eq!(store.get(shard, b"key3").await.unwrap(), None);
+        assert_eq!(store.get(shard_id, b"key3").await.unwrap(), None);
 
         // Exists
-        assert!(store.exists(shard, b"key1").await.unwrap());
-        assert!(!store.exists(shard, b"key3").await.unwrap());
+        assert!(store.exists(shard_id, b"key1").await.unwrap());
+        assert!(!store.exists(shard_id, b"key3").await.unwrap());
 
         // Delete
-        assert!(store.delete(shard, b"key1").await.unwrap());
-        assert!(!store.delete(shard, b"key3").await.unwrap());
-        assert_eq!(store.get(shard, b"key1").await.unwrap(), None);
+        assert!(store.delete(shard_id, b"key1").await.unwrap());
+        assert!(!store.delete(shard_id, b"key3").await.unwrap());
+        assert_eq!(store.get(shard_id, b"key1").await.unwrap(), None);
+
+        // Clear
+        store.put(shard_id, b"key1", b"value1").await.unwrap();
+        store.put(shard_id, b"key2", b"value2").await.unwrap();
+        assert_eq!(store.key_count(shard_id).await.unwrap(), 2);
+
+        store.clear(shard_id).await.unwrap();
+        assert_eq!(store.key_count(shard_id).await.unwrap(), 0);
+        assert_eq!(store.get(shard_id, b"key1").await.unwrap(), None);
+        assert_eq!(store.get(shard_id, b"key2").await.unwrap(), None);
     }
 
     #[tokio::test]
     async fn test_batch_operations() {
         let store = ArtKeyValueStore::default();
 
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Batch put
         let pairs = vec![
@@ -941,11 +998,11 @@ mod tests {
             (&b"key2"[..], &b"value2"[..]),
             (&b"key3"[..], &b"value3"[..]),
         ];
-        store.batch_put(shard, &pairs).await.unwrap();
+        store.batch_put(shard_id, &pairs).await.unwrap();
 
         // Batch get
         let keys = vec![&b"key1"[..], &b"key2"[..], &b"key3"[..], &b"key4"[..]];
-        let results = store.batch_get(shard, &keys).await.unwrap();
+        let results = store.batch_get(shard_id, &keys).await.unwrap();
         assert_eq!(results[0], Some(b"value1".to_vec()));
         assert_eq!(results[1], Some(b"value2".to_vec()));
         assert_eq!(results[2], Some(b"value3".to_vec()));
@@ -953,32 +1010,31 @@ mod tests {
 
         // Batch delete
         let delete_keys = vec![&b"key1"[..], &b"key2"[..], &b"key4"[..]];
-        let deleted = store.batch_delete(shard, &delete_keys).await.unwrap();
+        let deleted = store.batch_delete(shard_id, &delete_keys).await.unwrap();
         assert_eq!(deleted, 2);
     }
 
     #[tokio::test]
     async fn test_statistics() {
         let store = ArtKeyValueStore::default();
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Insert data
         for i in 0..100 {
             let key = format!("key{:03}", i);
             let value = format!("value{}", i);
             store
-                .put(shard, key.as_bytes(), value.as_bytes())
+                .put(shard_id, key.as_bytes(), value.as_bytes())
                 .await
                 .unwrap();
         }
 
         // Check stats
-        let count = store.key_count(shard).await.unwrap();
+        let count = store.key_count(shard_id).await.unwrap();
         assert_eq!(count, 100);
 
-        let stats = store.shard_stats(shard).await.unwrap();
+        let stats = store.shard_stats(shard_id).await.unwrap();
         assert_eq!(stats.key_count, 100);
         assert!(stats.total_bytes > 0);
     }
@@ -986,26 +1042,81 @@ mod tests {
     #[tokio::test]
     async fn test_prefix_scan() {
         let store = ArtKeyValueStore::default();
-        let table_id = TableId::new(0);
-        let shard_index = ShardIndex::new(0);
-        let shard = store.create_shard(table_id, shard_index).await.unwrap();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
 
         // Insert data with common prefix
-        store.put(shard, b"user:1:name", b"Alice").await.unwrap();
+        store.put(shard_id, b"user:1:name", b"Alice").await.unwrap();
         store
-            .put(shard, b"user:1:email", b"alice@example.com")
+            .put(shard_id, b"user:1:email", b"alice@example.com")
             .await
             .unwrap();
-        store.put(shard, b"user:2:name", b"Bob").await.unwrap();
+        store.put(shard_id, b"user:2:name", b"Bob").await.unwrap();
         store
-            .put(shard, b"user:2:email", b"bob@example.com")
+            .put(shard_id, b"user:2:email", b"bob@example.com")
             .await
             .unwrap();
 
         // Scan with prefix - simplified test
-        let _iter = store.scan_prefix(shard, b"user:1:", None).await.unwrap();
+        let _iter = store.scan_prefix(shard_id, b"user:1:", None).await.unwrap();
 
         // TODO: Implement proper async iteration test
         // For now, just verify the iterator was created successfully
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_clear_with_wal() {
+        let vfs = Arc::new(MemoryFileSystem::new());
+        let store = Arc::new(ArtKeyValueStore::with_wal());
+
+        let shard_id = ShardId::new(1);
+
+        let config = ARTStorageConfig {
+            data_dir: std::path::PathBuf::from("/data"),
+            wal_dir: std::path::PathBuf::from("/wal"),
+            max_entries: 1000,
+            cache_size_mb: None,
+        };
+
+        store
+            .create_shard_with_config(shard_id, vfs.clone(), config.clone())
+            .unwrap();
+
+        // Put some data
+        store.put(shard_id, b"key1", b"value1").await.unwrap();
+        store.put(shard_id, b"key2", b"value2").await.unwrap();
+        assert_eq!(store.key_count(shard_id).await.unwrap(), 2);
+
+        // Clear
+        store.clear(shard_id).await.unwrap();
+        assert_eq!(store.key_count(shard_id).await.unwrap(), 0);
+
+        // Re-open store with the same VFS and config to test recovery
+        let store2 = ArtKeyValueStore::with_wal();
+        store2
+            .create_shard_with_config(shard_id, vfs, config)
+            .unwrap();
+
+        // Should be empty after recovery because Clear was in WAL
+        assert_eq!(store2.key_count(shard_id).await.unwrap(), 0);
+        assert_eq!(store2.get(shard_id, b"key1").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn test_clear_without_wal() {
+        let store = ArtKeyValueStore::new();
+        let shard_id = ShardId::new(0);
+        store.create_shard(shard_id).await.unwrap();
+
+        // Put some data
+        store.put(shard_id, b"key1", b"value1").await.unwrap();
+        store.put(shard_id, b"key2", b"value2").await.unwrap();
+        assert_eq!(store.key_count(shard_id).await.unwrap(), 2);
+
+        // Clear
+        store.clear(shard_id).await.unwrap();
+        assert_eq!(store.key_count(shard_id).await.unwrap(), 0);
+        assert_eq!(store.get(shard_id, b"key1").await.unwrap(), None);
     }
 }
