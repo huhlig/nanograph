@@ -179,36 +179,61 @@ impl DataBlock {
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?,
         };
 
-        // Add compression type
+        // Build block with compression type and data
         let mut result = Vec::new();
         result.push(compression as u8);
         result.extend_from_slice(&compressed);
+
+        // Calculate and append CRC32 checksum over compression type + data
+        let checksum = IntegrityAlgorithm::Crc32c.hash(&result);
+        if let nanograph_util::IntegrityHash::Hash32(crc) = checksum {
+            result.extend_from_slice(&crc.to_le_bytes());
+        }
 
         Ok(result)
     }
 
     pub fn decode(data: &[u8]) -> io::Result<Self> {
-        if data.is_empty() {
+        if data.len() < 5 {
+            // Minimum: 1 byte compression + 4 bytes CRC32
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "Empty block data",
+                "Block data too short",
             ));
         }
 
-        let compression_byte = data[0];
+        // Split off CRC32 from end
+        let (block_data, crc_bytes) = data.split_at(data.len() - 4);
+        let stored_crc = u32::from_le_bytes(crc_bytes.try_into().unwrap());
+
+        // Verify CRC32 checksum
+        let calculated_checksum = IntegrityAlgorithm::Crc32c.hash(block_data);
+        if let nanograph_util::IntegrityHash::Hash32(calculated_crc) = calculated_checksum {
+            if calculated_crc != stored_crc {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "Block CRC32 mismatch: expected 0x{:08x}, got 0x{:08x}",
+                        stored_crc, calculated_crc
+                    ),
+                ));
+            }
+        }
+
+        let compression_byte = block_data[0];
         let compression = CompressionAlgorithm::from_u8(compression_byte).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("Invalid compression algorithm: {}", compression_byte),
             )
         })?;
-        let data = &data[1..];
+        let compressed_data = &block_data[1..];
 
         // Decompress if needed
         let decompressed = match compression {
-            CompressionAlgorithm::None => data.to_vec(),
+            CompressionAlgorithm::None => compressed_data.to_vec(),
             _ => compression
-                .decompress(data, None)
+                .decompress(compressed_data, None)
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?,
         };
         let decompressed = decompressed.as_slice();
@@ -303,24 +328,55 @@ impl IndexBlock {
             write_varint(&mut buf, handle.size)?;
         }
 
+        // Calculate and append CRC32 checksum
+        let checksum = IntegrityAlgorithm::Crc32c.hash(&buf);
+        if let nanograph_util::IntegrityHash::Hash32(crc) = checksum {
+            buf.extend_from_slice(&crc.to_le_bytes());
+        }
+
         Ok(buf)
     }
 
     pub fn decode(data: &[u8]) -> io::Result<Self> {
+        if data.len() < 4 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Index block data too short",
+            ));
+        }
+
+        // Split off CRC32 from end
+        let (index_data, crc_bytes) = data.split_at(data.len() - 4);
+        let stored_crc = u32::from_le_bytes(crc_bytes.try_into().unwrap());
+
+        // Verify CRC32 checksum
+        let calculated_checksum = IntegrityAlgorithm::Crc32c.hash(index_data);
+        if let nanograph_util::IntegrityHash::Hash32(calculated_crc) = calculated_checksum {
+            if calculated_crc != stored_crc {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "Index block CRC32 mismatch: expected 0x{:08x}, got 0x{:08x}",
+                        stored_crc, calculated_crc
+                    ),
+                ));
+            }
+        }
+
         let mut entries = Vec::new();
         let mut cursor = 0;
 
-        while cursor < data.len() {
-            let (key_len, n1) = read_varint(&data[cursor..])?;
+        while cursor < index_data.len() {
+            let (key_len, n1) = read_varint(&index_data[cursor..])?;
             cursor += n1;
 
-            let key = data[cursor..cursor + key_len as usize].to_vec();
+            let key = index_data[cursor..cursor + key_len as usize].to_vec();
             cursor += key_len as usize;
 
-            let (offset, n2) = read_varint(&data[cursor..])?;
+            let (offset, n2) = read_varint(&index_data[cursor..])?;
             cursor += n2;
 
-            let (size, n3) = read_varint(&data[cursor..])?;
+            let (size, n3) = read_varint(&index_data[cursor..])?;
             cursor += n3;
 
             entries.push((key, BlockHandle { offset, size }));
@@ -393,19 +449,45 @@ impl BloomFilter {
         let mut buf = Vec::new();
         buf.push(self.num_hash_functions as u8);
         buf.extend_from_slice(&self.bits);
+
+        // Calculate and append CRC32 checksum
+        let checksum = IntegrityAlgorithm::Crc32c.hash(&buf);
+        if let nanograph_util::IntegrityHash::Hash32(crc) = checksum {
+            buf.extend_from_slice(&crc.to_le_bytes());
+        }
+
         buf
     }
 
     pub fn decode(data: &[u8]) -> io::Result<Self> {
-        if data.is_empty() {
+        if data.len() < 5 {
+            // Minimum: 1 byte num_hash_functions + 4 bytes CRC32
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "Empty bloom filter data",
+                "Bloom filter data too short",
             ));
         }
 
-        let num_hash_functions = data[0] as usize;
-        let bits = data[1..].to_vec();
+        // Split off CRC32 from end
+        let (bloom_data, crc_bytes) = data.split_at(data.len() - 4);
+        let stored_crc = u32::from_le_bytes(crc_bytes.try_into().unwrap());
+
+        // Verify CRC32 checksum
+        let calculated_checksum = IntegrityAlgorithm::Crc32c.hash(bloom_data);
+        if let nanograph_util::IntegrityHash::Hash32(calculated_crc) = calculated_checksum {
+            if calculated_crc != stored_crc {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "Bloom filter CRC32 mismatch: expected 0x{:08x}, got 0x{:08x}",
+                        stored_crc, calculated_crc
+                    ),
+                ));
+            }
+        }
+
+        let num_hash_functions = bloom_data[0] as usize;
+        let bits = bloom_data[1..].to_vec();
 
         Ok(Self {
             bits,
@@ -870,5 +952,96 @@ mod tests {
         buffer.set_position(0);
         let entry = SSTable::get(&mut buffer, b"key4", IntegrityAlgorithm::None).unwrap();
         assert!(entry.is_none());
+    #[test]
+    fn test_block_crc32_verification() {
+        // Test that blocks with valid CRC32 checksums are accepted
+        let mut block = DataBlock::new();
+        block.add_entry(Entry::new(b"test_key".to_vec(), Some(b"test_value".to_vec()), 1));
+        
+        let encoded = block.encode(CompressionAlgorithm::None).unwrap();
+        let decoded = DataBlock::decode(&encoded).unwrap();
+        
+        assert_eq!(decoded.entries.len(), 1);
+        assert_eq!(decoded.entries[0].key, b"test_key");
+        assert_eq!(decoded.entries[0].value.as_ref().unwrap(), b"test_value");
+    }
+
+    #[test]
+    fn test_corrupted_data_block_detection() {
+        // Create a valid block
+        let mut block = DataBlock::new();
+        block.add_entry(Entry::new(b"key".to_vec(), Some(b"value".to_vec()), 1));
+        
+        let mut encoded = block.encode(CompressionAlgorithm::None).unwrap();
+        
+        // Corrupt a byte in the middle of the block (but not the CRC32 at the end)
+        if encoded.len() > 10 {
+            encoded[5] ^= 0xFF; // Flip all bits in one byte
+        }
+        
+        // Decoding should fail due to CRC32 mismatch
+        let result = DataBlock::decode(&encoded);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("CRC32 mismatch"));
+    }
+
+    #[test]
+    fn test_index_block_crc32_verification() {
+        let mut index = IndexBlock::new();
+        index.add_entry(b"key1".to_vec(), BlockHandle { offset: 0, size: 100 });
+        index.add_entry(b"key2".to_vec(), BlockHandle { offset: 100, size: 150 });
+        
+        let encoded = index.encode().unwrap();
+        let decoded = IndexBlock::decode(&encoded).unwrap();
+        
+        assert_eq!(decoded.entries.len(), 2);
+        assert_eq!(decoded.entries[0].0, b"key1");
+        assert_eq!(decoded.entries[1].0, b"key2");
+    }
+
+    #[test]
+    fn test_corrupted_index_block_detection() {
+        let mut index = IndexBlock::new();
+        index.add_entry(b"key".to_vec(), BlockHandle { offset: 0, size: 100 });
+        
+        let mut encoded = index.encode().unwrap();
+        
+        // Corrupt a byte (but not the CRC32 at the end)
+        if encoded.len() > 10 {
+            encoded[3] ^= 0xFF;
+        }
+        
+        let result = IndexBlock::decode(&encoded);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("CRC32 mismatch"));
+    }
+
+    #[test]
+    fn test_bloom_filter_crc32_verification() {
+        let mut bloom = BloomFilter::new(10, 10);
+        bloom.add(b"test_key");
+        
+        let encoded = bloom.encode();
+        let decoded = BloomFilter::decode(&encoded).unwrap();
+        
+        assert!(decoded.may_contain(b"test_key"));
+    }
+
+    #[test]
+    fn test_corrupted_bloom_filter_detection() {
+        let mut bloom = BloomFilter::new(10, 10);
+        bloom.add(b"key");
+        
+        let mut encoded = bloom.encode();
+        
+        // Corrupt a byte (but not the CRC32 at the end)
+        if encoded.len() > 10 {
+            encoded[2] ^= 0xFF;
+        }
+        
+        let result = BloomFilter::decode(&encoded);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("CRC32 mismatch"));
+    }
     }
 }

@@ -26,19 +26,33 @@ This document describes the Log-Structured Merge Tree (LSM Tree) implementation 
 
 #### Data Block Structure:
 ```
-[Entry 1] [Entry 2] ... [Entry N] [Restart Points] [Num Restarts] [Compression Type]
+[Compression Type] [Compressed Data] [CRC32 Checksum]
+```
+
+Where Compressed Data contains:
+```
+[Entry 1] [Entry 2] ... [Entry N] [Restart Points] [Num Restarts]
 ```
 - **Entry Format**: `[shared_key_len][unshared_key_len][value_len][unshared_key][value]`
 - **Restart Points**: Every 16 entries for efficient binary search
 - **Compression**: Per-block Snappy/LZ4/Zstd
+- **CRC32 Checksum**: Covers compression type byte and compressed data (4 bytes)
 
 #### Meta Block:
+```
+[Bloom Filter Data] [CRC32 Checksum]
+```
 - **Bloom Filter**: 10 bits per key, ~1% false positive rate
 - **Statistics**: Min/max key, entry count, timestamps
+- **CRC32 Checksum**: Covers bloom filter data (4 bytes)
 
 #### Index Block:
+```
+[Index Entries] [CRC32 Checksum]
+```
 - **Format**: `[last_key_in_block][block_offset][block_size]`
 - **Purpose**: Binary search to locate data blocks
+- **CRC32 Checksum**: Covers all index entries (4 bytes)
 
 #### Footer (48 bytes):
 ```
@@ -112,9 +126,11 @@ Write → WAL → MemTable → [Threshold?] → Immutable MemTable → Backgroun
 - **Trade-off**: CPU vs I/O and storage
 
 #### Checksums:
-- **Algorithm**: CRC32C (hardware accelerated)
-- **Coverage**: All blocks, index, footer
-- **Verification**: On read, optional on write
+- **Algorithm**: CRC32C (hardware accelerated via nanograph-util)
+- **Coverage**: Block-level checksums for all blocks (data, index, meta/bloom filter)
+- **Format**: 4-byte CRC32 appended to each block
+- **Verification**: Automatic on read, detects bit rot and partial reads
+- **Benefits**: Fail individual block reads instead of entire SSTable, better error isolation
 
 ## File Organization
 
