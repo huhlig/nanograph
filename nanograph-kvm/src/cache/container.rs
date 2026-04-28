@@ -14,12 +14,15 @@
 // limitations under the License.
 //
 
+use crate::allocator::ObjectAllocator;
 use crate::cache::resolver::ObjectPathResolver;
 use nanograph_core::object::{
-    ContainerId, FunctionId, FunctionRecord, NamespaceId, NamespaceRecord, NodeId, ShardId,
-    ShardRecord, TableId, TableRecord,
+    ContainerId, FunctionId, FunctionRecord, IndexId, IndexRecord, NamespaceId, NamespaceRecord,
+    NodeId, ShardId, ShardRecord, TableId, TableRecord,
 };
+use nanograph_raft::ConsensusManager;
 use nanograph_util::CacheMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Cache for all container-level metadata.
@@ -34,6 +37,8 @@ pub struct ContainerMetadataCache {
     container: ContainerId,
     /// Container Metadata Shard ID
     shard: ShardId,
+    /// Object ID Allocator for this container
+    allocator: ObjectAllocator,
     /**********************************************************************************************\
      * Container Record Cache                                                                     *
     \**********************************************************************************************/
@@ -43,6 +48,8 @@ pub struct ContainerMetadataCache {
     functions: CacheMap<FunctionId, FunctionRecord>,
     /// Tables in the system
     tables: CacheMap<TableId, TableRecord>,
+    /// Indexes in the system
+    indexes: CacheMap<IndexId, IndexRecord>,
     /// Shards in the system
     shards: CacheMap<ShardId, ShardRecord>,
     /// Shard Assignment Cache (shard -> replica nodes)
@@ -52,14 +59,37 @@ pub struct ContainerMetadataCache {
 }
 
 impl ContainerMetadataCache {
-    /// Create a new `ContainerMetadataCache`.
+    /// Create a new `ContainerMetadataCache` for standalone mode.
     pub fn new(container: ContainerId, shard: ShardId, cache_ttl: Duration) -> Self {
         ContainerMetadataCache {
             container,
             shard,
+            allocator: ObjectAllocator::new_standalone(container),
             namespaces: CacheMap::new(cache_ttl),
             functions: CacheMap::new(cache_ttl),
             tables: CacheMap::new(cache_ttl),
+            indexes: CacheMap::new(cache_ttl),
+            shards: CacheMap::new(cache_ttl),
+            shard_assignments: CacheMap::new(cache_ttl),
+            path_resolver: Default::default(),
+        }
+    }
+
+    /// Create a new `ContainerMetadataCache` for distributed mode.
+    pub fn new_distributed(
+        container: ContainerId,
+        shard: ShardId,
+        cache_ttl: Duration,
+        raft_manager: Arc<ConsensusManager>,
+    ) -> Self {
+        ContainerMetadataCache {
+            container,
+            shard,
+            allocator: ObjectAllocator::new_distributed(container, raft_manager),
+            namespaces: CacheMap::new(cache_ttl),
+            functions: CacheMap::new(cache_ttl),
+            tables: CacheMap::new(cache_ttl),
+            indexes: CacheMap::new(cache_ttl),
             shards: CacheMap::new(cache_ttl),
             shard_assignments: CacheMap::new(cache_ttl),
             path_resolver: Default::default(),
@@ -74,6 +104,16 @@ impl ContainerMetadataCache {
     /// Returns the ID of the shard where this container's metadata is stored.
     pub fn metadata_shard_id(&self) -> &ShardId {
         &self.shard
+    }
+
+    /// Returns a reference to the object allocator for this container.
+    pub fn allocator(&self) -> &ObjectAllocator {
+        &self.allocator
+    }
+
+    /// Returns a mutable reference to the object allocator for this container.
+    pub fn allocator_mut(&mut self) -> &mut ObjectAllocator {
+        &mut self.allocator
     }
 
     // --- Namespace Records ---
@@ -144,7 +184,7 @@ impl ContainerMetadataCache {
 
     /// Sets or updates a table record.
     pub fn set_table_record(&mut self, table: TableRecord) {
-        self.tables.insert(table.id, table);
+        self.tables.insert(table.table_id, table);
     }
 
     /// Removes a specific table record.
@@ -155,6 +195,33 @@ impl ContainerMetadataCache {
     /// Clears all table records.
     pub fn clear_table_records(&mut self) {
         self.tables.clear();
+    }
+
+    // --- Index Records ---
+
+    /// Returns an iterator over all index records.
+    pub fn list_index_records(&self) -> impl Iterator<Item = &IndexRecord> {
+        self.indexes.values()
+    }
+
+    /// Returns a reference to the metadata for a specific index if it exists.
+    pub fn get_index_record(&self, record_id: &IndexId) -> Option<&IndexRecord> {
+        self.indexes.get(record_id)
+    }
+
+    /// Sets or updates an index record.
+    pub fn set_index_record(&mut self, index: IndexRecord) {
+        self.indexes.insert(index.index_id, index);
+    }
+
+    /// Removes a specific index record.
+    pub fn clear_index_record(&mut self, index_id: IndexId) {
+        self.indexes.remove(&index_id);
+    }
+
+    /// Clears all index records.
+    pub fn clear_index_records(&mut self) {
+        self.indexes.clear();
     }
 
     // --- Shard Records ---
@@ -171,7 +238,7 @@ impl ContainerMetadataCache {
 
     /// Sets or updates a shard record.
     pub fn set_shard_record(&mut self, record: ShardRecord) {
-        self.shards.insert(record.id.clone(), record);
+        self.shards.insert(record.shard_id.clone(), record);
     }
 
     /// Removes a specific shard record.
@@ -223,7 +290,7 @@ mod tests {
     use super::*;
 
     use nanograph_core::object::{
-        DatabaseId, IndexNumber, ShardNumber, ShardStatus, TableSharding, TenantId,
+        DatabaseId, ObjectId, ShardNumber, ShardStatus, ShardType, TableSharding, TenantId,
     };
     use nanograph_core::types::Timestamp;
     use nanograph_kvt::StorageEngineType;
@@ -233,7 +300,7 @@ mod tests {
         let tenant_id = TenantId::from(1);
         let database_id = DatabaseId::from(1);
         let container_id = ContainerId::from_parts(tenant_id, database_id);
-        let table_id = TableId::from(1);
+        let table_id = ObjectId::from(1);
         let shard_number = ShardNumber::from(5);
         let shard_id = ShardId::from_parts(tenant_id, database_id, table_id, shard_number);
         ContainerMetadataCache::new(container_id, shard_id, Duration::from_secs(60))
@@ -244,7 +311,7 @@ mod tests {
         let tenant_id = TenantId::from(1);
         let database_id = DatabaseId::from(1);
         let container_id = ContainerId::from_parts(tenant_id, database_id);
-        let table_id = TableId::from(1);
+        let table_id = ObjectId::from(1);
         let shard_number = ShardNumber::from(5);
         let shard_id = ShardId::from_parts(tenant_id, database_id, table_id, shard_number);
         let cache = ContainerMetadataCache::new(
@@ -317,14 +384,14 @@ mod tests {
     #[test]
     fn test_table_records() {
         let mut cache = create_test_cache();
-        let table_id = TableId::from(400);
+        let table_id = TableId::new(ObjectId::from(400));
         let table = TableRecord {
-            id: table_id,
+            table_id,
             name: "test_table".to_string(),
             path: "/test_table".to_string(),
             version: 1,
             created_at: Timestamp::now(),
-            last_modified: Timestamp::now(),
+            updated_at: Timestamp::now(),
             engine_type: StorageEngineType::from("lsm"),
             sharding: TableSharding::Single,
             options: HashMap::new(),
@@ -333,7 +400,10 @@ mod tests {
 
         cache.set_table_record(table.clone());
         assert!(cache.get_table_record(&table_id).is_some());
-        assert_eq!(cache.get_table_record(&table_id).unwrap().id, table_id);
+        assert_eq!(
+            cache.get_table_record(&table_id).unwrap().table_id,
+            table_id
+        );
         assert_eq!(cache.list_table_records().count(), 1);
 
         cache.clear_table_record(table_id);
@@ -350,15 +420,15 @@ mod tests {
         let tenant_id = TenantId::from(1);
         let database_id = DatabaseId::from(1);
         let container_id = ContainerId::from_parts(tenant_id, database_id);
-        let table_id = TableId::from(500);
+        let table_id = ObjectId::from(500);
         let shard_number = ShardNumber::from(1);
         let shard_id = ShardId::from_parts(tenant_id, database_id, table_id, shard_number);
         let shard = ShardRecord {
-            id: shard_id.clone(),
-            name: "test_shard".to_string(),
+            shard_id: shard_id.clone(),
+            label: "test_shard".to_string(),
             version: 1,
             created_at: Timestamp::now(),
-            last_modified: Timestamp::now(),
+            updated_at: Timestamp::now(),
             range: (vec![], vec![]),
             leader: None,
             engine_type: StorageEngineType::from("lsm"),
@@ -366,11 +436,15 @@ mod tests {
             term: 0,
             replicas: vec![],
             size_bytes: 0,
+            shard_type: ShardType::TableShard,
         };
 
         cache.set_shard_record(shard.clone());
         assert!(cache.get_shard_record(&shard_id).is_some());
-        assert_eq!(cache.get_shard_record(&shard_id).unwrap().id, shard_id);
+        assert_eq!(
+            cache.get_shard_record(&shard_id).unwrap().shard_id,
+            shard_id
+        );
         assert_eq!(cache.list_shard_records().count(), 1);
 
         cache.clear_shard_record(shard_id.clone());
@@ -387,7 +461,7 @@ mod tests {
         let tenant_id = TenantId::from(1);
         let database_id = DatabaseId::from(1);
         let container_id = ContainerId::from_parts(tenant_id, database_id);
-        let table_id = TableId::from(600);
+        let table_id = ObjectId::from(600);
         let shard_number = ShardNumber::from(1);
         let shard_id = ShardId::from_parts(tenant_id, database_id, table_id, shard_number);
         let nodes = vec![NodeId::new(1), NodeId::new(2)];

@@ -29,7 +29,7 @@ message NodeId {
 message ShardId {
     uint32 tenant_id = 1;
     uint32 database_id = 2;
-    uint32 table_id = 3;
+    uint32 object_id = 3;
     uint32 shard_number = 4;
 }
 

@@ -16,20 +16,17 @@
 
 //! Core types for Raft-based distributed consensus
 use crate::error::ConsensusError;
-use nanograph_core::object::{RegionId, ServerId};
 use nanograph_core::{
-    object::{ClusterId, ClusterRecord, NodeId, ShardId, ShardRecord, ShardStatus},
+    object::{ClusterId, ClusterRecord, NodeId, ShardId, ShardRecord, ShardStatus, ShardType},
     types::Timestamp,
 };
-use openraft::{LogId, OptionalSend, RaftTypeConfig};
+use nanograph_vfs::File;
+use openraft::impls::leader_id_std::LeaderId;
+use openraft::{OptionalSend, RaftTypeConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::net::SocketAddr;
-use std::sync::Arc;
-use openraft::impls::leader_id_std::LeaderId;
-use openraft::vote::leader_id_std::CommittedLeaderId;
-use nanograph_vfs::File;
 
 /// Request to append entries to a follower's log
 pub type ConsensusAppendEntriesRequest = openraft::raft::AppendEntriesRequest<ConsensusTypeConfig>;
@@ -287,6 +284,7 @@ pub enum MetadataChange {
     /// Create a new shard
     CreateShard {
         shard_id: ShardId,
+        shard_type: ShardType,
         range: (Vec<u8>, Vec<u8>),
         replicas: Vec<NodeId>,
     },

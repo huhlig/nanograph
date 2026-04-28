@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-use crate::object::{ClusterId, ContainerId, RegionId, ServerId, ShardId};
+use crate::object::{ClusterId, RegionId, ServerId};
 use serde::{Deserialize, Serialize};
 
 /// Raft Node ID consisting of cluster, region, and server identifiers.
@@ -80,7 +80,7 @@ impl std::fmt::Display for NodeId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::{ClusterId, ContainerId, RegionId, ServerId, ShardId};
+    use crate::object::{ClusterId, RegionId, ServerId, TableShardId};
 
     #[test]
     fn test_node_id() {
@@ -106,7 +106,7 @@ mod tests {
 
         assert_eq!(
             format!("{}", node_id),
-            "241979313274291079312675685818957821832"
+            "24197857208548607642070844851154745224"
         );
     }
 }

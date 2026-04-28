@@ -14,7 +14,9 @@
 // limitations under the License.
 //
 
-use crate::object::{DatabaseId, FunctionId, NamespaceId, TableId, TablespaceId, TenantId};
+use crate::object::{
+    DatabaseId, FunctionId, IndexId, NamespaceId, TableId, TablespaceId, TenantId,
+};
 use serde::{Deserialize, Serialize};
 
 /// Permission grant - combines a permission with a resource scope
@@ -76,6 +78,18 @@ impl PermissionGrant {
     ) -> bool {
         self.permission.implies(permission)
             && self.scope.matches_table(tenant_id, database_id, table_id)
+    }
+
+    /// Check if this grant allows a specific permission on a table
+    pub fn allows_index(
+        &self,
+        permission: &Permission,
+        tenant_id: &TenantId,
+        database_id: &DatabaseId,
+        index_id: &IndexId,
+    ) -> bool {
+        self.permission.implies(permission)
+            && self.scope.matches_index(tenant_id, database_id, index_id)
     }
 
     /// Check if this grant allows a specific permission on a namespace
@@ -279,6 +293,11 @@ pub enum ResourceScope {
     Function(FunctionId),
     /// All functions (wildcard)
     AllFunctions,
+
+    /// Specific index
+    Index(IndexId),
+    /// All indexes (wildcard)
+    AllIndexes,
 }
 
 impl ResourceScope {
@@ -336,6 +355,25 @@ impl ResourceScope {
             ResourceScope::Tenant(tid) => *tid == *tenant_id,
             ResourceScope::Database(did) => *did == *database_id,
             ResourceScope::Table(tid) => *tid == *table_id,
+            _ => false,
+        }
+    }
+
+    /// Check if this scope matches a specific table
+    pub fn matches_index(
+        &self,
+        tenant_id: &TenantId,
+        database_id: &DatabaseId,
+        index_id: &IndexId,
+    ) -> bool {
+        match self {
+            ResourceScope::System => true,
+            ResourceScope::AllTables => true,
+            ResourceScope::AllDatabases => true,
+            ResourceScope::AllTenants => true,
+            ResourceScope::Tenant(tid) => *tid == *tenant_id,
+            ResourceScope::Database(did) => *did == *database_id,
+            ResourceScope::Index(iid) => *iid == *index_id,
             _ => false,
         }
     }

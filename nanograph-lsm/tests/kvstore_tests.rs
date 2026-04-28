@@ -17,10 +17,19 @@
 //! KeyValueStore trait integration tests for LSM
 
 use futures::StreamExt;
-use nanograph_kvt::{IndexNumber, KeyRange, KeyValueShardStore, ShardId, TableId};
+use nanograph_kvt::{KeyRange, KeyValueShardStore, ShardId};
 use nanograph_lsm::LSMKeyValueStore;
+use nanograph_vfs::{MemoryFileSystem, Path};
 use std::ops::Bound;
 use std::sync::Arc;
+
+// Helper function to create a shard with dummy VFS and paths
+fn create_test_shard(store: &LSMKeyValueStore, shard_id: ShardId) {
+    let vfs = Arc::new(MemoryFileSystem::new());
+    let data_path = Path::from("/data");
+    let wal_path = Path::from("/wal");
+    store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+}
 
 // ============================================================================
 // Basic Operations Tests
@@ -31,7 +40,7 @@ async fn test_basic_put_get() {
     let store = LSMKeyValueStore::new();
 
     let shard_id = ShardId::new(1);
-    store.create_shard(shard_id).await.unwrap();
+    create_test_shard(&store, shard_id);
 
     // Insert a key-value pair
     store.put(shard_id, b"key1", b"value1").await.unwrap();
@@ -45,7 +54,7 @@ async fn test_basic_put_get() {
 async fn test_put_update() {
     let store = LSMKeyValueStore::new();
     let shard_id = ShardId::new(1);
-    store.create_shard(shard_id).await.unwrap();
+    create_test_shard(&store, shard_id);
 
     // Insert initial value
     store.put(shard_id, b"key1", b"value1").await.unwrap();
@@ -63,7 +72,7 @@ async fn test_delete() {
     let store = LSMKeyValueStore::new();
 
     let shard_id = ShardId::new(1);
-    store.create_shard(shard_id).await.unwrap();
+    create_test_shard(&store, shard_id);
 
     // Insert and verify
     store.put(shard_id, b"key1", b"value1").await.unwrap();
@@ -84,7 +93,7 @@ async fn test_batch_put() {
     let store = LSMKeyValueStore::new();
 
     let shard_id = ShardId::new(1);
-    store.create_shard(shard_id).await.unwrap();
+    create_test_shard(&store, shard_id);
 
     let pairs = vec![
         (&b"key1"[..], &b"value1"[..]),
@@ -114,7 +123,7 @@ async fn test_batch_get() {
     let store = LSMKeyValueStore::new();
 
     let shard_id = ShardId::new(1);
-    store.create_shard(shard_id).await.unwrap();
+    create_test_shard(&store, shard_id);
 
     // Insert test data
     store.put(shard_id, b"key1", b"value1").await.unwrap();
@@ -138,7 +147,7 @@ async fn test_basic_scan() {
     let store = LSMKeyValueStore::new();
 
     let shard_id = ShardId::new(1);
-    store.create_shard(shard_id).await.unwrap();
+    create_test_shard(&store, shard_id);
 
     // Insert test data
     store.put(shard_id, b"key1", b"value1").await.unwrap();
@@ -174,7 +183,7 @@ async fn test_basic_scan() {
 async fn test_scan_with_bounds() {
     let store = LSMKeyValueStore::new();
     let shard_id = ShardId::new(1);
-    store.create_shard(shard_id).await.unwrap();
+    create_test_shard(&store, shard_id);
 
     for i in 0..10 {
         let key = format!("key{:02}", i);
@@ -213,7 +222,7 @@ async fn test_scan_with_bounds() {
 async fn test_scan_with_limit() {
     let store = LSMKeyValueStore::new();
     let shard_id = ShardId::new(1);
-    store.create_shard(shard_id).await.unwrap();
+    create_test_shard(&store, shard_id);
 
     for i in 0..100 {
         let key = format!("key{:03}", i);
@@ -244,7 +253,7 @@ async fn test_scan_with_limit() {
 async fn test_scan_reverse() {
     let store = LSMKeyValueStore::new();
     let shard_id = ShardId::new(1);
-    store.create_shard(shard_id).await.unwrap();
+    create_test_shard(&store, shard_id);
 
     for i in 0..5 {
         let key = format!("key{}", i);
@@ -287,7 +296,7 @@ async fn test_scan_reverse() {
 async fn test_key_count() {
     let store = LSMKeyValueStore::new();
     let shard_id = ShardId::new(1);
-    store.create_shard(shard_id).await.unwrap();
+    create_test_shard(&store, shard_id);
 
     assert_eq!(store.key_count(shard_id).await.unwrap(), 0);
 
@@ -302,7 +311,7 @@ async fn test_key_count() {
 async fn test_table_stats() {
     let store = LSMKeyValueStore::new();
     let shard_id = ShardId::new(1);
-    store.create_shard(shard_id).await.unwrap();
+    create_test_shard(&store, shard_id);
 
     // Insert some data
     for i in 0..100 {
@@ -329,9 +338,9 @@ async fn test_multiple_tables() {
     let store = LSMKeyValueStore::new();
 
     let shard1 = ShardId::new(1);
-    store.create_shard(shard1).await.unwrap();
-    let shard2 = ShardId::new(1);
-    store.create_shard(shard2).await.unwrap();
+    create_test_shard(&store, shard1);
+    let shard2 = ShardId::new(2);
+    create_test_shard(&store, shard2);
 
     // Insert different data in each shard
     store.put(shard1, b"key1", b"value1_shard1").await.unwrap();
@@ -353,11 +362,11 @@ async fn test_list_tables() {
     let store = LSMKeyValueStore::new();
 
     let shard1 = ShardId::new(1);
-    store.create_shard(shard1).await.unwrap();
-    let shard2 = ShardId::new(1);
-    store.create_shard(shard2).await.unwrap();
-    let shard3 = ShardId::new(1);
-    store.create_shard(shard3).await.unwrap();
+    create_test_shard(&store, shard1);
+    let shard2 = ShardId::new(2);
+    create_test_shard(&store, shard2);
+    let shard3 = ShardId::new(3);
+    create_test_shard(&store, shard3);
 
     let shards = store.list_shards().await.unwrap();
 
@@ -372,7 +381,7 @@ async fn test_drop_table() {
     let store = LSMKeyValueStore::new();
 
     let shard_id = ShardId::new(1);
-    store.create_shard(shard_id).await.unwrap();
+    create_test_shard(&store, shard_id);
     store.put(shard_id, b"key1", b"value1").await.unwrap();
 
     // Drop the shard
@@ -391,7 +400,7 @@ async fn test_drop_table() {
 async fn test_concurrent_reads() {
     let store = Arc::new(LSMKeyValueStore::new());
     let shard_id = ShardId::new(1);
-    store.create_shard(shard_id).await.unwrap();
+    create_test_shard(&store, shard_id);
 
     // Insert test data
     for i in 0..100 {

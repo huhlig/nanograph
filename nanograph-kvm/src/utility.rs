@@ -15,11 +15,9 @@
 //
 
 use nanograph_core::object::{
-    ClusterId, DatabaseId, FunctionId, NamespaceId, RegionId, ServerId, ShardId, SystemGroupId,
-    SystemRoleId, TableId, TenantGroupId, TenantId, TenantRoleId, UserId,
+    ClusterId, DatabaseId, FunctionId, IndexId, NamespaceId, RegionId, ServerId, ShardId,
+    SystemGroupId, SystemRoleId, TableId, TenantGroupId, TenantId, TenantRoleId, UserId,
 };
-use nanograph_kvt::{KeyValueError, KeyValueResult};
-
 
 /// Utility for generating system-level storage keys.
 pub struct SystemKeys;
@@ -69,40 +67,40 @@ impl SystemKeys {
     /// Generate a key for a system user record.
     pub fn system_user_key(user_id: UserId) -> [u8; 5] {
         let p = [0xFA];
-        let u = user_id.0.to_be_bytes();
+        let u = user_id.subject().as_u32().to_be_bytes();
         [p[0], u[0], u[1], u[2], u[3]]
     }
     /// Generate a key for a system user record.
     pub fn system_role_key(role_id: SystemRoleId) -> [u8; 5] {
         let p = [0xF9];
-        let r = role_id.0.to_be_bytes();
+        let r = role_id.subject().as_u32().to_be_bytes();
         [p[0], r[0], r[1], r[2], r[3]]
     }
     /// Generate a key for a system user record.
     pub fn system_group_key(group_id: SystemGroupId) -> [u8; 5] {
         let p = [0xF8];
-        let g = group_id.0.to_be_bytes();
+        let g = group_id.subject().as_u32().to_be_bytes();
         [p[0], g[0], g[1], g[2], g[3]]
     }
     /// Generate a key for a tenant_user_record.
     pub fn tenant_user_key(tenant_id: TenantId, user_id: UserId) -> [u8; 9] {
         let p = [0xF7];
         let t = tenant_id.0.to_be_bytes();
-        let u = user_id.0.to_be_bytes();
+        let u = user_id.subject().as_u32().to_be_bytes();
         [p[0], t[0], t[1], t[2], t[3], u[0], u[1], u[2], u[3]]
     }
     /// Generate a key for a tenant_user_record.
     pub fn tenant_role_key(tenant_id: TenantId, role_id: TenantRoleId) -> [u8; 9] {
         let p = [0xF6];
         let t = tenant_id.0.to_be_bytes();
-        let r = role_id.0.to_be_bytes();
+        let r = role_id.subject().as_u32().to_be_bytes();
         [p[0], t[0], t[1], t[2], t[3], r[0], r[1], r[2], r[3]]
     }
     /// Generate a key for a tenant_user_record.
     pub fn tenant_group_key(tenant_id: TenantId, group_id: TenantGroupId) -> [u8; 9] {
         let p = [0xF5];
         let t = tenant_id.0.to_be_bytes();
-        let g = group_id.0.to_be_bytes();
+        let g = group_id.subject().as_u32().to_be_bytes();
         [p[0], t[0], t[1], t[2], t[3], g[0], g[1], g[2], g[3]]
     }
 }
@@ -114,25 +112,34 @@ impl ContainerKeys {
     /// Generate a key for a namespace.
     pub fn namespace_key(namespace_id: NamespaceId) -> Vec<u8> {
         let p = [0xEF];
-        let n = namespace_id.0.to_be_bytes();
+        let n = namespace_id.object().as_u32().to_be_bytes();
         vec![p[0], n[0], n[1], n[2], n[3]]
     }
     /// Generate a key for a function.
     pub fn function_key(function_id: FunctionId) -> Vec<u8> {
         let p = [0xEE];
-        let f = function_id.0.to_be_bytes();
+        let f = function_id.object().as_u32().to_be_bytes();
         vec![p[0], f[0], f[1], f[2], f[3]]
     }
     /// Generate a key for a table.
     pub fn table_key(table_id: TableId) -> Vec<u8> {
         let p = [0xED];
-        let t = table_id.0.to_be_bytes();
+        let t = table_id.object().as_u32().to_be_bytes();
         vec![p[0], t[0], t[1], t[2], t[3]]
     }
     /// Generate a key for a shard.
     pub fn shard_key(shard_id: ShardId) -> Vec<u8> {
         let p = [0xEC];
         let s = shard_id.0.to_be_bytes();
-        vec![p[0], s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]]
+        vec![
+            p[0], s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9], s[10], s[11], s[12],
+            s[13], s[14], s[15],
+        ]
+    }
+    /// Generate a key for an index.
+    pub fn index_key(index_id: IndexId) -> Vec<u8> {
+        let p = [0xEB];
+        let i = index_id.object().as_u32().to_be_bytes();
+        vec![p[0], i[0], i[1], i[2], i[3]]
     }
 }

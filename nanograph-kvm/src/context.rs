@@ -17,22 +17,23 @@
 use crate::cache::{ContainerMetadataCache, SystemMetadataCache};
 use crate::config::KeyValueDatabaseConfig;
 use crate::shardmgr::KeyValueShardManager;
-use crate::utility::SystemKeys;
+use crate::utility::{ContainerKeys, SystemKeys};
 use nanograph_core::object::{
-    ClusterMetadata, DatabaseMetadata, RegionMetadata, ResourceScope, ServerMetadata, ShardCreate,
-    ShardNumber, SystemUserRecord, TenantMetadata, TenantUserCreate, TenantUserMetadata,
-    TenantUserRecord, TenantUserUpdate,
+    ClusterMetadata, DatabaseMetadata, IndexSharding, IndexStatus, RegionMetadata, ResourceScope,
+    ServerMetadata, ShardCreate, ShardNumber, ShardType, SystemUserRecord, TableId, TenantMetadata,
+    TenantUserCreate, TenantUserMetadata, TenantUserRecord, TenantUserUpdate,
 };
 use nanograph_core::{
     object::{
         ClusterCreate, ClusterId, ClusterRecord, ClusterUpdate, ContainerId, DatabaseCreate,
-        DatabaseId, DatabaseRecord, DatabaseUpdate, IndexNumber, NamespaceCreate, NamespaceId,
-        NamespaceRecord, NamespaceUpdate, NodeId, ObjectId, ObjectMetadata, ObjectType, Permission,
-        RegionCreate, RegionId, RegionRecord, RegionUpdate, SecurityPrincipal, ServerCreate,
-        ServerId, ServerRecord, ServerUpdate, ShardId, ShardRecord, StorageEngineType,
-        SystemUserCreate, SystemUserMetadata, SystemUserUpdate, TableCreate, TableId, TableRecord,
-        TableSharding, TableUpdate, TablespaceCreate, TablespaceId, TablespaceRecord,
-        TablespaceUpdate, TenantCreate, TenantId, TenantRecord, TenantUpdate, UserId,
+        DatabaseId, DatabaseRecord, DatabaseUpdate, IndexCreate, IndexId, IndexRecord, IndexUpdate,
+        NamespaceCreate, NamespaceId, NamespaceRecord, NamespaceUpdate, NodeId, ObjectId,
+        ObjectMetadata, ObjectType, Permission, RegionCreate, RegionId, RegionRecord, RegionUpdate,
+        SecurityPrincipal, ServerCreate, ServerId, ServerRecord, ServerUpdate, ShardId,
+        ShardRecord, StorageEngineType, SystemUserCreate, SystemUserMetadata, SystemUserUpdate,
+        TableCreate, TableRecord, TableSharding, TableUpdate, TablespaceCreate, TablespaceId,
+        TablespaceRecord, TablespaceUpdate, TenantCreate, TenantId, TenantRecord, TenantUpdate,
+        UserId,
     },
     types::{PropertyUpdate, Timestamp},
 };
@@ -69,8 +70,8 @@ impl KeyValueDatabaseContext {
     /// Register a storage engine.
     pub async fn register_engine(
         &self,
-        engine_type: nanograph_kvt::StorageEngineType,
-        engine: Arc<dyn nanograph_kvt::KeyValueShardStore>,
+        engine_type: StorageEngineType,
+        engine: Arc<dyn KeyValueShardStore>,
     ) -> KeyValueResult<()> {
         let mut shard_manager = self.shard_manager.write().await;
         shard_manager.register_engine(engine_type, engine)
@@ -121,8 +122,10 @@ impl KeyValueDatabaseContext {
         // Create system shard (Shard 0)
         let config = ShardCreate::new(
             ContainerId::from(0),
-            TableId::from(0),
+            ObjectId::from(0),
             ShardNumber::from(0),
+            TablespaceId::new(0),
+            ShardType::TableShard,
             StorageEngineType::new("ART"),
         );
         shard_manager.create_shard(config).await?;
@@ -280,9 +283,7 @@ impl KeyValueDatabaseContext {
 
         // Store in cache
         {
-            let mut cache = self
-                .system_metacache
-                .write().await;
+            let mut cache = self.system_metacache.write().await;
             cache.set_cluster_record(cluster.clone());
         }
 
@@ -290,9 +291,7 @@ impl KeyValueDatabaseContext {
         let key = SystemKeys::cluster_key(self.node_id.cluster_id());
         let value = serialize(&cluster)?;
 
-        let shard_manager = self
-            .shard_manager
-            .read().await;
+        let shard_manager = self.shard_manager.read().await;
         shard_manager.put(ShardId::from(0), &key, &value).await?;
 
         Ok(ClusterMetadata::from(cluster))
@@ -332,18 +331,14 @@ impl KeyValueDatabaseContext {
         }
         {
             // First Check the cache
-            let lock = self
-                .system_metacache
-                .read().await;
+            let lock = self.system_metacache.read().await;
             if let Some(record) = lock.get_cluster_record() {
                 return Ok(ClusterMetadata::from(record.clone()));
             }
         }
         {
             // Second read from Disk
-            let lock = self
-                .shard_manager
-                .read().await;
+            let lock = self.shard_manager.read().await;
             if let Some(value) = lock
                 .get(
                     ShardId::from(0),
@@ -396,9 +391,7 @@ impl KeyValueDatabaseContext {
                 resource: ResourceScope::System,
             });
         }
-        let mut cache = self
-            .system_metacache
-            .write().await;
+        let mut cache = self.system_metacache.write().await;
 
         if let Some(mut cluster) = cache.get_cluster_record().cloned() {
             // Update fields
@@ -418,9 +411,7 @@ impl KeyValueDatabaseContext {
             let key = SystemKeys::cluster_key(self.node_id.cluster_id());
             let value = serialize(&cluster)?;
 
-            let shard_manager = self
-                .shard_manager
-                .read().await;
+            let shard_manager = self.shard_manager.read().await;
             shard_manager.put(ShardId::from(0), &key, &value).await?;
 
             Ok(ClusterMetadata::from(cluster))
@@ -554,7 +545,7 @@ impl KeyValueDatabaseContext {
 
         // Create region metadata
         let region = RegionRecord {
-            region_id: region_id,
+            region_id,
             name: config.name.clone(),
             version: 1,
             cluster_id: config.cluster,
@@ -566,9 +557,7 @@ impl KeyValueDatabaseContext {
 
         // Store in cache
         {
-            let mut cache = self
-                .system_metacache
-                .write().await;
+            let mut cache = self.system_metacache.write().await;
             cache.set_region_record(region.clone());
         }
 
@@ -576,9 +565,7 @@ impl KeyValueDatabaseContext {
         let key = SystemKeys::region_key(self.node_id.cluster_id(), region_id);
         let value = serialize(&region)?;
 
-        let shard_manager = self
-            .shard_manager
-            .read().await;
+        let shard_manager = self.shard_manager.read().await;
         shard_manager.put(ShardId::from(0), &key, &value).await?;
 
         Ok(RegionMetadata::from(region))
@@ -623,9 +610,7 @@ impl KeyValueDatabaseContext {
                 resource: ResourceScope::System,
             });
         }
-        let mut cache = self
-            .system_metacache
-            .write().await;
+        let mut cache = self.system_metacache.write().await;
 
         if let Some(mut region_record) = cache.get_region_record(region_id).cloned() {
             // Update fields
@@ -645,9 +630,7 @@ impl KeyValueDatabaseContext {
             let key = SystemKeys::region_key(self.node_id.cluster_id(), *region_id);
             let value = serialize(&region_record)?;
 
-            let shard_manager = self
-                .shard_manager
-                .read().await;
+            let shard_manager = self.shard_manager.read().await;
             shard_manager.put(ShardId::from(0), &key, &value).await?;
 
             Ok(RegionMetadata::from(region_record))
@@ -696,9 +679,7 @@ impl KeyValueDatabaseContext {
         }
         // Remove from cache
         {
-            let mut cache = self
-                .system_metacache
-                .write().await;
+            let mut cache = self.system_metacache.write().await;
             cache.clear_region_record(region_id);
         }
 
@@ -706,9 +687,7 @@ impl KeyValueDatabaseContext {
         let key = SystemKeys::region_key(self.node_id.cluster_id(), *region_id);
 
         // Delete record from system shard
-        let shard_manager = self
-            .shard_manager
-            .read().await;
+        let shard_manager = self.shard_manager.read().await;
         shard_manager.delete(ShardId::from(0), &key).await?;
 
         Ok(())
@@ -844,9 +823,7 @@ impl KeyValueDatabaseContext {
         }
         // Check cache first
         {
-            let cache = self
-                .system_metacache
-                .write().await;
+            let cache = self.system_metacache.write().await;
             if let Some(server_meta) = cache.get_server_record(&node_id) {
                 return Ok(Some(ServerMetadata::from(server_meta.clone())));
             }
@@ -858,17 +835,13 @@ impl KeyValueDatabaseContext {
                 node_id.region_id(),
                 node_id.server_id(),
             );
-            let shard_manager = self
-                .shard_manager
-                .read().await;
+            let shard_manager = self.shard_manager.read().await;
 
             if let Some(value) = shard_manager.get(ShardId::from(0), &key).await? {
                 let server_meta: ServerRecord = deserialize(&value)?;
 
                 // Update cache
-                let mut cache = self
-                    .system_metacache
-                    .write().await;
+                let mut cache = self.system_metacache.write().await;
                 cache.set_server_record(server_meta.clone());
 
                 Ok(Some(ServerMetadata::from(server_meta.clone())))
@@ -935,9 +908,7 @@ impl KeyValueDatabaseContext {
 
         // Store in cache
         {
-            let mut cache = self
-                .system_metacache
-                .write().await;
+            let mut cache = self.system_metacache.write().await;
             cache.set_server_record(server.clone());
         }
 
@@ -946,9 +917,7 @@ impl KeyValueDatabaseContext {
             SystemKeys::server_key(self.node_id.cluster_id(), config.region, ServerId::from(0));
         let value = serialize(&server)?;
 
-        let shard_manager = self
-            .shard_manager
-            .read().await;
+        let shard_manager = self.shard_manager.read().await;
         shard_manager.put(ShardId::from(0), &key, &value).await?;
 
         Ok(ServerMetadata::from(server))
@@ -993,9 +962,7 @@ impl KeyValueDatabaseContext {
                 resource: ResourceScope::System,
             });
         }
-        let mut cache = self
-            .system_metacache
-            .write().await;
+        let mut cache = self.system_metacache.write().await;
 
         if let Some(mut server_record) = cache.get_server_record(&node_id).cloned() {
             // Update fields
@@ -1019,9 +986,7 @@ impl KeyValueDatabaseContext {
             );
             let value = serialize(&server_record)?;
 
-            let shard_manager = self
-                .shard_manager
-                .read().await;
+            let shard_manager = self.shard_manager.read().await;
             shard_manager.put(ShardId::from(0), &key, &value).await?;
 
             Ok(ServerMetadata::from(server_record))
@@ -1071,9 +1036,7 @@ impl KeyValueDatabaseContext {
         }
         // Remove from cache
         {
-            let mut cache = self
-                .system_metacache
-                .write().await;
+            let mut cache = self.system_metacache.write().await;
             cache.clear_server_record(&node_id);
         }
 
@@ -1081,9 +1044,7 @@ impl KeyValueDatabaseContext {
         let key =
             SystemKeys::server_key(self.cluster_id(), node_id.region_id(), node_id.server_id());
 
-        let shard_manager = self
-            .shard_manager
-            .read().await;
+        let shard_manager = self.shard_manager.read().await;
         shard_manager.delete(ShardId::from(0), &key).await?;
 
         Ok(())
@@ -1121,9 +1082,7 @@ impl KeyValueDatabaseContext {
                 resource: ResourceScope::System,
             });
         }
-        let cache = self
-            .system_metacache
-            .read().await;
+        let cache = self.system_metacache.read().await;
         let users = cache
             .list_system_user_records()
             .cloned()
@@ -1169,9 +1128,7 @@ impl KeyValueDatabaseContext {
         }
         // Check cache first
         {
-            let cache = self
-                .system_metacache
-                .read().await;
+            let cache = self.system_metacache.read().await;
             if let Some(user_meta) = cache.get_system_user_record(&user_id) {
                 return Ok(Some(SystemUserMetadata::from(user_meta.clone())));
             }
@@ -1179,17 +1136,13 @@ impl KeyValueDatabaseContext {
 
         // Read from disk
         let key = SystemKeys::system_user_key(*user_id);
-        let shard_manager = self
-            .shard_manager
-            .read().await;
+        let shard_manager = self.shard_manager.read().await;
 
         if let Some(value) = shard_manager.get(ShardId::from(0), &key).await? {
             let user_record: SystemUserRecord = deserialize(&value)?;
 
             // Update cache
-            let mut cache = self
-                .system_metacache
-                .write().await;
+            let mut cache = self.system_metacache.write().await;
             cache.set_system_user_record(user_record.clone());
 
             Ok(Some(SystemUserMetadata::from(user_record)))
@@ -1237,9 +1190,7 @@ impl KeyValueDatabaseContext {
         }
         {
             // Search in cache by name (UserMetadata doesn't have a login field, using name as identifier)
-            let cache = self
-                .system_metacache
-                .read().await;
+            let cache = self.system_metacache.read().await;
             let user = cache
                 .list_system_user_records()
                 .find(|u| u.username == username)
@@ -1317,9 +1268,7 @@ impl KeyValueDatabaseContext {
 
         // Store in cache
         {
-            let mut cache = self
-                .system_metacache
-                .write().await;
+            let mut cache = self.system_metacache.write().await;
             cache.set_system_user_record(user.clone());
         }
 
@@ -1327,9 +1276,7 @@ impl KeyValueDatabaseContext {
         let key = SystemKeys::system_user_key(user_id);
         let value = serialize(&user)?;
 
-        let shard_manager = self
-            .shard_manager
-            .read().await;
+        let shard_manager = self.shard_manager.read().await;
         shard_manager.put(ShardId::from(0), &key, &value).await?;
 
         Ok(SystemUserMetadata::from(user))
@@ -1375,9 +1322,7 @@ impl KeyValueDatabaseContext {
                 resource: ResourceScope::System,
             });
         }
-        let mut cache = self
-            .system_metacache
-            .write().await;
+        let mut cache = self.system_metacache.write().await;
 
         if let Some(mut user_record) = cache.get_system_user_record(user_id).cloned() {
             // Update fields
@@ -1421,9 +1366,7 @@ impl KeyValueDatabaseContext {
             let key = SystemKeys::system_user_key(*user_id);
             let value = serialize(&user_record)?;
 
-            let shard_manager = self
-                .shard_manager
-                .read().await;
+            let shard_manager = self.shard_manager.read().await;
             shard_manager.put(ShardId::from(0), &key, &value).await?;
 
             Ok(SystemUserMetadata::from(user_record))
@@ -1473,18 +1416,14 @@ impl KeyValueDatabaseContext {
         }
         // Remove from cache
         {
-            let mut cache = self
-                .system_metacache
-                .write().await;
+            let mut cache = self.system_metacache.write().await;
             cache.clear_system_user_record(user_id);
         }
 
         // Delete from system shard
         let key = SystemKeys::system_user_key(*user_id);
 
-        let shard_manager = self
-            .shard_manager
-            .read().await;
+        let shard_manager = self.shard_manager.read().await;
         shard_manager.delete(ShardId::from(0), &key).await?;
 
         Ok(())
@@ -1525,9 +1464,7 @@ impl KeyValueDatabaseContext {
                 resource: ResourceScope::System,
             });
         }
-        let cache = self
-            .system_metacache
-            .read().await;
+        let cache = self.system_metacache.read().await;
         let tenants = cache
             .list_tenant_records()
             .cloned()
@@ -1575,9 +1512,7 @@ impl KeyValueDatabaseContext {
 
         // Check cache first
         {
-            let cache = self
-                .system_metacache
-                .write().await;
+            let cache = self.system_metacache.write().await;
             if let Some(tenant_meta) = cache.get_tenant_record(tenant_id) {
                 return Ok(Some(TenantMetadata::from(tenant_meta.clone())));
             }
@@ -1585,17 +1520,13 @@ impl KeyValueDatabaseContext {
 
         // Read from disk
         let key = SystemKeys::tenant_key(*tenant_id);
-        let shard_manager = self
-            .shard_manager
-            .read().await;
+        let shard_manager = self.shard_manager.read().await;
 
         if let Some(value) = shard_manager.get(ShardId::from(0), &key).await? {
             let tenant_meta: TenantRecord = deserialize(&value)?;
 
             // Update cache
-            let mut cache = self
-                .system_metacache
-                .write().await;
+            let mut cache = self.system_metacache.write().await;
             cache.set_tenant_record(tenant_meta.clone());
 
             Ok(Some(TenantMetadata::from(tenant_meta)))
@@ -1642,9 +1573,7 @@ impl KeyValueDatabaseContext {
         }
         {
             // Search in cache
-            let cache = self
-                .system_metacache
-                .read().await;
+            let cache = self.system_metacache.read().await;
             let tenant = cache
                 .list_tenant_records()
                 .find(|t| t.name == name)
@@ -1700,9 +1629,7 @@ impl KeyValueDatabaseContext {
         let now = Timestamp::now();
 
         // Generate proper tenant ID
-        let mut cache = self
-            .system_metacache
-            .write().await;
+        let mut cache = self.system_metacache.write().await;
 
         let tenant_id = TenantId::from(
             cache
@@ -1733,9 +1660,7 @@ impl KeyValueDatabaseContext {
         let key = SystemKeys::tenant_key(tenant_id);
         let value = serialize(&tenant)?;
 
-        let shard_manager = self
-            .shard_manager
-            .read().await;
+        let shard_manager = self.shard_manager.read().await;
         shard_manager.put(ShardId::from(0), &key, &value).await?;
 
         Ok(TenantMetadata::from(tenant))
@@ -1781,9 +1706,7 @@ impl KeyValueDatabaseContext {
                 resource: ResourceScope::Tenant(tenant_id.clone()),
             });
         }
-        let mut cache = self
-            .system_metacache
-            .write().await;
+        let mut cache = self.system_metacache.write().await;
 
         if let Some(mut tenant_record) = cache.get_tenant_record(tenant_id).cloned() {
             // Update fields
@@ -1827,9 +1750,7 @@ impl KeyValueDatabaseContext {
             let key = SystemKeys::tenant_key(*tenant_id);
             let value = serialize(&tenant_record)?;
 
-            let shard_manager = self
-                .shard_manager
-                .read().await;
+            let shard_manager = self.shard_manager.read().await;
             shard_manager.put(ShardId::from(0), &key, &value).await?;
 
             Ok(TenantMetadata::from(tenant_record))
@@ -1884,18 +1805,14 @@ impl KeyValueDatabaseContext {
 
         // Remove from cache
         {
-            let mut cache = self
-                .system_metacache
-                .write().await;
+            let mut cache = self.system_metacache.write().await;
             cache.clear_tenant_record(tenant_id);
         }
 
         // Delete from system shard
         let key = SystemKeys::tenant_key(*tenant_id);
 
-        let shard_manager = self
-            .shard_manager
-            .read().await;
+        let shard_manager = self.shard_manager.read().await;
         shard_manager.delete(ShardId::from(0), &key).await?;
 
         Ok(())
@@ -1987,12 +1904,8 @@ impl KeyValueDatabaseContext {
                 resource: ResourceScope::Tenant(tenant_id.clone()),
             });
         }
-        let mut system_cache = self
-            .system_metacache
-            .write().await;
-        let shard_manager = self
-            .shard_manager
-            .read().await;
+        let mut system_cache = self.system_metacache.write().await;
+        let shard_manager = self.shard_manager.read().await;
 
         let system_user_record = if let Some(system_user_record) =
             system_cache.get_system_user_record(user_id).cloned()
@@ -2118,9 +2031,7 @@ impl KeyValueDatabaseContext {
 
         // Store in cache
         {
-            let mut cache = self
-                .system_metacache
-                .write().await;
+            let mut cache = self.system_metacache.write().await;
             cache.set_system_user_record(system_user_record.clone());
             cache.set_tenant_user_record(tenant_id, tenant_user_record.clone());
         }
@@ -2131,9 +2042,7 @@ impl KeyValueDatabaseContext {
         let system_user_value = serialize(&system_user_record)?;
         let tenant_user_value = serialize(&tenant_user_record)?;
         {
-            let shard_manager = self
-                .shard_manager
-                .read().await;
+            let shard_manager = self.shard_manager.read().await;
             shard_manager
                 .put(ShardId::from(0), &system_user_key, &system_user_value)
                 .await?;
@@ -2193,9 +2102,7 @@ impl KeyValueDatabaseContext {
                 resource: ResourceScope::Tenant(tenant_id.clone()),
             });
         }
-        let mut cache = self
-            .system_metacache
-            .write().await;
+        let mut cache = self.system_metacache.write().await;
 
         if let Some(mut system_user_record) = cache.get_system_user_record(user_id).cloned() {
             // Apply option updates
@@ -2238,9 +2145,7 @@ impl KeyValueDatabaseContext {
             let key = SystemKeys::system_user_key(*user_id);
             let value = serialize(&system_user_record)?;
 
-            let shard_manager = self
-                .shard_manager
-                .read().await;
+            let shard_manager = self.shard_manager.read().await;
             shard_manager.put(ShardId::from(0), &key, &value).await?;
 
             self.get_tenant_user(principal, tenant_id, user_id)
@@ -2302,16 +2207,12 @@ impl KeyValueDatabaseContext {
         }
         // Remove tenant user from cache
         {
-            let mut cache = self
-                .system_metacache
-                .write().await;
+            let mut cache = self.system_metacache.write().await;
             cache.clear_tenant_user_record(tenant_id, user_id);
         }
         {
             let tenant_user_key = SystemKeys::tenant_user_key(*tenant_id, *user_id);
-            let shard_manager = self
-                .shard_manager
-                .read().await;
+            let shard_manager = self.shard_manager.read().await;
             shard_manager
                 .delete(ShardId::from(0), &tenant_user_key)
                 .await?;
@@ -2321,16 +2222,12 @@ impl KeyValueDatabaseContext {
         let remove_system_user = false;
         if remove_system_user {
             {
-                let mut cache = self
-                    .system_metacache
-                    .write().await;
+                let mut cache = self.system_metacache.write().await;
                 cache.clear_system_user_record(user_id);
             }
             {
                 let system_user_key = SystemKeys::tenant_user_key(*tenant_id, *user_id);
-                let shard_manager = self
-                    .shard_manager
-                    .read().await;
+                let shard_manager = self.shard_manager.read().await;
                 shard_manager
                     .delete(ShardId::from(0), &system_user_key)
                     .await?;
@@ -2374,9 +2271,7 @@ impl KeyValueDatabaseContext {
                 resource: ResourceScope::Tenant(tenant_id.clone()),
             });
         }
-        let cache = self
-            .system_metacache
-            .read().await;
+        let cache = self.system_metacache.read().await;
         let records = cache
             .list_database_records()
             .filter(|d| &d.tenant_id == tenant_id)
@@ -2425,9 +2320,7 @@ impl KeyValueDatabaseContext {
         }
         // Check cache first
         {
-            let cache = self
-                .system_metacache
-                .read().await;
+            let cache = self.system_metacache.read().await;
             if let Some(database_record) =
                 cache.get_database_record(&ContainerId::from_parts(*tenant_id, *database_id))
             {
@@ -2439,17 +2332,13 @@ impl KeyValueDatabaseContext {
         {
             // Read from disk
             let key = SystemKeys::database_key(*tenant_id, *database_id);
-            let shard_manager = self
-                .shard_manager
-                .read().await;
+            let shard_manager = self.shard_manager.read().await;
 
             if let Some(value) = shard_manager.get(ShardId::from(0), &key).await? {
                 let database_record: DatabaseRecord = deserialize(&value)?;
 
                 // Update cache
-                let mut cache = self
-                    .system_metacache
-                    .write().await;
+                let mut cache = self.system_metacache.write().await;
                 cache.set_database_record(database_record.clone());
 
                 Ok(Some(DatabaseMetadata::from(database_record)))
@@ -2545,9 +2434,7 @@ impl KeyValueDatabaseContext {
         let now = Timestamp::now();
 
         // Generate proper database ID
-        let mut cache = self
-            .system_metacache
-            .write().await;
+        let mut cache = self.system_metacache.write().await;
 
         let database_id = DatabaseId::from(
             cache
@@ -2584,9 +2471,7 @@ impl KeyValueDatabaseContext {
         let key = SystemKeys::database_key(*tenant_id, database_id);
         let value = serialize(&database_record)?;
 
-        let shard_manager = self
-            .shard_manager
-            .read().await;
+        let shard_manager = self.shard_manager.read().await;
         shard_manager.put(ShardId::from(0), &key, &value).await?;
 
         Ok(DatabaseMetadata::from(database_record))
@@ -2636,9 +2521,7 @@ impl KeyValueDatabaseContext {
                 resource: ResourceScope::Database(*database_id),
             });
         }
-        let mut cache = self
-            .system_metacache
-            .write().await;
+        let mut cache = self.system_metacache.write().await;
 
         if let Some(mut database_record) = cache
             .get_database_record(&ContainerId::from_parts(*tenant_id, *database_id))
@@ -2693,9 +2576,7 @@ impl KeyValueDatabaseContext {
             let key = SystemKeys::database_key(*tenant_id, *database_id);
             let value = serialize(&database_record)?;
 
-            let shard_manager = self
-                .shard_manager
-                .read().await;
+            let shard_manager = self.shard_manager.read().await;
             shard_manager.put(ShardId::from(0), &key, &value).await?;
 
             Ok(DatabaseMetadata::from(database_record))
@@ -2748,18 +2629,14 @@ impl KeyValueDatabaseContext {
         }
         // Remove from cache
         {
-            let mut cache = self
-                .system_metacache
-                .write().await;
+            let mut cache = self.system_metacache.write().await;
             cache.clear_database_record(&ContainerId::from_parts(*tenant_id, *database_id));
         }
 
         // Delete from system shard
         let key = SystemKeys::database_key(*tenant_id, *database_id);
 
-        let shard_manager = self
-            .shard_manager
-            .read().await;
+        let shard_manager = self.shard_manager.read().await;
         shard_manager.delete(ShardId::from(0), &key).await?;
 
         Ok(())
@@ -2929,9 +2806,7 @@ impl KeyValueDatabaseContext {
                 resource: ResourceScope::System,
             });
         }
-        let cache = self
-            .system_metacache
-            .read().await;
+        let cache = self.system_metacache.read().await;
         let tablespaces = cache
             .list_tablespace_records()
             .find(|t| t.name == name)
@@ -3180,16 +3055,13 @@ impl KeyValueDatabaseContext {
             });
         }
         // Get container metadata cache
-        let container_caches = self
-            .container_metacaches
-            .read().await;
+        let container_caches = self.container_metacaches.read().await;
 
         let container_cache = container_caches.get(&container_id).ok_or_else(|| {
             KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
         })?;
 
-        let mut cache = container_cache
-            .write().await;
+        let mut cache = container_cache.write().await;
 
         // Find objects by path
         // TODO: Figure out how to do this when not loaded into the cache
@@ -3200,7 +3072,7 @@ impl KeyValueDatabaseContext {
                     &Permission::DatabaseAccess,
                     &container_id.tenant(),
                     &container_id.database(),
-                    &NamespaceId::from(parent_id),
+                    &NamespaceId::new(parent_id),
                 ) {
                     return Err(KeyValueError::PermissionDenied {
                         user_id: principal.user_id,
@@ -3266,16 +3138,13 @@ impl KeyValueDatabaseContext {
             });
         }
         // Get container metadata cache
-        let container_caches = self
-            .container_metacaches
-            .read().await;
+        let container_caches = self.container_metacaches.read().await;
 
         let container_cache = container_caches.get(container_id).ok_or_else(|| {
             KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
         })?;
 
-        let _cache = container_cache
-            .read().await;
+        let _cache = container_cache.read().await;
 
         // TODO: Implement proper object enumeration when namespace hierarchy is finalized
         // TODO: Use NameResolver, For now, return empty list as placeholder
@@ -3324,16 +3193,13 @@ impl KeyValueDatabaseContext {
             });
         }
         // Get container metadata cache
-        let container_caches = self
-            .container_metacaches
-            .read().await;
+        let container_caches = self.container_metacaches.read().await;
 
         let container_cache = container_caches.get(container_id).ok_or_else(|| {
             KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
         })?;
 
-        let cache = container_cache
-            .read().await;
+        let cache = container_cache.read().await;
 
         // Return all namespaces from cache
         let namespaces: Vec<NamespaceRecord> = cache.list_namespace_records().cloned().collect();
@@ -3383,16 +3249,13 @@ impl KeyValueDatabaseContext {
             });
         }
         // Get container metadata cache
-        let container_caches = self
-            .container_metacaches
-            .read().await;
+        let container_caches = self.container_metacaches.read().await;
 
         let container_cache = container_caches.get(container_id).ok_or_else(|| {
             KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
         })?;
 
-        let cache = container_cache
-            .read().await;
+        let cache = container_cache.read().await;
 
         // Filter namespaces by name or path prefix
         let namespaces: Vec<NamespaceRecord> = cache
@@ -3448,16 +3311,13 @@ impl KeyValueDatabaseContext {
             });
         }
         // Get container metadata cache
-        let container_caches = self
-            .container_metacaches
-            .read().await;
+        let container_caches = self.container_metacaches.read().await;
 
         let container_cache = container_caches.get(container_id).ok_or_else(|| {
             KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
         })?;
 
-        let cache = container_cache
-            .read().await;
+        let cache = container_cache.read().await;
 
         // Get namespace from cache
         Ok(cache.get_namespace_record(namespace_id).cloned())
@@ -3515,19 +3375,16 @@ impl KeyValueDatabaseContext {
             });
         }
         // Get container metadata cache
-        let container_caches = self
-            .container_metacaches
-            .read().await;
+        let container_caches = self.container_metacaches.read().await;
 
         let container_cache = container_caches.get(container_id).ok_or_else(|| {
             KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
         })?;
 
-        let mut cache = container_cache
-            .write().await;
+        let mut cache = container_cache.write().await;
 
         // TODO: Generate proper namespace ID
-        let namespace_id = NamespaceId::new(0);
+        let namespace_id = NamespaceId::new(ObjectId::new(0));
 
         // Create namespace metadata
         let namespace_meta = NamespaceRecord {
@@ -3604,16 +3461,13 @@ impl KeyValueDatabaseContext {
             });
         }
         // Get container metadata cache
-        let container_caches = self
-            .container_metacaches
-            .read().await;
+        let container_caches = self.container_metacaches.read().await;
 
         let container_cache = container_caches.get(container_id).ok_or_else(|| {
             KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
         })?;
 
-        let mut cache = container_cache
-            .write().await;
+        let mut cache = container_cache.write().await;
 
         // Get existing namespace metadata
         let mut namespace_meta = cache
@@ -3712,16 +3566,13 @@ impl KeyValueDatabaseContext {
             });
         }
         // Get container metadata cache
-        let container_caches = self
-            .container_metacaches
-            .read().await;
+        let container_caches = self.container_metacaches.read().await;
 
         let container_cache = container_caches.get(container_id).ok_or_else(|| {
             KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
         })?;
 
-        let mut cache = container_cache
-            .write().await;
+        let mut cache = container_cache.write().await;
 
         // Verify namespace exists
         if cache.get_namespace_record(namespace_id).is_none() {
@@ -3782,16 +3633,13 @@ impl KeyValueDatabaseContext {
             });
         }
         // Get container metadata cache
-        let container_caches = self
-            .container_metacaches
-            .read().await;
+        let container_caches = self.container_metacaches.read().await;
 
         let container_cache = container_caches.get(container_id).ok_or_else(|| {
             KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
         })?;
 
-        let cache = container_cache
-            .read().await;
+        let cache = container_cache.read().await;
 
         // Return all tables from cache
         let tables: Vec<TableRecord> = cache.list_table_records().cloned().collect();
@@ -3842,16 +3690,13 @@ impl KeyValueDatabaseContext {
             });
         }
         // Get container metadata cache
-        let container_caches = self
-            .container_metacaches
-            .read().await;
+        let container_caches = self.container_metacaches.read().await;
 
         let container_cache = container_caches.get(container_id).ok_or_else(|| {
             KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
         })?;
 
-        let cache = container_cache
-            .read().await;
+        let cache = container_cache.read().await;
 
         // Filter tables by namespace path
         // TODO: Implement proper namespace hierarchy when namespace structure is finalized
@@ -3862,7 +3707,7 @@ impl KeyValueDatabaseContext {
                 // This is a placeholder until proper namespace hierarchy is implemented
                 table
                     .path
-                    .contains(&format!("ns_{}", namespace_id.as_u64()))
+                    .contains(&format!("ns_{}", namespace_id.object().as_u32()))
             })
             .cloned()
             .collect();
@@ -3909,16 +3754,13 @@ impl KeyValueDatabaseContext {
             });
         }
         // Get container metadata cache
-        let container_caches = self
-            .container_metacaches
-            .read().await;
+        let container_caches = self.container_metacaches.read().await;
 
         let container_cache = container_caches.get(container_id).ok_or_else(|| {
             KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
         })?;
 
-        let cache = container_cache
-            .read().await;
+        let cache = container_cache.read().await;
 
         // Filter tables by name or path prefix
         let tables: Vec<TableRecord> = cache
@@ -3945,7 +3787,7 @@ impl KeyValueDatabaseContext {
     /// # Parameters
     /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `container`: [`ContainerId`] containing the table
-    /// - `table`: [`TableId`] to look up
+    /// - `table`: [`ObjectId`] to look up
     ///
     /// # Returns
     /// - `Some(TableMetadata)` if the table exists
@@ -3973,16 +3815,13 @@ impl KeyValueDatabaseContext {
             });
         }
         // Get container metadata cache
-        let container_caches = self
-            .container_metacaches
-            .read().await;
+        let container_caches = self.container_metacaches.read().await;
 
         let container_cache = container_caches.get(container_id).ok_or_else(|| {
             KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
         })?;
 
-        let cache = container_cache
-            .read().await;
+        let cache = container_cache.read().await;
 
         // Get table from cache
         Ok(cache.get_table_record(table_id).cloned())
@@ -4013,7 +3852,7 @@ impl KeyValueDatabaseContext {
     /// - `config`: [`TableCreate`] containing name, path, engine_type, sharding_config, options, metadata
     ///
     /// # Returns
-    /// - `Ok(TableMetadata)` with the created [`TableId`] (currently hardcoded to 0)
+    /// - `Ok(TableMetadata)` with the created [`ObjectId`] (currently hardcoded to 0)
     ///
     /// # Errors
     /// - `Err(KeyValueError::Consensus)` if Raft shard creation fails
@@ -4048,23 +3887,22 @@ impl KeyValueDatabaseContext {
         let database_id = container_id.database();
         // TODO: Get/Create actual new table ID
         let table_id = {
-            let container_caches = self
-                .container_metacaches
-                .read().await;
+            let container_caches = self.container_metacaches.read().await;
 
             let container_cache = container_caches.get(container_id);
             if let Some(cc) = container_cache {
                 let cache = cc.read().await;
-                TableId::new(
+                // TODO: Use Object Allocator to get new TableId
+                TableId::new(ObjectId::new(
                     cache
                         .list_table_records()
-                        .map(|t| t.id.as_u32())
+                        .map(|t| t.table_id.object().as_u32())
                         .max()
                         .map(|id| id + 1)
                         .unwrap_or(0),
-                )
+                ))
             } else {
-                TableId::new(0)
+                TableId::new(ObjectId::new(0))
             }
         };
 
@@ -4074,18 +3912,24 @@ impl KeyValueDatabaseContext {
                 // Single Shard Replication
                 TableSharding::Single => {
                     // TODO: Implement proper replica placement strategy, Single Shard should be fully replicated
-                    let shard_id =
-                        ShardId::from_parts(tenant_id, database_id, table_id, ShardNumber::new(0));
+                    let shard_id = ShardId::from_parts(
+                        tenant_id,
+                        database_id,
+                        table_id.object(),
+                        ShardNumber::new(0),
+                    );
                     let replicas = vec![router.node_id()];
 
                     // Populate Shard Metadata
+                    let now = Timestamp::now();
                     let _shard_metadata = ShardRecord {
-                        id: shard_id,
-                        name: "".to_string(),
+                        shard_id,
+                        label: ShardRecord::generate_table_label(shard_id),
                         version: 0,
+                        shard_type: ShardType::TableShard,
                         engine_type: config.engine_type.clone(),
-                        created_at: Timestamp::now(),
-                        last_modified: Default::default(),
+                        created_at: now,
+                        updated_at: now,
                         range: (vec![], vec![0xFF; 32]), // Full key range
                         leader: None,
                         replicas: replicas.clone(),
@@ -4101,6 +3945,7 @@ impl KeyValueDatabaseContext {
                         .system_metadata()
                         .create_shard(
                             shard_id,
+                            ShardType::TableShard,
                             (vec![], vec![0xFF; 32]), // Full key range
                             replicas,
                         )
@@ -4114,13 +3959,13 @@ impl KeyValueDatabaseContext {
 
                     // Add table entry to container metadata cache
                     let table_metadata = TableRecord {
-                        id: table_id,
+                        table_id,
                         name: config.name.to_string(),
                         path: config.path.to_string(),
                         version: 0,
-                        created_at: Timestamp::now(),
+                        created_at: now,
+                        updated_at: now,
                         engine_type: config.engine_type,
-                        last_modified: Timestamp::now(),
                         sharding: config.sharding_config,
                         options: config.options,
                         metadata: config.metadata,
@@ -4144,7 +3989,7 @@ impl KeyValueDatabaseContext {
                         let shard_id = ShardId::from_parts(
                             tenant_id,
                             database_id,
-                            table_id,
+                            table_id.object(),
                             ShardNumber::new(shard_index),
                         );
 
@@ -4153,13 +3998,15 @@ impl KeyValueDatabaseContext {
                         let replicas = vec![router.node_id()];
 
                         // Populate Shard Metadata
+                        let creation_timestamp = Timestamp::now();
                         let _shard_metadata = ShardRecord {
-                            id: shard_id,
-                            name: "".to_string(),
+                            shard_id: shard_id,
+                            label: ShardRecord::generate_table_label(shard_id),
                             version: 0,
+                            shard_type: ShardType::TableShard,
                             engine_type: config.engine_type.clone(),
-                            created_at: Timestamp::now(),
-                            last_modified: Default::default(),
+                            created_at: creation_timestamp,
+                            updated_at: creation_timestamp,
                             range: (vec![], vec![0xFF; 32]), // Full key range
                             leader: None,
                             replicas: replicas.clone(),
@@ -4176,6 +4023,7 @@ impl KeyValueDatabaseContext {
                             .system_metadata()
                             .create_shard(
                                 shard_id,
+                                ShardType::TableShard,
                                 (vec![], vec![0xFF; 32]), // Full key range
                                 replicas,
                             )
@@ -4192,13 +4040,13 @@ impl KeyValueDatabaseContext {
 
                     // Add table entry to container metadata cache
                     let table_metadata = TableRecord {
-                        id: table_id,
+                        table_id,
                         name: config.name.to_string(),
                         path: config.path.to_string(),
                         version: 0,
                         created_at: Timestamp::now(),
                         engine_type: config.engine_type,
-                        last_modified: Timestamp::now(),
+                        updated_at: Timestamp::now(),
                         sharding: TableSharding::Multiple {
                             shard_count,
                             partitioner,
@@ -4222,12 +4070,18 @@ impl KeyValueDatabaseContext {
 
             let shard_ids = match config.sharding_config {
                 TableSharding::Single => {
-                    let shard_id =
-                        ShardId::from_parts(tenant_id, database_id, table_id, ShardNumber::new(0));
+                    let shard_id = ShardId::from_parts(
+                        tenant_id,
+                        database_id,
+                        table_id.object(),
+                        ShardNumber::new(0),
+                    );
                     let shard_config = ShardCreate::new(
                         *container_id,
-                        table_id,
+                        table_id.object(),
                         ShardNumber::new(0),
+                        TablespaceId::new(0), // TODO: Get correct tablespace ID
+                        ShardType::TableShard,
                         config.engine_type.clone(),
                     );
                     shard_manager.create_shard(shard_config).await?;
@@ -4239,13 +4093,15 @@ impl KeyValueDatabaseContext {
                         let shard_id = ShardId::from_parts(
                             container_id.tenant(),
                             container_id.database(),
-                            table_id,
+                            table_id.object(),
                             ShardNumber::new(shard_number),
                         );
                         let shard_config = ShardCreate::new(
                             *container_id,
-                            table_id,
+                            table_id.object(),
                             ShardNumber::new(shard_number),
+                            TablespaceId::new(0),
+                            ShardType::TableShard,
                             config.engine_type.clone(),
                         );
                         shard_manager.create_shard(shard_config).await?;
@@ -4257,12 +4113,12 @@ impl KeyValueDatabaseContext {
 
             // Create table record
             let table_record = TableRecord {
-                id: table_id,
+                table_id,
                 name: config.name.clone(),
                 path: config.path.clone(),
                 version: 1,
                 created_at: now,
-                last_modified: now,
+                updated_at: now,
                 engine_type: config.engine_type.clone(),
                 sharding: config.sharding_config.clone(),
                 options: config.options.clone(),
@@ -4286,12 +4142,13 @@ impl KeyValueDatabaseContext {
             // Create shard records in cache
             for shard_id in shard_ids {
                 let shard_record = ShardRecord {
-                    id: shard_id,
-                    name: format!("{}-shard-{}", config.name, shard_id.shard_number()),
+                    shard_id: shard_id,
+                    label: ShardRecord::generate_table_label(shard_id),
                     version: 1,
+                    shard_type: ShardType::TableShard,
                     engine_type: config.engine_type.clone(),
                     created_at: now,
-                    last_modified: now,
+                    updated_at: now,
                     range: (vec![], vec![0xFF; 32]), // Default full range
                     leader: Some(self.node_id),
                     replicas: vec![self.node_id],
@@ -4325,7 +4182,7 @@ impl KeyValueDatabaseContext {
     /// # Parameters
     /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `container`: [`ContainerId`] containing the table
-    /// - `table`: [`TableId`] to update
+    /// - `table`: [`ObjectId`] to update
     /// - `config`: [`TableUpdate`] containing optional name, engine_type, sharding_config, options, metadata updates
     ///
     /// # Returns
@@ -4359,16 +4216,13 @@ impl KeyValueDatabaseContext {
             });
         }
         // Get container metadata cache
-        let container_caches = self
-            .container_metacaches
-            .read().await;
+        let container_caches = self.container_metacaches.read().await;
 
         let container_cache = container_caches.get(container_id).ok_or_else(|| {
             KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
         })?;
 
-        let mut cache = container_cache
-            .write().await;
+        let mut cache = container_cache.write().await;
 
         // Get existing table metadata
         let mut table_meta = cache.get_table_record(table_id).cloned().ok_or_else(|| {
@@ -4412,7 +4266,7 @@ impl KeyValueDatabaseContext {
 
         // Update version and timestamp
         table_meta.version += 1;
-        table_meta.last_modified = Timestamp::now();
+        table_meta.updated_at = Timestamp::now();
 
         // Update cache
         cache.set_table_record(table_meta.clone());
@@ -4440,7 +4294,7 @@ impl KeyValueDatabaseContext {
     /// # Parameters
     /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `container`: [`ContainerId`] containing the table
-    /// - `table`: [`TableId`] to delete
+    /// - `table`: [`ObjectId`] to delete
     ///
     /// # Returns
     /// - `Ok(())` if deletion succeeds
@@ -4472,16 +4326,13 @@ impl KeyValueDatabaseContext {
             });
         }
         // Get container metadata cache
-        let container_caches = self
-            .container_metacaches
-            .read().await;
+        let container_caches = self.container_metacaches.read().await;
 
         let container_cache = container_caches.get(container_id).ok_or_else(|| {
             KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
         })?;
 
-        let mut cache = container_cache
-            .write().await;
+        let mut cache = container_cache.write().await;
 
         // Verify table exists
         if cache.get_table_record(table_id).is_none() {
@@ -4498,6 +4349,358 @@ impl KeyValueDatabaseContext {
         // TODO: Persist deletion to container metadata shard
         // let container_shard = cache.metadata_shard_id();
         // self.shard_manager.delete(container_shard, key).await?;
+
+        Ok(())
+    }
+    /**********************************************************************************************\
+     * Index Management                                                                           *
+    \**********************************************************************************************/
+
+    /// Get all indexes for a table.
+    ///
+    /// # What it does
+    /// Returns an iterator over all index metadata records for a specific table.
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::TableDataQuery`] on the database
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container_id`: [`ContainerId`] containing the table
+    /// - `table_id`: [`ObjectId`] to list indexes for
+    ///
+    /// # Returns
+    /// An iterator over [`IndexRecord`] for all indexes on the table
+    #[tracing::instrument(skip(self))]
+    pub async fn get_indexes(
+        &self,
+        principal: &SecurityPrincipal,
+        container_id: &ContainerId,
+    ) -> KeyValueResult<impl IntoIterator<Item = IndexRecord>> {
+        if !principal.has_database_permission(
+            &Permission::TableDataQuery,
+            &container_id.tenant(),
+            &container_id.database(),
+        ) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TableDataQuery,
+                resource: ResourceScope::Database(container_id.database()),
+            });
+        }
+
+        let container_caches = self.container_metacaches.read().await;
+        let container_cache = container_caches.get(container_id).ok_or_else(|| {
+            KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
+        })?;
+
+        // TODO: Indexes are now their own database object separate from tables. Their Metadata Record may point to multiple tables.
+        let cache = container_cache.read().await;
+        let indexes = cache.list_index_records().cloned().collect::<Vec<_>>();
+        Ok(indexes)
+    }
+
+    /// Get metadata for a specific index.
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::TableDataQuery`] on the database
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container_id`: [`ContainerId`] containing the table
+    /// - `table_id`: [`ObjectId`] containing the index
+    /// - `index_id`: [`IndexId`] to look up
+    ///
+    /// # Returns
+    /// - `Some(IndexRecord)` if index exists
+    /// - `None` if index not found
+    #[tracing::instrument(skip(self))]
+    pub async fn get_index(
+        &self,
+        principal: &SecurityPrincipal,
+        container_id: &ContainerId,
+        index_id: &IndexId,
+    ) -> KeyValueResult<Option<IndexRecord>> {
+        if !principal.has_database_permission(
+            &Permission::TableDataQuery,
+            &container_id.tenant(),
+            &container_id.database(),
+        ) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TableDataQuery,
+                resource: ResourceScope::Database(container_id.database()),
+            });
+        }
+
+        let container_caches = self.container_metacaches.read().await;
+        let container_cache = container_caches.get(container_id).ok_or_else(|| {
+            KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
+        })?;
+
+        let cache = container_cache.read().await;
+        Ok(cache.get_index_record(index_id).cloned())
+    }
+
+    /// Create a new index on a table.
+    ///
+    /// # What it does
+    /// Creates a new secondary index on a table with the specified configuration.
+    ///
+    /// # How it works
+    /// 1. Generates a new IndexId
+    /// 2. Creates IndexRecord with metadata
+    /// 3. Stores in container metadata cache
+    /// 4. Persists to container metadata shard
+    /// 5. Initiates index build process (async)
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::TableCreate`] on the database
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container_id`: [`ContainerId`] containing the table
+    /// - `table_id`: [`ObjectId`] to create index on
+    /// - `config`: [`IndexCreate`] containing name, type, columns, options
+    ///
+    /// # Returns
+    /// - `Ok(IndexRecord)` with the created index metadata
+    ///
+    /// # TODO
+    /// - Implement index build process
+    /// - Support different index types (unique, full-text, spatial)
+    /// - Add index storage as separate shard
+    #[tracing::instrument(skip(self))]
+    pub async fn create_index(
+        &self,
+        principal: &SecurityPrincipal,
+        container_id: &ContainerId,
+        config: IndexCreate,
+    ) -> KeyValueResult<IndexRecord> {
+        if !principal.has_database_permission(
+            &Permission::TableCreate,
+            &container_id.tenant(),
+            &container_id.database(),
+        ) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TableCreate,
+                resource: ResourceScope::Database(container_id.database()),
+            });
+        }
+
+        let tenant_id = container_id.tenant();
+        let database_id = container_id.database();
+
+        // TODO: Use Object Allocator to acquire IndexId
+        let index_id = IndexId::new(ObjectId::new(0));
+
+        // Create index record
+        let now = Timestamp::now();
+        let index_record = IndexRecord {
+            index_id,
+            name: config.name,
+            version: 0,
+            index_type: config.index_type,
+            created_at: now,
+            updated_at: now,
+            columns: config.columns,
+            key_extractor: config.key_extractor,
+            options: config.options,
+            metadata: config.metadata,
+            status: IndexStatus::Building,
+            sharding: config.sharding,
+        };
+
+        // TODO: Create Index Shards like in create_table
+
+        // Store in cache
+        {
+            let container_caches = self.container_metacaches.read().await;
+            let container_cache = container_caches.get(container_id).ok_or_else(|| {
+                KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
+            })?;
+
+            let mut cache = container_cache.write().await;
+            cache.set_index_record(index_record.clone());
+        }
+
+        // Persist to container metadata shard
+        let key = ContainerKeys::index_key(index_id);
+        let value = serialize(&index_record)?;
+
+        let container_caches = self.container_metacaches.read().await;
+        let container_cache = container_caches.get(container_id).ok_or_else(|| {
+            KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
+        })?;
+        let cache = container_cache.read().await;
+        let container_shard = *cache.metadata_shard_id();
+        drop(cache);
+        drop(container_caches);
+
+        let shard_manager = self.shard_manager.read().await;
+        shard_manager.put(container_shard, &key, &value).await?;
+
+        // TODO: Initiate async index build process
+
+        Ok(index_record)
+    }
+
+    /// Update an existing index.
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::TableCreate`] on the database
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container_id`: [`ContainerId`] containing the table
+    /// - `table_id`: [`ObjectId`] containing the index
+    /// - `index_id`: [`IndexId`] to update
+    /// - `config`: [`IndexUpdate`] with changes
+    ///
+    /// # Returns
+    /// - `Ok(IndexRecord)` with updated metadata
+    #[tracing::instrument(skip(self))]
+    pub async fn update_index(
+        &self,
+        principal: &SecurityPrincipal,
+        container_id: &ContainerId,
+        index_id: &IndexId,
+        config: IndexUpdate,
+    ) -> KeyValueResult<IndexRecord> {
+        if !principal.has_database_permission(
+            &Permission::TableCreate,
+            &container_id.tenant(),
+            &container_id.database(),
+        ) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TableCreate,
+                resource: ResourceScope::Database(container_id.database()),
+            });
+        }
+
+        let container_caches = self.container_metacaches.read().await;
+        let container_cache = container_caches.get(container_id).ok_or_else(|| {
+            KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
+        })?;
+
+        let mut cache = container_cache.write().await;
+
+        // Get existing index
+        let mut index_record = cache.get_index_record(index_id).cloned().ok_or_else(|| {
+            KeyValueError::InvalidValue(format!("Index not found: {:?}", index_id))
+        })?;
+
+        // Apply updates
+        if let Some(name) = config.name {
+            index_record.name = name;
+        }
+
+        for opt_update in &config.options {
+            match opt_update {
+                PropertyUpdate::Set(key, value) => {
+                    index_record.options.insert(key.clone(), value.clone());
+                }
+                PropertyUpdate::Clear(key) => {
+                    index_record.options.remove(key);
+                }
+            }
+        }
+
+        for meta_update in &config.metadata {
+            match meta_update {
+                PropertyUpdate::Set(key, value) => {
+                    index_record.metadata.insert(key.clone(), value.clone());
+                }
+                PropertyUpdate::Clear(key) => {
+                    index_record.metadata.remove(key);
+                }
+            }
+        }
+
+        index_record.version += 1;
+        index_record.updated_at = Timestamp::now();
+
+        // Update cache
+        cache.set_index_record(index_record.clone());
+        let container_shard = *cache.metadata_shard_id();
+        drop(cache);
+        drop(container_caches);
+
+        // Persist to container metadata shard
+        let key = ContainerKeys::index_key(*index_id);
+        let value = serialize(&index_record)?;
+
+        let shard_manager = self.shard_manager.read().await;
+        shard_manager.put(container_shard, &key, &value).await?;
+
+        Ok(index_record)
+    }
+
+    /// Delete an index from a table.
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::TableDelete`] on the database
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container_id`: [`ContainerId`] containing the table
+    /// - `table_id`: [`ObjectId`] containing the index
+    /// - `index_id`: [`IndexId`] to delete
+    ///
+    /// # Returns
+    /// - `Ok(())` if deletion succeeds
+    ///
+    /// # TODO
+    /// - Delete index data shard
+    #[tracing::instrument(skip(self))]
+    pub async fn delete_index(
+        &self,
+        principal: &SecurityPrincipal,
+        container_id: &ContainerId,
+        index_id: &IndexId,
+    ) -> KeyValueResult<()> {
+        if !principal.has_database_permission(
+            &Permission::TableDelete,
+            &container_id.tenant(),
+            &container_id.database(),
+        ) {
+            return Err(KeyValueError::PermissionDenied {
+                user_id: principal.user_id,
+                permission: Permission::TableDelete,
+                resource: ResourceScope::Database(container_id.database()),
+            });
+        }
+
+        let container_caches = self.container_metacaches.read().await;
+        let container_cache = container_caches.get(container_id).ok_or_else(|| {
+            KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
+        })?;
+
+        let mut cache = container_cache.write().await;
+
+        // Verify index exists
+        if cache.get_index_record(index_id).is_none() {
+            return Err(KeyValueError::InvalidValue(format!(
+                "Index not found: {:?}",
+                index_id
+            )));
+        }
+
+        // Remove from cache
+        cache.clear_index_record(*index_id);
+        let container_shard = *cache.metadata_shard_id();
+        drop(cache);
+        drop(container_caches);
+
+        // Delete from container metadata shard
+        let key = crate::utility::ContainerKeys::index_key(*index_id);
+
+        let shard_manager = self.shard_manager.read().await;
+        shard_manager.delete(container_shard, &key).await?;
+
+        // TODO: Delete index data shard
 
         Ok(())
     }
@@ -4522,7 +4725,7 @@ impl KeyValueDatabaseContext {
     /// # Parameters
     /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `container`: [`ContainerId`] containing the table
-    /// - `table`: [`TableId`] of the target table
+    /// - `table`: [`ObjectId`] of the target table
     /// - `key`: Key bytes to write
     /// - `value`: Value bytes to write
     ///
@@ -4534,7 +4737,7 @@ impl KeyValueDatabaseContext {
     /// - Implement proper write permissions check
     /// - Optimize for batch writes in distributed mode
     #[tracing::instrument(skip(self))]
-    pub async fn put(
+    pub async fn table_entry_put(
         &self,
         principal: &SecurityPrincipal,
         container_id: &ContainerId,
@@ -4556,7 +4759,9 @@ impl KeyValueDatabaseContext {
         }
         validate_user_key(key)?;
 
-        let shard_id = self.get_shard_for_key(container_id, table_id, key).await?;
+        let shard_id = self
+            .get_table_shard_for_key(container_id, table_id, key)
+            .await?;
 
         // In distributed mode, coordinate put key via Raft Consensus
         if let Some(router) = &self.raft_router {
@@ -4588,7 +4793,7 @@ impl KeyValueDatabaseContext {
     /// # Parameters
     /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `container`: [`ContainerId`] containing the table
-    /// - `table`: [`TableId`] of the target table
+    /// - `table`: [`ObjectId`] of the target table
     /// - `key`: Key bytes to look up
     ///
     /// # Returns
@@ -4600,7 +4805,7 @@ impl KeyValueDatabaseContext {
     /// - Implement proper read permissions check
     /// - Implement local reads for distributed mode if consistency allow it
     #[tracing::instrument(skip(self))]
-    pub async fn get(
+    pub async fn table_entry_get(
         &self,
         principal: &SecurityPrincipal,
         container_id: &ContainerId,
@@ -4620,7 +4825,9 @@ impl KeyValueDatabaseContext {
             });
         }
         validate_user_key(key)?;
-        let shard_id = self.get_shard_for_key(container_id, table_id, key).await?;
+        let shard_id = self
+            .get_table_shard_for_key(container_id, table_id, key)
+            .await?;
 
         // In distributed mode, coordinate get key via Raft Consensus
         if let Some(router) = &self.raft_router {
@@ -4652,7 +4859,7 @@ impl KeyValueDatabaseContext {
     /// # Parameters
     /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `container`: [`ContainerId`] containing the table
-    /// - `table`: [`TableId`] of the target table
+    /// - `table`: [`ObjectId`] of the target table
     /// - `key`: Key bytes to delete
     ///
     /// # Returns
@@ -4662,7 +4869,7 @@ impl KeyValueDatabaseContext {
     /// # TODO
     /// - Implement proper write permissions check
     #[tracing::instrument(skip(self))]
-    pub async fn delete(
+    pub async fn table_entry_delete(
         &self,
         principal: &SecurityPrincipal,
         container_id: &ContainerId,
@@ -4682,7 +4889,9 @@ impl KeyValueDatabaseContext {
             });
         }
         validate_user_key(key)?;
-        let shard_id = self.get_shard_for_key(container_id, table_id, key).await?;
+        let shard_id = self
+            .get_table_shard_for_key(container_id, table_id, key)
+            .await?;
 
         // In distributed mode, coordinate delete key via Raft Consensus
         if let Some(router) = &self.raft_router {
@@ -4715,7 +4924,7 @@ impl KeyValueDatabaseContext {
     /// # Parameters
     /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `container`: [`ContainerId`] containing the table
-    /// - `table`: [`TableId`] of the target table
+    /// - `table`: [`ObjectId`] of the target table
     /// - `pairs`: Slice of key-value byte pairs to write
     ///
     /// # Returns
@@ -4727,7 +4936,7 @@ impl KeyValueDatabaseContext {
     /// - Implement batch support in distributed mode (Raft)
     /// - Optimize for cases where pairs span multiple shards
     #[tracing::instrument(skip(self))]
-    pub async fn batch_put(
+    pub async fn table_entry_batch_put(
         &self,
         principal: &SecurityPrincipal,
         container_id: &ContainerId,
@@ -4769,7 +4978,9 @@ impl KeyValueDatabaseContext {
             let mut shard_batches: HashMap<ShardId, Vec<(&[u8], &[u8])>> = HashMap::new();
 
             for &(key, value) in pairs {
-                let shard_id = self.get_shard_for_key(container_id, table_id, key).await?;
+                let shard_id = self
+                    .get_table_shard_for_key(container_id, table_id, key)
+                    .await?;
                 shard_batches
                     .entry(shard_id)
                     .or_insert_with(Vec::new)
@@ -4799,7 +5010,7 @@ impl KeyValueDatabaseContext {
     ///
     /// # Parameters
     /// - `container`: [`ContainerId`] containing the table
-    /// - `table`: [`TableId`] to determine shard for
+    /// - `table`: [`ObjectId`] to determine shard for
     /// - `key`: Key bytes to hash/partition
     ///
     /// # Returns
@@ -4812,23 +5023,20 @@ impl KeyValueDatabaseContext {
     /// # TODO
     /// - Make Partitioning algorithm configurable per table
     #[tracing::instrument(skip(self))]
-    async fn get_shard_for_key(
+    async fn get_table_shard_for_key(
         &self,
         container_id: &ContainerId,
         table_id: &TableId,
         key: &[u8],
     ) -> KeyValueResult<ShardId> {
         // Get container metadata cache
-        let container_caches = self
-            .container_metacaches
-            .read().await;
+        let container_caches = self.container_metacaches.read().await;
 
         let container_cache = container_caches.get(container_id).ok_or_else(|| {
             KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
         })?;
 
-        let cache = container_cache
-            .read().await;
+        let cache = container_cache.read().await;
 
         // Get table metadata to determine sharding strategy
         let table_meta = cache.get_table_record(table_id).ok_or_else(|| {
@@ -4841,7 +5049,7 @@ impl KeyValueDatabaseContext {
                 Ok(ShardId::from_parts(
                     container_id.tenant(),
                     container_id.database(),
-                    *table_id,
+                    table_id.object(),
                     ShardNumber::new(0),
                 ))
             }
@@ -4855,7 +5063,80 @@ impl KeyValueDatabaseContext {
                 Ok(ShardId::from_parts(
                     container_id.tenant(),
                     container_id.database(),
-                    *table_id,
+                    table_id.object(),
+                    shard_number,
+                ))
+            }
+        }
+    }
+    /// Calculate which shard a key belongs to for a given table.
+    ///
+    /// # What it does
+    /// Determines the appropriate shard for a key based on the table's sharding configuration.
+    ///
+    /// # How it works
+    /// 1. Retrieves container metadata cache
+    /// 2. Gets table metadata to determine sharding strategy
+    /// 3. For Single sharding: Always returns shard index 0
+    /// 4. For Multiple sharding: Uses the configured partitioner to calculate shard index
+    ///    - Partitioner applies hash-based or other algorithm to distribute keys
+    ///
+    /// # Parameters
+    /// - `container`: [`ContainerId`] containing the table
+    /// - `table`: [`ObjectId`] to determine shard for
+    /// - `key`: Key bytes to hash/partition
+    ///
+    /// # Returns
+    /// - `Ok(ShardId)` with the calculated shard ID
+    ///
+    /// # Errors
+    /// - `Err(KeyValueError::InvalidValue)` if container or table not found
+    /// - `Err(KeyValueError::LockPoisoned)` if lock poisoned
+    ///
+    /// # TODO
+    /// - Make Partitioning algorithm configurable per table
+    #[tracing::instrument(skip(self))]
+    async fn get_index_shard_for_key(
+        &self,
+        container_id: &ContainerId,
+        index_id: &IndexId,
+        key: &[u8],
+    ) -> KeyValueResult<ShardId> {
+        // Get container metadata cache
+        let container_caches = self.container_metacaches.read().await;
+
+        let container_cache = container_caches.get(container_id).ok_or_else(|| {
+            KeyValueError::InvalidValue(format!("Container not found: {:?}", container_id))
+        })?;
+
+        let cache = container_cache.read().await;
+
+        // Get table metadata to determine sharding strategy
+        let index_record = cache.get_index_record(index_id).ok_or_else(|| {
+            KeyValueError::InvalidValue(format!("Table not found: {:?}", index_id))
+        })?;
+
+        match &index_record.sharding {
+            IndexSharding::Single => {
+                // Single shard table - always use shard number 0
+                Ok(ShardId::from_parts(
+                    container_id.tenant(),
+                    container_id.database(),
+                    index_id.object(),
+                    ShardNumber::new(0),
+                ))
+            }
+            IndexSharding::Multiple {
+                shard_count,
+                partitioner,
+                ..
+            } => {
+                // Multi-shard table - use partitioner's built-in logic
+                let shard_number = partitioner.get_shard_number(key, *shard_count);
+                Ok(ShardId::from_parts(
+                    container_id.tenant(),
+                    container_id.database(),
+                    index_id.object(),
                     shard_number,
                 ))
             }

@@ -5,7 +5,7 @@
 
 use nanograph_btree::BTreeKeyValueStore;
 use nanograph_kvt::metrics::StatValue;
-use nanograph_kvt::{IndexNumber, KeyValueShardStore, ShardId, TableId};
+use nanograph_kvt::{KeyValueShardStore, ShardId};
 use std::sync::Arc;
 
 #[tokio::main]

@@ -17,15 +17,14 @@
 //! Storage adapter for openraft integration
 
 use crate::error::{ConsensusError, ConsensusResult};
+use crate::storage::snapshot::SnapshotManager;
 use crate::types::{ConsensusSnapshot, ConsensusTypeConfig, Operation, OperationResponse};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use futures_util::future::BoxFuture;
-use nanograph_core::object::KeyRange;
-use nanograph_core::{object::ShardId, types::Timestamp};
+use nanograph_core::object::{KeyRange, ShardId};
 use nanograph_kvt::KeyValueShardStore;
 use nanograph_vfs::{File, FileSystem};
-use crate::storage::snapshot::SnapshotManager;
 use openraft::storage::{EntryResponder, RaftSnapshotBuilder, RaftStateMachine};
 use openraft::type_config::alias::LogIdOf;
 use openraft::{EntryPayload, LogId, OptionalSend, Snapshot, SnapshotMeta, StoredMembership, Vote};
@@ -190,9 +189,9 @@ impl RaftStateMachine<ConsensusTypeConfig> for ConsensusStateStore {
 
     async fn apply<S>(&mut self, mut entries: S) -> Result<(), std::io::Error>
     where
-        S: Stream<Item=Result<EntryResponder<ConsensusTypeConfig>, std::io::Error>>
-        + Unpin
-        + OptionalSend,
+        S: Stream<Item = Result<EntryResponder<ConsensusTypeConfig>, std::io::Error>>
+            + Unpin
+            + OptionalSend,
     {
         while let Some(entry) = entries.next().await {
             match entry {
@@ -239,7 +238,8 @@ impl RaftStateMachine<ConsensusTypeConfig> for ConsensusStateStore {
         // Create a temporary in-memory file for receiving snapshot data
         let temp_path = format!("/tmp/snapshot_{}", nanograph_core::types::Timestamp::now());
         let fs = nanograph_vfs::MemoryFileSystem::new();
-        let file = fs.create_file(&temp_path)
+        let file = fs
+            .create_file(&temp_path)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         Ok(Box::new(file))
     }
@@ -250,28 +250,31 @@ impl RaftStateMachine<ConsensusTypeConfig> for ConsensusStateStore {
         mut snapshot: Box<dyn File>,
     ) -> Result<(), std::io::Error> {
         // Read the entire snapshot file into memory
-        let size = snapshot.get_size()
+        let size = snapshot
+            .get_size()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         let mut buffer = vec![0u8; size as usize];
-        
+
         // Seek to the beginning of the file first
         use std::io::{Read, Seek, SeekFrom, Write};
         snapshot.seek(SeekFrom::Start(0))?;
         snapshot.read_exact(&mut buffer)?;
-        
+
         // Use snapshot_data to write the RAW snapshot file
         let snapshot_id = &meta.snapshot_id;
-        let mut snapshot_data = self.snapshot_storage
+        let mut snapshot_data = self
+            .snapshot_storage
             .snapshot_data(snapshot_id)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-        
+
         // Write the snapshot data
         snapshot_data.file_mut().write_all(&buffer)?;
         snapshot_data.file_mut().flush()?;
         drop(snapshot_data);
-        
+
         // Now use snapshot_reader to read and install the data
-        let (mut reader, _file_metadata) = self.snapshot_storage
+        let (mut reader, _file_metadata) = self
+            .snapshot_storage
             .snapshot_reader(snapshot_id)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
@@ -323,7 +326,7 @@ impl RaftStateMachine<ConsensusTypeConfig> for ConsensusStateStore {
             .put(self.shard_id, meta_key.as_bytes(), &meta_value)
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-        
+
         // Also cache it in memory for faster access
         let mut cached_meta = self.snapshot_meta.write().await;
         *cached_meta = Some((snapshot_id.clone(), meta.clone()));
@@ -337,10 +340,11 @@ impl RaftStateMachine<ConsensusTypeConfig> for ConsensusStateStore {
             let meta_guard = self.snapshot_meta.read().await;
             if let Some((snapshot_id, snapshot_meta)) = meta_guard.as_ref() {
                 // Use snapshot_reader to get the actual snapshot file
-                let (reader, _) = self.snapshot_storage
+                let (reader, _) = self
+                    .snapshot_storage
                     .snapshot_reader(snapshot_id)
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-                
+
                 // Return the snapshot with the file handle from the reader
                 return Ok(Some(Snapshot {
                     meta: snapshot_meta.clone(),
@@ -348,10 +352,11 @@ impl RaftStateMachine<ConsensusTypeConfig> for ConsensusStateStore {
                 }));
             }
         }
-        
+
         // If not in cache, try to load from persistent storage
         let meta_key = format!("snapshot_meta_{}", self.shard_id);
-        if let Some(meta_value) = self.shard_storage
+        if let Some(meta_value) = self
+            .shard_storage
             .get(self.shard_id, meta_key.as_bytes())
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
@@ -359,22 +364,23 @@ impl RaftStateMachine<ConsensusTypeConfig> for ConsensusStateStore {
             let (snapshot_id, snapshot_meta): (String, SnapshotMeta<ConsensusTypeConfig>) =
                 serde_json::from_slice(&meta_value)
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-            
+
             // Cache it for next time
             let mut cached_meta = self.snapshot_meta.write().await;
             *cached_meta = Some((snapshot_id.clone(), snapshot_meta.clone()));
-            
+
             // Use snapshot_reader to get the actual snapshot file
-            let (reader, _) = self.snapshot_storage
+            let (reader, _) = self
+                .snapshot_storage
                 .snapshot_reader(&snapshot_id)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-            
+
             return Ok(Some(Snapshot {
                 meta: snapshot_meta,
                 snapshot: Box::new(reader.into_inner()),
             }));
         }
-        
+
         Ok(None)
     }
 }
@@ -382,7 +388,7 @@ impl RaftStateMachine<ConsensusTypeConfig> for ConsensusStateStore {
 impl RaftSnapshotBuilder<ConsensusTypeConfig> for ConsensusStateStore {
     async fn build_snapshot(&mut self) -> Result<Snapshot<ConsensusTypeConfig>, std::io::Error> {
         let (last_applied, last_membership) = self.applied_state().await?;
-        
+
         // Create snapshot ID based on last_applied or use a default for empty snapshots
         let snapshot_id = if let Some(ref log_id) = last_applied {
             format!(
@@ -409,9 +415,14 @@ impl RaftSnapshotBuilder<ConsensusTypeConfig> for ConsensusStateStore {
         let mut snapshot_writer = writer;
 
         // Iterate over all keys in the shard and write them to the snapshot
-        let mut stream = self.shard_storage.scan(self.shard_id, KeyRange::all()).await.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let mut stream = self
+            .shard_storage
+            .scan(self.shard_id, KeyRange::all())
+            .await
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         while let Some(res) = stream.next().await {
-            let (key, value) = res.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            let (key, value) =
+                res.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
             snapshot_writer
                 .write_kv(&key, &value)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
@@ -423,7 +434,8 @@ impl RaftSnapshotBuilder<ConsensusTypeConfig> for ConsensusStateStore {
 
         // Open a fresh file handle for the snapshot
         // Use snapshot_reader to get the snapshot file
-        let (reader, _) = self.snapshot_storage
+        let (reader, _) = self
+            .snapshot_storage
             .snapshot_reader(&snapshot_id)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         let snapshot_file = Box::new(reader.into_inner());
@@ -442,7 +454,7 @@ impl RaftSnapshotBuilder<ConsensusTypeConfig> for ConsensusStateStore {
             .put(self.shard_id, meta_key.as_bytes(), &meta_value)
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-        
+
         // Also cache it in memory for faster access
         let mut cached_meta = self.snapshot_meta.write().await;
         *cached_meta = Some((snapshot_id.clone(), metadata.clone()));
@@ -484,21 +496,24 @@ impl Default for RaftState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::snapshot::SnapshotConfig;
+    use crate::types::{ConsensusLeaderId, ConsensusLogId, NodeInfo};
     use nanograph_core::object::{NodeId, ShardId};
     use nanograph_kvt::MemoryKeyValueShardStore;
     use nanograph_vfs::{MemoryFileSystem, Path};
     use openraft::storage::RaftSnapshotBuilder;
-    use crate::storage::snapshot::SnapshotConfig;
-    use crate::types::{ConsensusLeaderId, ConsensusLogId, NodeInfo};
     use openraft::vote::RaftLeaderId;
 
     async fn create_test_store() -> ConsensusStateStore {
         let shard_id = ShardId::new(1);
         let shard_storage = Arc::new(MemoryKeyValueShardStore::new());
-        
+
         // Create the shard before using it
-        shard_storage.create_shard(shard_id).await.unwrap();
-        
+        let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
+        let data_path = nanograph_vfs::Path::from("/data");
+        let wal_path = nanograph_vfs::Path::from("/wal");
+        shard_storage.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+
         let fs = Arc::new(MemoryFileSystem::new());
         fs.create_directory_all("/snapshots").unwrap();
         let snapshot_storage = Arc::new(SnapshotManager::with_config(
@@ -506,7 +521,7 @@ mod tests {
             Path::parse("/snapshots"),
             SnapshotConfig::default(),
         ));
-        
+
         ConsensusStateStore::new(shard_id, shard_storage, snapshot_storage)
     }
 
@@ -521,18 +536,19 @@ mod tests {
     #[tokio::test]
     async fn test_apply_put_operation() {
         let store = create_test_store().await;
-        
+
         let operation = Operation::Put {
             key: b"test_key".to_vec(),
             value: b"test_value".to_vec(),
         };
-        
+
         let response = store.apply_operation(&operation).await.unwrap();
         assert!(response.success);
         assert!(response.error.is_none());
-        
+
         // Verify the value was stored
-        let value = store.shard_storage
+        let value = store
+            .shard_storage
             .get(store.shard_id, b"test_key")
             .await
             .unwrap();
@@ -542,23 +558,25 @@ mod tests {
     #[tokio::test]
     async fn test_apply_delete_operation() {
         let store = create_test_store().await;
-        
+
         // First put a value
-        store.shard_storage
+        store
+            .shard_storage
             .put(store.shard_id, b"test_key", b"test_value")
             .await
             .unwrap();
-        
+
         // Then delete it
         let operation = Operation::Delete {
             key: b"test_key".to_vec(),
         };
-        
+
         let response = store.apply_operation(&operation).await.unwrap();
         assert!(response.success);
-        
+
         // Verify the value was deleted
-        let value = store.shard_storage
+        let value = store
+            .shard_storage
             .get(store.shard_id, b"test_key")
             .await
             .unwrap();
@@ -568,7 +586,7 @@ mod tests {
     #[tokio::test]
     async fn test_apply_batch_operation() {
         let store = create_test_store().await;
-        
+
         let operation = Operation::Batch {
             operations: vec![
                 Operation::Put {
@@ -584,19 +602,21 @@ mod tests {
                 },
             ],
         };
-        
+
         let response = store.apply_operation(&operation).await.unwrap();
         assert!(response.success);
-        
+
         // Verify key1 was deleted
-        let value1 = store.shard_storage
+        let value1 = store
+            .shard_storage
             .get(store.shard_id, b"key1")
             .await
             .unwrap();
         assert!(value1.is_none());
-        
+
         // Verify key2 exists
-        let value2 = store.shard_storage
+        let value2 = store
+            .shard_storage
             .get(store.shard_id, b"key2")
             .await
             .unwrap();
@@ -606,17 +626,19 @@ mod tests {
     #[tokio::test]
     async fn test_build_snapshot() {
         let mut store = create_test_store().await;
-        
+
         // Add some data
-        store.shard_storage
+        store
+            .shard_storage
             .put(store.shard_id, b"key1", b"value1")
             .await
             .unwrap();
-        store.shard_storage
+        store
+            .shard_storage
             .put(store.shard_id, b"key2", b"value2")
             .await
             .unwrap();
-        
+
         // Update state with a log ID
         {
             let mut state = store.raft_state.write().await;
@@ -624,22 +646,18 @@ mod tests {
                 ConsensusLeaderId::new(1, NodeId::new(1)).to_committed(),
                 10,
             ));
-            state.last_membership = StoredMembership::new(
-                None,
-                {
-                    let mut config = std::collections::BTreeSet::new();
-                    config.insert(NodeId::new(1));
-                    let mut nodes = std::collections::BTreeMap::new();
-                    nodes.insert(NodeId::new(1), NodeInfo::default());
-                    openraft::Membership::new(vec![config], nodes)
-                        .expect("Failed to create membership")
-                },
-            );
+            state.last_membership = StoredMembership::new(None, {
+                let mut config = std::collections::BTreeSet::new();
+                config.insert(NodeId::new(1));
+                let mut nodes = std::collections::BTreeMap::new();
+                nodes.insert(NodeId::new(1), NodeInfo::default());
+                openraft::Membership::new(vec![config], nodes).expect("Failed to create membership")
+            });
         }
-        
+
         // Build snapshot
         let snapshot = store.build_snapshot().await.unwrap();
-        
+
         assert!(snapshot.meta.last_log_id.is_some());
         assert_eq!(snapshot.meta.last_log_id.unwrap().index, 10);
     }
@@ -647,53 +665,54 @@ mod tests {
     #[tokio::test]
     async fn test_install_and_get_snapshot() {
         let mut store = create_test_store().await;
-        
+
         // Build a snapshot first
-        store.shard_storage
+        store
+            .shard_storage
             .put(store.shard_id, b"original_key", b"original_value")
             .await
             .unwrap();
-        
+
         {
             let mut state = store.raft_state.write().await;
             state.last_applied = Some(ConsensusLogId::new(
                 ConsensusLeaderId::new(1, NodeId::new(1)).to_committed(),
                 5,
             ));
-            state.last_membership = StoredMembership::new(
-                None,
-                {
-                    let mut config = std::collections::BTreeSet::new();
-                    config.insert(NodeId::new(1));
-                    let mut nodes = std::collections::BTreeMap::new();
-                    nodes.insert(NodeId::new(1), NodeInfo::default());
-                    openraft::Membership::new(vec![config], nodes)
-                        .expect("Failed to create membership")
-                },
-            );
+            state.last_membership = StoredMembership::new(None, {
+                let mut config = std::collections::BTreeSet::new();
+                config.insert(NodeId::new(1));
+                let mut nodes = std::collections::BTreeMap::new();
+                nodes.insert(NodeId::new(1), NodeInfo::default());
+                openraft::Membership::new(vec![config], nodes).expect("Failed to create membership")
+            });
         }
-        
+
         let snapshot = store.build_snapshot().await.unwrap();
         let meta = snapshot.meta.clone();
         let snapshot_file = snapshot.snapshot;
-        
+
         // Create a new store to install the snapshot into
         let mut new_store = create_test_store().await;
-        
+
         // Install the snapshot
-        new_store.install_snapshot(&meta, snapshot_file).await.unwrap();
-        
+        new_store
+            .install_snapshot(&meta, snapshot_file)
+            .await
+            .unwrap();
+
         // Verify the data was installed
-        let value = new_store.shard_storage
+        let value = new_store
+            .shard_storage
             .get(new_store.shard_id, b"original_key")
             .await
             .unwrap();
         assert_eq!(value, Some(b"original_value".to_vec()));
-        
+
         // Verify state was updated
         let (last_applied, _) = new_store.applied_state().await.unwrap();
         assert_eq!(last_applied, meta.last_log_id);
-        
+
         // Verify we can retrieve the snapshot
         let retrieved_snapshot = new_store.get_current_snapshot().await.unwrap();
         assert!(retrieved_snapshot.is_some());
@@ -704,7 +723,7 @@ mod tests {
     #[tokio::test]
     async fn test_state_persistence() {
         let store = create_test_store().await;
-        
+
         // Update state
         {
             let mut state = store.raft_state.write().await;
@@ -713,10 +732,10 @@ mod tests {
                 42,
             ));
         }
-        
+
         // Save state
         store.save_state().await.unwrap();
-        
+
         // Load state in a new store instance
         let new_store = ConsensusStateStore::new(
             store.shard_id,
@@ -724,7 +743,7 @@ mod tests {
             store.snapshot_storage.clone(),
         );
         new_store.load_state().await.unwrap();
-        
+
         // Verify state was loaded
         let state = new_store.raft_state.read().await;
         assert!(state.last_applied.is_some());
@@ -734,10 +753,10 @@ mod tests {
     #[tokio::test]
     async fn test_empty_snapshot() {
         let mut store = create_test_store().await;
-        
+
         // Build snapshot with no data
         let snapshot = store.build_snapshot().await.unwrap();
-        
+
         // Snapshot ID should indicate it's empty
         assert!(snapshot.meta.snapshot_id.starts_with("empty-"));
         assert!(snapshot.meta.last_log_id.is_none());
@@ -746,50 +765,51 @@ mod tests {
     #[tokio::test]
     async fn test_snapshot_with_large_data() {
         let mut store = create_test_store().await;
-        
+
         // Add many keys
         for i in 0..100 {
             let key = format!("key_{:03}", i);
             let value = format!("value_{:03}", i);
-            store.shard_storage
+            store
+                .shard_storage
                 .put(store.shard_id, key.as_bytes(), value.as_bytes())
                 .await
                 .unwrap();
         }
-        
+
         {
             let mut state = store.raft_state.write().await;
             state.last_applied = Some(ConsensusLogId::new(
                 ConsensusLeaderId::new(1, NodeId::new(1)).to_committed(),
                 100,
             ));
-            state.last_membership = StoredMembership::new(
-                None,
-                {
-                    let mut config = std::collections::BTreeSet::new();
-                    config.insert(NodeId::new(1));
-                    let mut nodes = std::collections::BTreeMap::new();
-                    nodes.insert(NodeId::new(1), NodeInfo::default());
-                    openraft::Membership::new(vec![config], nodes)
-                        .expect("Failed to create membership")
-                },
-            );
+            state.last_membership = StoredMembership::new(None, {
+                let mut config = std::collections::BTreeSet::new();
+                config.insert(NodeId::new(1));
+                let mut nodes = std::collections::BTreeMap::new();
+                nodes.insert(NodeId::new(1), NodeInfo::default());
+                openraft::Membership::new(vec![config], nodes).expect("Failed to create membership")
+            });
         }
-        
+
         // Build snapshot
         let snapshot = store.build_snapshot().await.unwrap();
         assert!(snapshot.meta.last_log_id.is_some());
-        
+
         // Install in new store
         let mut new_store = create_test_store().await;
         let meta = snapshot.meta.clone();
-        new_store.install_snapshot(&meta, snapshot.snapshot).await.unwrap();
-        
+        new_store
+            .install_snapshot(&meta, snapshot.snapshot)
+            .await
+            .unwrap();
+
         // Verify all keys were installed
         for i in 0..100 {
             let key = format!("key_{:03}", i);
             let expected_value = format!("value_{:03}", i);
-            let value = new_store.shard_storage
+            let value = new_store
+                .shard_storage
                 .get(new_store.shard_id, key.as_bytes())
                 .await
                 .unwrap();

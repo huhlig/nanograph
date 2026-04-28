@@ -14,37 +14,37 @@
 // limitations under the License.
 //
 
-use crate::object::{ObjectId, PermissionGrant, UserId};
+use crate::object::PermissionGrant;
+use crate::object::security::user::UserId;
+use crate::object::security::{SubjectId, SystemRoleId, TenantRoleId};
 use crate::types::{PropertyUpdate, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::object::security::{SystemRoleId, TenantRoleId};
 
 /// Group identifier
 #[derive(
     Copy, Clone, Debug, Default, Ord, PartialOrd, Eq, PartialEq, Hash, Serialize, Deserialize,
 )]
-pub struct TenantGroupId(pub ObjectId);
+pub struct TenantGroupId(pub SubjectId);
 
 impl TenantGroupId {
-    pub fn new(id: u32) -> Self {
+    pub fn new(id: SubjectId) -> Self {
         Self(id)
     }
-
-    pub fn as_u32(&self) -> u32 {
+    pub fn subject(&self) -> SubjectId {
         self.0
     }
 }
 
 impl From<u32> for TenantGroupId {
     fn from(id: u32) -> Self {
-        Self(id)
+        Self(SubjectId::new(id))
     }
 }
 
 impl std::fmt::Display for TenantGroupId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TenantGroup({:X})", self.0)
+        write!(f, "TenantGroup({})", self.0)
     }
 }
 
@@ -54,16 +54,16 @@ mod tests {
 
     #[test]
     fn test_tenant_group_id() {
-        let id = TenantGroupId::new(0x12345678);
-        assert_eq!(id.as_u32(), 0x12345678);
+        let id = TenantGroupId::new(SubjectId::new(0x12345678));
+        assert_eq!(id.subject().as_u32(), 0x12345678);
         assert_eq!(TenantGroupId::from(0x12345678), id);
         assert_eq!(format!("{}", id), "TenantGroup(12345678)");
     }
 
     #[test]
     fn test_system_group_id() {
-        let id = SystemGroupId::new(0xABCDEF01);
-        assert_eq!(id.as_u32(), 0xABCDEF01);
+        let id = SystemGroupId::new(SubjectId::new(0xABCDEF01));
+        assert_eq!(id.subject().as_u32(), 0xABCDEF01);
         assert_eq!(SystemGroupId::from(0xABCDEF01), id);
         assert_eq!(format!("{}", id), "SystemGroup(ABCDEF01)");
     }
@@ -251,27 +251,27 @@ pub struct TenantGroupRecord {
 #[derive(
     Copy, Clone, Debug, Default, Ord, PartialOrd, Eq, PartialEq, Hash, Serialize, Deserialize,
 )]
-pub struct SystemGroupId(pub ObjectId);
+pub struct SystemGroupId(pub SubjectId);
 
 impl SystemGroupId {
-    pub fn new(id: u32) -> Self {
+    pub fn new(id: SubjectId) -> Self {
         Self(id)
     }
 
-    pub fn as_u32(&self) -> u32 {
+    pub fn subject(&self) -> SubjectId {
         self.0
     }
 }
 
 impl From<u32> for SystemGroupId {
     fn from(id: u32) -> Self {
-        Self(id)
+        Self(SubjectId::new(id))
     }
 }
 
 impl std::fmt::Display for SystemGroupId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SystemGroup({:X})", self.0)
+        write!(f, "SystemGroup({})", self.0)
     }
 }
 

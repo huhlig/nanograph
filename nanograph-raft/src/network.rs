@@ -26,9 +26,6 @@ pub mod adapter;
 /// gRPC client for Raft RPC calls
 pub mod client;
 
-/// Network factory implementation
-mod factory;
-
 /// Router for multi-group Raft networks
 pub mod router;
 

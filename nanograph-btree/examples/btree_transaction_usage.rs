@@ -4,7 +4,7 @@
 //! including commit, rollback, and isolation guarantees.
 
 use nanograph_btree::BTreeKeyValueStore;
-use nanograph_kvt::{IndexNumber, KeyValueShardStore, ShardId, TableId, Transaction};
+use nanograph_kvt::{KeyValueShardStore, ShardId, Transaction};
 use std::sync::Arc;
 
 #[tokio::main]

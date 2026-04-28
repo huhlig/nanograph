@@ -206,9 +206,9 @@ This document provides a phased implementation roadmap for Nanograph, a multi-mo
 
 ---
 
-### Phase 1: Core Storage Engine ✅ COMPLETE
+### Phase 1: Core Storage Engine ✅ COMPLETE (with v4 enhancements needed)
 
-**Status:** ✅ COMPLETE (2026-01-08)
+**Status:** ✅ COMPLETE (2026-01-08) - **⚠️ v4 Enhancements Required**
 **Goal:** Implement foundational KV storage with durability guarantees.
 
 #### Completed Components
@@ -219,11 +219,13 @@ This document provides a phased implementation roadmap for Nanograph, a multi-mo
 - ✅ OverlayFS, MountingFS, MonitoredFS
 - ✅ `nanograph-vfs` crate complete
 
-**1.2 Write-Ahead Log** ✅
+**1.2 Write-Ahead Log** ✅ **[v4 VERIFICATION NEEDED]**
 - ✅ WAL entry format (versioned)
 - ✅ WAL writer with checksumming
 - ✅ WAL reader and recovery logic
 - ✅ `nanograph-wal` crate complete
+- ⚠️ **v4 Gap**: Verify segmented WAL with LSN + CRC32 per entry (Section 5.2)
+- ⚠️ **v4 Gap**: Verify torn-write handling in recovery
 
 **1.3 Core KV API** ✅
 - ✅ KeyValueShardStore trait
@@ -232,7 +234,7 @@ This document provides a phased implementation roadmap for Nanograph, a multi-mo
 - ✅ Transaction and iterator traits
 - ✅ `nanograph-kvt` crate complete
 
-**1.4 Storage Engines** ✅
+**1.4 Storage Engines** ✅ **[v4 ENHANCEMENTS NEEDED]**
 - ✅ **ART (Adaptive Radix Tree)** - 19/19 tests passing
   - Production-ready, O(k) operations
   - Best for: short keys, prefix queries
@@ -242,13 +244,36 @@ This document provides a phased implementation roadmap for Nanograph, a multi-mo
 - ✅ **LSM** - 15+ tests passing
   - Production-ready, compression support
   - Best for: write-heavy, large datasets
+  - ⚠️ **v4 Gap**: Block-level CRC32 checksums (Section 5.3)
+  - ⚠️ **v4 Gap**: WiscKey-style blob log for large values >4KB (Section 5.3.1)
+- ⚠️ **v4 Addition Needed**: LMDB backend (user requested)
+  - Single-file format
+  - Read-optimized
+  - Alternative to LSM for certain workloads
 
-**Phase 1 Success Criteria:** ✅ ALL MET
+**1.5 Transaction Manager** ✅ **[v4 VERIFICATION NEEDED]**
+- ✅ MVCC with snapshot isolation
+- ✅ WriteBatch support
+- ✅ Async transaction API
+- ⚠️ **v4 Gap**: GC watermark tracking (`min_active_snapshot_seq`) - Section 4.5
+- ⚠️ **v4 Gap**: Read transaction deadlines (default 5 min) - Section 4.5
+- ⚠️ **v4 Gap**: Durability flags (Sync/Buffered/None) - Section 4.4
+
+**Phase 1 Success Criteria:** ✅ ALL MET (with v4 enhancements pending)
 - ✅ Three production-ready storage engines
 - ✅ Sub-10ms local reads achieved
 - ✅ 83+ storage engine tests passing (100%)
 - ✅ Comprehensive documentation
 - ✅ KeyValueShardStore trait fully implemented
+
+**Phase 1 v4 Enhancement Tasks** (Can be done in parallel with Phase 3):
+- [ ] Verify/enhance WAL with segmented format and LSN tracking
+- [ ] Add block-level CRC32 to LSM SSTables
+- [ ] Implement WiscKey-style blob log for large values
+- [ ] Add GC watermark tracking to transaction manager
+- [ ] Implement read transaction deadlines
+- [ ] Add durability flags to commit operations
+- [ ] Create `nanograph-lmdb` crate (LMDB backend)
 
 ---
 
@@ -320,65 +345,142 @@ This document provides a phased implementation roadmap for Nanograph, a multi-mo
 
 ### Phase 3: Multi-Model Support (Weeks 15-22)
 
-**Goal:** Implement document and graph abstractions on KV foundation.
+**Goal:** Implement document and graph abstractions on KV foundation with v4 architecture compliance.
 
-#### 3.1 Document Model (Weeks 15-17)
+**Related ADRs:** ADR-0006, ADR-0016, ADR-0008
+**Related v4 Sections:** Sections 6-11 (Key Encoding, Catalog, Data Models, Indexing, Graph)
+
+#### 3.0 Foundation: Key Encoding & Catalog (Weeks 15-16) **[NEW - v4 CRITICAL]**
+
+**Related v4 Sections:** Section 6 (Key Encoding), Section 7 (Catalog System)
+
+- [ ] **Tuple Key Encoding** (Week 15)
+  - [ ] Create `nanograph-encoding` crate or add to `nanograph-core`
+  - [ ] Implement `KeyBuilder` with order-preserving encoding
+    - [ ] u64, i64 (sign-flipped), f64 (IEEE with sign handling)
+    - [ ] String encoding with null-byte escaping
+    - [ ] Tuple concatenation with separators
+  - [ ] Define namespace tags (0x01=catalog, 0x02=data, 0x03=WAL, 0x04=blob)
+  - [ ] Property tests for encoding order preservation
+  - [ ] Benchmark encoding performance
+
+- [ ] **Catalog Bootstrap System** (Week 16)
+  - [ ] Reserve table_id = 0 for catalog table
+  - [ ] Hardcode catalog schema in binary
+  - [ ] Implement catalog storage in keyspace 0x01
+  - [ ] Create catalog layout:
+    - `/catalog/tables/{table_id}` → TableDef
+    - `/catalog/tables_by_name/{name}` → table_id
+    - `/catalog/indexes/{table_id}/{idx_id}` → IndexDef
+    - `/catalog/graphs/{graph_id}` → GraphDef
+    - `/catalog/seq` → next available IDs
+  - [ ] Implement bootstrap sequence: WAL replay → KV online → read catalog
+  - [ ] Add catalog self-indexing (after bootstrap)
+
+**Deliverables:**
+- `KeyBuilder` API with comprehensive tests
+- Catalog bootstrap implementation
+- Key encoding specification document
+- Catalog system documentation
+- Migration guide from current key format
+
+#### 3.1 Unified Table/Document Model (Weeks 17-18) **[UPDATED - v4 ALIGNMENT]**
 
 **Related ADRs:** ADR-0006
+**Related v4 Sections:** Section 8 (Data Model: Unified Tables)
 
-- [ ] JSON document encoding
-- [ ] Document CRUD operations
-- [ ] Partial document updates
-- [ ] Field-level access
-- [ ] Document schema validation (optional)
-- [ ] Secondary indexes (basic)
+- [ ] **Unified Model Implementation** (Week 17)
+  - [ ] Add `TableKind` enum (Relational | Document) to `TableDef`
+  - [ ] Implement CBOR serialization for rows (replace JSON)
+  - [ ] Add `schema_version` to row format
+  - [ ] Implement `Value` type (Null, Bool, Int, Float, String, Bytes, Array, Map)
+  - [ ] Create unified row storage: `/{table_id}/row/{primary_key}`
+  - [ ] Schema enforcement for Relational tables
+  - [ ] Schema-optional for Document tables
 
-**Deliverables:**
-- Document API in `nanograph-core`
-- Document model specification
-- Document operation examples
-- Performance benchmarks
-
-#### 3.2 Graph Model (Weeks 18-20)
-
-**Related ADRs:** ADR-0006, ADR-0016
-
-- [ ] Node and edge storage format
-- [ ] Adjacency list encoding
-- [ ] Node/edge CRUD operations
-- [ ] Neighborhood queries
-- [ ] Bounded-depth traversals
-- [ ] Path queries (basic)
-- [ ] Edge properties
+- [ ] **Schema Evolution** (Week 18)
+  - [ ] Implement schema version handling
+  - [ ] Add column with default values
+  - [ ] Remove column (mark deprecated)
+  - [ ] Schema migration framework
+  - [ ] Backward compatibility tests
 
 **Deliverables:**
-- Graph API in `nanograph-core`
-- Graph model specification
-- Graph traversal examples
-- Graph query benchmarks
+- Unified `TableDef` with `TableKind`
+- CBOR row serialization
+- Schema evolution system
+- Document and relational table examples
+- Migration guide from separate models
 
-#### 3.3 Indexing Infrastructure (Weeks 21-22)
+#### 3.2 Indexing Infrastructure (Weeks 19-20) **[UPDATED - v4 INTEGRATION]**
 
 **Related ADRs:** ADR-0008
+**Related v4 Sections:** Section 10 (Indexing System)
 
-- [ ] Index trait definitions
-- [ ] Index lifecycle management
-- [ ] B-tree secondary indexes
-- [ ] Index maintenance on writes
-- [ ] Background index building
-- [ ] Index consistency guarantees
+- [ ] **Index Maintenance in WriteBatch** (Week 19)
+  - [ ] Integrate index updates into atomic WriteBatch
+  - [ ] Implement index key format: `/{table_id}/idx/{index_id}/{indexed_value}/{primary_key}`
+  - [ ] Add field-path extraction for nested documents
+    - [ ] Implement `FieldPath` enum (Root, Field, Index)
+    - [ ] Support dotted paths: "user.address.city"
+    - [ ] Support array indexing
+  - [ ] Implement sparse indexes (skip missing fields by default)
+  - [ ] Unique constraint enforcement via txn read
+
+- [ ] **Index Types** (Week 20)
+  - [ ] Secondary B-tree indexes (ordered, range scans)
+  - [ ] Unique indexes (hash-based)
+  - [ ] Composite indexes (multiple fields)
+  - [ ] Index lifecycle management
+  - [ ] Background index building
 
 **Deliverables:**
-- `nanograph-index` crate
-- `nanograph-index-btree` crate
+- Index maintenance in WriteBatch
+- Field-path extraction system
+- Sparse and unique index support
 - Index API documentation
 - Index performance tests
 
+#### 3.3 Graph as Composition (Weeks 21-22) **[UPDATED - v4 PATTERN]**
+
+**Related ADRs:** ADR-0006, ADR-0016
+**Related v4 Sections:** Section 11 (Graph Model)
+
+- [ ] **Graph Composition Model** (Week 21)
+  - [ ] Implement `GraphDef` as metadata (node_table, edge_table)
+  - [ ] Define edge table schema: `from: u64, to: u64, label: String, properties`
+  - [ ] Create edge indexes for traversal:
+    - `/{edge_table}/idx/by_from/{from_id}/{label}/{edge_id}`
+    - `/{edge_table}/idx/by_to/{to_id}/{label}/{edge_id}`
+    - `/{edge_table}/idx/by_label/{label}/{edge_id}`
+  - [ ] Implement O(out-degree) and O(in-degree) traversals
+
+- [ ] **Graph Traversal API** (Week 22)
+  - [ ] `out_edges(node_id, label)` via prefix scan
+  - [ ] `in_edges(node_id, label)` via prefix scan
+  - [ ] `edges_by_label(label)` via prefix scan
+  - [ ] Multi-hop traversal helpers
+  - [ ] BFS/DFS iterators
+  - [ ] Bounded-depth path queries
+
+**Deliverables:**
+- Graph as two-table composition
+- Edge index layout implementation
+- Traversal API with prefix scans
+- Graph query examples
+- Graph performance benchmarks
+
 **Phase 3 Success Criteria:**
-- Document and graph operations functional
-- Secondary indexes working
-- Multi-model query examples documented
-- Performance targets met for each model
+- ✅ Tuple key encoding with order preservation verified
+- ✅ Catalog bootstrap working (table_id = 0)
+- ✅ Unified table/document model operational
+- ✅ CBOR serialization for all rows
+- ✅ Indexes maintained in WriteBatch atomically
+- ✅ Field-path extraction for nested documents
+- ✅ Graph as composition with efficient traversals
+- ✅ All v4 Phase 3 requirements satisfied
+- ✅ Multi-model query examples documented
+- ✅ Performance targets met for each model
 
 ---
 
@@ -904,6 +1006,104 @@ The following features are explicitly deferred to post-1.0:
 - Advanced query optimization (cost-based optimizer)
 - Materialized views
 - Triggers and stored procedures
+
+---
+
+## Appendix D: v4 Architecture Compliance Checklist
+
+This appendix tracks compliance with the v4 embeddable database architecture requirements from `docs/agentic/embeddable_db_architecture_v4.md`.
+
+### ✅ Satisfied Requirements
+
+| v4 Section | Requirement | Status | Notes |
+|------------|-------------|--------|-------|
+| 2 | High-Level Architecture | ✅ Complete | Layered architecture matches v4 |
+| 3 | Build vs. Buy | ✅ Complete | Deliberate choice to build LSM core |
+| 4.1 | MVCC + Snapshot Isolation | ✅ Complete | Implemented in nanograph-lsm |
+| 4.2 | Versioning (seq_no) | ✅ Complete | MVCC sequence numbers in place |
+| 4.3 | Transactions (Read/Write) | ✅ Complete | Single-writer model implemented |
+| 5.1 | KvStore Trait API | ✅ Complete | KeyValueShardStore trait |
+| 5.3 | Memtable & SSTables | ✅ Complete | Full LSM implementation |
+| 5.3 | Bloom Filters | ✅ Complete | Per-SSTable bloom filters |
+| 5.3 | Block Cache | ✅ Complete | LRU cache with pinning |
+| 5.3 | Compaction | ✅ Complete | Leveled compaction |
+| 12 | Multi-file Layout | ✅ Complete | WAL, SST, manifest structure |
+| 14 | Observability | ✅ Complete | AtomicU64 metrics in LSM |
+
+### ⚠️ Needs Verification
+
+| v4 Section | Requirement | Status | Action Required |
+|------------|-------------|--------|-----------------|
+| 4.4 | Durability Flags | ⚠️ Verify | Check if Sync/Buffered/None supported |
+| 4.5 | GC Watermark | ⚠️ Verify | Verify min_active_snapshot_seq tracking |
+| 4.5 | Read Deadlines | ⚠️ Verify | Check 5-minute default deadline |
+| 4.6 | Iterator Semantics | ⚠️ Verify | Verify snapshot-bound iterators |
+| 5.2 | Segmented WAL | ⚠️ Verify | Check LSN + CRC32 per entry |
+| 5.2 | Recovery Algorithm | ⚠️ Verify | Verify torn-write handling |
+| 5.3 | Block-level CRC32 | ⚠️ Verify | Check SSTable block checksums |
+
+### ❌ Missing Requirements (Priority Order)
+
+#### Priority 1: Foundation (CRITICAL - Required for Phase 3)
+
+| v4 Section | Requirement | Status | Target Phase | Estimated Effort |
+|------------|-------------|--------|--------------|------------------|
+| 6.1 | Tuple Key Encoding | ❌ Missing | Phase 3.0 | 1 week |
+| 6.2 | Namespace Tags | ❌ Missing | Phase 3.0 | Included above |
+| 7 | Catalog Bootstrap | ❌ Missing | Phase 3.0 | 1 week |
+| 8 | Unified Table/Document | ❌ Missing | Phase 3.1 | 2 weeks |
+| 8.2 | CBOR Serialization | ❌ Missing | Phase 3.1 | Included above |
+
+#### Priority 2: Completeness (HIGH - Required for v4 compliance)
+
+| v4 Section | Requirement | Status | Target Phase | Estimated Effort |
+|------------|-------------|--------|--------------|------------------|
+| 5.3.1 | Value Separation (Blob Log) | ❌ Missing | Phase 1 Enhancement | 1-2 weeks |
+| 10 | Index in WriteBatch | ❌ Missing | Phase 3.2 | 1 week |
+| 10.4 | Field-Path Extraction | ❌ Missing | Phase 3.2 | 1 week |
+| 11 | Graph as Composition | ❌ Missing | Phase 3.3 | 2 weeks |
+| 11.1 | Traversal API | ❌ Missing | Phase 3.3 | Included above |
+
+#### Priority 3: Additional Features (MEDIUM - User requested)
+
+| Requirement | Status | Target Phase | Estimated Effort |
+|-------------|--------|--------------|------------------|
+| LMDB Backend | ❌ Missing | Phase 1 Enhancement | 2-3 weeks |
+
+### Implementation Timeline
+
+**Phase 1 Enhancements** (Can run in parallel with Phase 3):
+- Weeks 1-2: LMDB backend implementation
+- Week 3: Value separation (blob log)
+- Week 4: Verification tasks (WAL, GC watermark, durability flags)
+
+**Phase 3.0** (Foundation - CRITICAL PATH):
+- Week 1: Tuple key encoding + property tests
+- Week 2: Catalog bootstrap system
+
+**Phase 3.1** (Unified Model):
+- Week 1: TableKind + CBOR + Value type
+- Week 2: Schema evolution
+
+**Phase 3.2** (Indexing):
+- Week 1: Index in WriteBatch + field-path extraction
+- Week 2: Index types and lifecycle
+
+**Phase 3.3** (Graph):
+- Week 1: Graph composition + edge indexes
+- Week 2: Traversal API + BFS/DFS
+
+**Total estimated effort for v4 compliance**: 12-14 weeks
+
+### Success Criteria for v4 Compliance
+
+- [ ] All ✅ items remain satisfied
+- [ ] All ⚠️ items verified and documented
+- [ ] All ❌ Priority 1 items implemented
+- [ ] All ❌ Priority 2 items implemented
+- [ ] LMDB backend operational (user requested)
+- [ ] All v4 test scenarios passing
+- [ ] Documentation updated to reflect v4 compliance
 
 ---
 

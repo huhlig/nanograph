@@ -19,7 +19,7 @@
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use futures::StreamExt;
 use nanograph_btree::{BPlusTree, BTreeKeyValueStore, tree::BPlusTreeConfig};
-use nanograph_kvt::{IndexNumber, KeyRange, KeyValueShardStore, ShardId, TableId};
+use nanograph_kvt::{KeyRange, KeyValueShardStore, ShardId};
 use std::ops::Bound;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -55,7 +55,7 @@ fn create_populated_tree(count: usize) -> Arc<BPlusTree> {
     tree
 }
 
-async fn create_populated_store(count: usize) -> (BTreeKeyValueStore, nanograph_kvt::ShardId) {
+async fn create_populated_store(count: usize) -> (BTreeKeyValueStore, ShardId) {
     let store = BTreeKeyValueStore::default();
     let shard_id = ShardId::new(1);
     store.create_shard(shard_id).await.unwrap();

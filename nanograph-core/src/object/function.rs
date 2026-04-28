@@ -30,25 +30,25 @@ pub struct FunctionId(pub ObjectId);
 
 impl FunctionId {
     /// Create a new table identifier.
-    pub fn new(id: u32) -> Self {
+    pub fn new(id: ObjectId) -> Self {
         Self(id)
     }
 
-    /// Return the table identifier as a u64.
-    pub fn as_u32(&self) -> u32 {
+    /// Return the object identifier as an ObjectId.
+    pub fn object(&self) -> ObjectId {
         self.0
     }
 }
 
 impl From<u32> for FunctionId {
     fn from(id: u32) -> Self {
-        Self(id)
+        Self(ObjectId(id))
     }
 }
 
 impl std::fmt::Display for FunctionId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Function({:X})", self.0)
+        write!(f, "Function({})", self.0)
     }
 }
 
@@ -58,8 +58,8 @@ mod tests {
 
     #[test]
     fn test_function_id() {
-        let id = FunctionId::new(0x12345678);
-        assert_eq!(id.as_u32(), 0x12345678);
+        let id = FunctionId::new(ObjectId::new(0x12345678));
+        assert_eq!(id.object().as_u32(), 0x12345678);
         assert_eq!(FunctionId::from(0x12345678), id);
         assert_eq!(format!("{}", id), "Function(12345678)");
     }

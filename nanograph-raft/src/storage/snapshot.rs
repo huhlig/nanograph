@@ -110,13 +110,8 @@ use nanograph_util::{
     CompressionAlgorithm, EncryptionAlgorithm, EncryptionKey, EncryptionKeyId, IntegrityAlgorithm,
     deserialize, serialize,
 };
-use nanograph_vfs::{DynamicFileSystem, File, FileSystemError, Path};
+use nanograph_vfs::{DynamicFileSystem, File, Path};
 use openraft::SnapshotMeta;
-use openraft::vote::RaftLeaderId;
-use openraft::vote::leader_id_std::CommittedLeaderId;
-pub use openraft::vote::leader_id_std::LeaderId;
-use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Range;
 use std::sync::Arc;
@@ -136,7 +131,7 @@ impl SnapshotManager {
             config: SnapshotConfig::default(),
         }
     }
-    
+
     pub fn with_config(fs: Arc<dyn DynamicFileSystem>, path: Path, config: SnapshotConfig) -> Self {
         Self { fs, path, config }
     }
@@ -144,9 +139,8 @@ impl SnapshotManager {
         self.fs.create_directory_all(path).map_err(|e| e.into())
     }
     pub fn list_snapshots(&self) -> KeyValueResult<Vec<String>> {
-        let files = self.fs
-            .list_directory(&self.path.to_string())?;
-        
+        let files = self.fs.list_directory(&self.path.to_string())?;
+
         // Extract snapshot IDs from filenames (remove .snapshot extension)
         let snapshot_ids: Vec<String> = files
             .into_iter()
@@ -158,7 +152,7 @@ impl SnapshotManager {
                 }
             })
             .collect();
-        
+
         Ok(snapshot_ids)
     }
     pub fn delete_snapshot(&self, snapshot_id: &str) -> KeyValueResult<()> {
@@ -166,16 +160,17 @@ impl SnapshotManager {
         path.push(format!("{}.snapshot", snapshot_id));
         self.fs.remove_file(&path.to_string()).map_err(|e| e.into())
     }
-    pub fn snapshot_data(
-        &self,
-        snapshot_id: &str,
-    ) -> KeyValueResult<SnapshotData<Box<dyn File>>> {
+    pub fn snapshot_data(&self, snapshot_id: &str) -> KeyValueResult<SnapshotData<Box<dyn File>>> {
         let mut path = self.path.clone();
         path.push(&format!("{}.snapshot", snapshot_id));
         let file = self.fs.create_file(&path.to_string())?;
-        Ok(SnapshotData::new(path, Box::new(file), snapshot_id.to_string()))
+        Ok(SnapshotData::new(
+            path,
+            Box::new(file),
+            snapshot_id.to_string(),
+        ))
     }
-    
+
     pub fn open_snapshot_reader(
         &self,
         snapshot_id: &str,
@@ -185,7 +180,7 @@ impl SnapshotManager {
         let file = self.fs.open_file(&path.to_string())?;
         SnapshotReader::open(file).map_err(|e| e.into())
     }
-    
+
     pub fn snapshot_reader(
         &self,
         snapshot_id: &str,
@@ -202,7 +197,7 @@ impl SnapshotManager {
         let file = self.fs.create_file(&path.to_string())?;
         SnapshotWriter::new(self.config.clone(), metadata, file)
     }
-    
+
     pub fn snapshot_writer(
         &self,
         metadata: SnapshotMeta<ConsensusTypeConfig>,
@@ -217,9 +212,13 @@ pub struct SnapshotData<F: Read + Write> {
     snapshot_id: String,
 }
 
-impl <F: Read + Write + Seek> SnapshotData<F> {
+impl<F: Read + Write + Seek> SnapshotData<F> {
     pub fn new(path: Path, file: F, snapshot_id: String) -> Self {
-        Self { path, file, snapshot_id }
+        Self {
+            path,
+            file,
+            snapshot_id,
+        }
     }
     pub fn path(&self) -> &Path {
         &self.path
@@ -235,21 +234,21 @@ impl <F: Read + Write + Seek> SnapshotData<F> {
     }
     pub fn validate(&mut self) -> KeyValueResult<()> {
         self.file.seek(SeekFrom::Start(0))?;
-        
+
         // Read and validate header
         let mut header = [0u8; FILE_HEADER_SIZE];
         self.file.read_exact(&mut header)?;
-        
+
         // Check magic
         if BigEndian::read_u64(&header[FILE_RANGE_MAGIC]) != FILE_HEADER_MAGIC {
             return Err(KeyValueError::InvalidSnapshotFormat);
         }
-        
+
         // Check version
         if BigEndian::read_u16(&header[FILE_RANGE_VERSION]) != FILE_HEADER_VERSION {
             return Err(KeyValueError::UnsupportedSnapshotVersion);
         }
-        
+
         // Validate header integrity
         let header_checksum = BigEndian::read_u32(&header[FILE_RANGE_CHECKSUM]);
         let mut header_for_checksum = header;
@@ -259,62 +258,69 @@ impl <F: Read + Write + Seek> SnapshotData<F> {
             .as_u32()
             .unwrap_or_default();
         if header_checksum != calculated_checksum {
-            return Err(KeyValueError::StorageCorruption("Invalid header checksum".to_string()));
+            return Err(KeyValueError::StorageCorruption(
+                "Invalid header checksum".to_string(),
+            ));
         }
-        
+
         // Read and validate metadata
         let metadata_len = BigEndian::read_u32(&header[FILE_RANGE_METADATA_LEN]) as usize;
         let mut metadata_buffer = vec![0u8; metadata_len];
         self.file.read_exact(&mut metadata_buffer)?;
-        
+
         let metadata: SnapshotMeta<ConsensusTypeConfig> = deserialize(&metadata_buffer)
             .map_err(|e| KeyValueError::Deserialization(e.to_string()))?;
-        
+
         // Validate snapshot ID matches
         if metadata.snapshot_id != self.snapshot_id {
-            return Err(KeyValueError::StorageCorruption(
-                format!("Snapshot ID mismatch: expected {}, found {}",
-                    self.snapshot_id, metadata.snapshot_id)
-            ));
+            return Err(KeyValueError::StorageCorruption(format!(
+                "Snapshot ID mismatch: expected {}, found {}",
+                self.snapshot_id, metadata.snapshot_id
+            )));
         }
-        
+
         // Get configuration from header
-        let integrity = IntegrityAlgorithm::from_u8(header[FILE_RANGE_INTEGRITY.start])
-            .unwrap_or_default();
-        let compression = CompressionAlgorithm::from_u8(header[FILE_RANGE_COMPRESSION.start])
-            .unwrap_or_default();
-        
+        let integrity =
+            IntegrityAlgorithm::from_u8(header[FILE_RANGE_INTEGRITY.start]).unwrap_or_default();
+        let compression =
+            CompressionAlgorithm::from_u8(header[FILE_RANGE_COMPRESSION.start]).unwrap_or_default();
+
         // Validate each chunk
         loop {
             let mut chunk_header = [0u8; CHUNK_HEADER_SIZE];
             match self.file.read_exact(&mut chunk_header) {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
                 Err(e) => return Err(e.into()),
             }
-            
+
             // Check chunk magic
             if BigEndian::read_u32(&chunk_header[CHUNK_RANGE_MAGIC]) != CHUNK_HEADER_MAGIC {
-                return Err(KeyValueError::StorageCorruption("Invalid chunk magic".to_string()));
+                return Err(KeyValueError::StorageCorruption(
+                    "Invalid chunk magic".to_string(),
+                ));
             }
-            
-            let compressed_size = BigEndian::read_u32(&chunk_header[CHUNK_RANGE_COMPRESSED_SIZE]) as usize;
+
+            let compressed_size =
+                BigEndian::read_u32(&chunk_header[CHUNK_RANGE_COMPRESSED_SIZE]) as usize;
             let chunk_checksum = BigEndian::read_u32(&chunk_header[CHUNK_RANGE_CHECKSUM]);
-            
+
             // Read and validate chunk data
             let mut compressed_data = vec![0u8; compressed_size];
             self.file.read_exact(&mut compressed_data)?;
-            
+
             let calculated_checksum = integrity
                 .hash(&compressed_data)
                 .as_u32()
                 .unwrap_or_default();
-            
+
             if chunk_checksum != calculated_checksum {
-                return Err(KeyValueError::StorageCorruption("Invalid chunk checksum".to_string()));
+                return Err(KeyValueError::StorageCorruption(
+                    "Invalid chunk checksum".to_string(),
+                ));
             }
         }
-        
+
         Ok(())
     }
 }
@@ -479,10 +485,7 @@ impl<W: Write + Seek> SnapshotWriter<W> {
         // Write chunk header
         let mut header = [0; CHUNK_HEADER_SIZE];
         BigEndian::write_u32(&mut header[CHUNK_RANGE_MAGIC], CHUNK_HEADER_MAGIC);
-        BigEndian::write_u32(
-            &mut header[CHUNK_RANGE_RECORD_COUNT],
-            self.record_count,
-        );
+        BigEndian::write_u32(&mut header[CHUNK_RANGE_RECORD_COUNT], self.record_count);
         BigEndian::write_u32(
             &mut header[CHUNK_RANGE_COMPRESSED_SIZE],
             compressed.len() as u32,
@@ -689,10 +692,10 @@ mod tests {
         use crate::storage::snapshot::{SnapshotConfig, SnapshotManager};
         use crate::types::{ConsensusLeaderId, ConsensusLogId, NodeInfo};
         use nanograph_core::object::NodeId;
-        use nanograph_vfs::{MemoryFileSystem, Path, FileSystem};
+        use nanograph_vfs::{FileSystem, MemoryFileSystem, Path};
         use openraft::vote::RaftLeaderId;
         let fs = std::sync::Arc::new(MemoryFileSystem::new());
-        
+
         // Create snapshot directory
         fs.create_directory_all("/snapshots").unwrap();
 
@@ -759,10 +762,10 @@ mod tests {
     fn test_snapshot_multi_block() {
         use crate::storage::snapshot::{SnapshotConfig, SnapshotManager};
         use crate::types::{ConsensusLeaderId, ConsensusLogId, NodeInfo};
-        use nanograph_vfs::{MemoryFileSystem, Path, FileSystem};
+        use nanograph_vfs::{FileSystem, MemoryFileSystem, Path};
         use openraft::vote::RaftLeaderId;
         let fs = std::sync::Arc::new(MemoryFileSystem::new());
-        
+
         // Create snapshot directory
         fs.create_directory_all("/snapshots").unwrap();
 
@@ -780,17 +783,13 @@ mod tests {
                 ConsensusLeaderId::new(1, NodeId::new(0)).to_committed(),
                 10,
             )),
-            last_membership: StoredMembership::new(
-                None,
-                {
-                    let mut config = std::collections::BTreeSet::new();
-                    config.insert(NodeId::new(0));
-                    let mut nodes = std::collections::BTreeMap::new();
-                    nodes.insert(NodeId::new(0), NodeInfo::default());
-                    openraft::Membership::new(vec![config], nodes)
-                        .expect("Failed to create membership")
-                },
-            ),
+            last_membership: StoredMembership::new(None, {
+                let mut config = std::collections::BTreeSet::new();
+                config.insert(NodeId::new(0));
+                let mut nodes = std::collections::BTreeMap::new();
+                nodes.insert(NodeId::new(0), NodeInfo::default());
+                openraft::Membership::new(vec![config], nodes).expect("Failed to create membership")
+            }),
             snapshot_id: "test-snapshot-multi".to_string(),
         };
 
@@ -838,13 +837,13 @@ mod tests {
         use crate::storage::snapshot::{SnapshotConfig, SnapshotManager};
         use crate::types::NodeInfo;
         use nanograph_core::object::NodeId;
-        use nanograph_vfs::{MemoryFileSystem, Path, FileSystem};
+        use nanograph_vfs::{FileSystem, MemoryFileSystem, Path};
         use openraft::{SnapshotMeta, StoredMembership};
         let fs = std::sync::Arc::new(MemoryFileSystem::new());
-        
+
         // Create snapshot directory
         fs.create_directory_all("/snapshots").unwrap();
-        
+
         let algos = vec![
             CompressionAlgorithm::None,
             CompressionAlgorithm::Lz4,
@@ -859,21 +858,19 @@ mod tests {
                 encryption_key: EncryptionKey::default(),
                 block_size: 1024,
             };
-            let manager = SnapshotManager::with_config(fs.clone(), Path::parse("/snapshots"), config);
+            let manager =
+                SnapshotManager::with_config(fs.clone(), Path::parse("/snapshots"), config);
 
             let metadata = SnapshotMeta {
                 last_log_id: None,
-                last_membership: StoredMembership::new(
-                    None,
-                    {
-                        let mut config = std::collections::BTreeSet::new();
-                        config.insert(NodeId::new(0));
-                        let mut nodes = std::collections::BTreeMap::new();
-                        nodes.insert(NodeId::new(0), NodeInfo::default());
-                        openraft::Membership::new(vec![config], nodes)
-                            .expect("Failed to create membership")
-                    },
-                ),
+                last_membership: StoredMembership::new(None, {
+                    let mut config = std::collections::BTreeSet::new();
+                    config.insert(NodeId::new(0));
+                    let mut nodes = std::collections::BTreeMap::new();
+                    nodes.insert(NodeId::new(0), NodeInfo::default());
+                    openraft::Membership::new(vec![config], nodes)
+                        .expect("Failed to create membership")
+                }),
                 snapshot_id: format!("test-snapshot-{}", algo.as_u8()),
             };
 
@@ -896,7 +893,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_manager_management() {
-        use crate::storage::snapshot::{SnapshotManager, SnapshotConfig};
+        use crate::storage::snapshot::{SnapshotConfig, SnapshotManager};
         use nanograph_vfs::{DynamicFileSystem, MemoryFileSystem, Path};
         let fs = std::sync::Arc::new(MemoryFileSystem::new());
         let config = SnapshotConfig {
@@ -928,455 +925,438 @@ mod tests {
         assert!(!snapshots.contains(&"snap1".to_string()));
         assert!(snapshots.contains(&"snap2".to_string()));
 
-    #[test]
-    fn test_snapshot_config_default() {
-        let config = SnapshotConfig::default();
-        assert_eq!(config.integrity, IntegrityAlgorithm::Crc32c);
-        assert_eq!(config.compression, CompressionAlgorithm::None);
-        assert_eq!(config.encryption, EncryptionAlgorithm::None);
-        assert_eq!(config.block_size, 1024 * 1024);
-    }
-
-    #[test]
-    fn test_snapshot_config_custom() {
-        let config = SnapshotConfig {
-            integrity: IntegrityAlgorithm::Crc32c,
-            compression: CompressionAlgorithm::Zstd,
-            encryption: EncryptionAlgorithm::None,
-            encryption_key: EncryptionKey::default(),
-            block_size: 512 * 1024,
-        };
-        assert_eq!(config.block_size, 512 * 1024);
-        assert_eq!(config.compression, CompressionAlgorithm::Zstd);
-    }
-
-    #[test]
-    fn test_snapshot_writer_empty() {
-        use crate::storage::snapshot::{SnapshotConfig, SnapshotWriter};
-        use crate::types::{ConsensusLeaderId, ConsensusLogId, NodeInfo};
-        use nanograph_vfs::MemoryFileSystem;
-        use openraft::vote::RaftLeaderId;
-        
-        let fs = std::sync::Arc::new(MemoryFileSystem::new());
-        fs.create_directory_all("/snapshots").unwrap();
-        let file = fs.create_file("/snapshots/empty.snapshot").unwrap();
-        
-        let config = SnapshotConfig::default();
-        let metadata = SnapshotMeta {
-            last_log_id: None,
-            last_membership: StoredMembership::new(
-                None,
-                {
-                    let mut config = std::collections::BTreeSet::new();
-                    config.insert(NodeId::new(0));
-                    let mut nodes = std::collections::BTreeMap::new();
-                    nodes.insert(NodeId::new(0), NodeInfo::default());
-                    openraft::Membership::new(vec![config], nodes)
-                        .expect("Failed to create membership")
-                },
-            ),
-            snapshot_id: "empty".to_string(),
-        };
-        
-        let writer = SnapshotWriter::new(config, metadata, file).unwrap();
-        writer.finish().unwrap();
-    }
-
-    #[test]
-    fn test_snapshot_writer_large_values() {
-        use crate::storage::snapshot::{SnapshotConfig, SnapshotManager};
-        use crate::types::{ConsensusLeaderId, ConsensusLogId, NodeInfo};
-        use nanograph_vfs::{MemoryFileSystem, Path, FileSystem};
-        use openraft::vote::RaftLeaderId;
-        
-        let fs = std::sync::Arc::new(MemoryFileSystem::new());
-        fs.create_directory_all("/snapshots").unwrap();
-        
-        let config = SnapshotConfig {
-            integrity: IntegrityAlgorithm::Crc32c,
-            compression: CompressionAlgorithm::Lz4,
-            encryption: EncryptionAlgorithm::None,
-            encryption_key: EncryptionKey::default(),
-            block_size: 1024,
-        };
-        let manager = SnapshotManager::with_config(fs.clone(), Path::parse("/snapshots"), config);
-        
-        let metadata = SnapshotMeta {
-            last_log_id: Some(ConsensusLogId::new(
-                ConsensusLeaderId::new(1, NodeId::new(0)).to_committed(),
-                100,
-            )),
-            last_membership: StoredMembership::new(
-                None,
-                {
-                    let mut config = std::collections::BTreeSet::new();
-                    config.insert(NodeId::new(0));
-                    let mut nodes = std::collections::BTreeMap::new();
-                    nodes.insert(NodeId::new(0), NodeInfo::default());
-                    openraft::Membership::new(vec![config], nodes)
-                        .expect("Failed to create membership")
-                },
-            ),
-            snapshot_id: "large-values".to_string(),
-        };
-        
-        // Write large values
-        {
-            let mut writer = manager.create_snapshot_writer(metadata.clone()).unwrap();
-            let large_value = vec![0xAB; 2048]; // 2KB value
-            writer.write_kv(b"large1", &large_value).unwrap();
-            writer.write_kv(b"large2", &large_value).unwrap();
-            writer.finish().unwrap();
+        #[test]
+        fn test_snapshot_config_default() {
+            let config = SnapshotConfig::default();
+            assert_eq!(config.integrity, IntegrityAlgorithm::Crc32c);
+            assert_eq!(config.compression, CompressionAlgorithm::None);
+            assert_eq!(config.encryption, EncryptionAlgorithm::None);
+            assert_eq!(config.block_size, 1024 * 1024);
         }
-        
-        // Read and verify
-        {
-            let (mut reader, _) = manager.open_snapshot_reader(&metadata.snapshot_id).unwrap();
-            let mut count = 0;
-            while let Ok(items) = reader.next_block() {
-                for item in items {
-                    let (k, v) = item.unwrap();
-                    assert!(k == b"large1" || k == b"large2");
-                    assert_eq!(v.len(), 2048);
-                    assert!(v.iter().all(|&b| b == 0xAB));
-                    count += 1;
-                }
-            }
-            assert_eq!(count, 2);
-        }
-    }
 
-    #[test]
-    fn test_snapshot_reader_invalid_magic() {
-        use crate::storage::snapshot::SnapshotReader;
-        use std::io::Cursor;
-        
-        let invalid_data = vec![0u8; 100];
-        let cursor = Cursor::new(invalid_data);
-        
-        match SnapshotReader::open(cursor) {
-            Err(err) => assert_eq!(err.kind(), std::io::ErrorKind::InvalidData),
-            Ok(_) => panic!("Expected error for invalid magic"),
-        }
-    }
-
-    #[test]
-    fn test_snapshot_reader_invalid_version() {
-        use crate::storage::snapshot::SnapshotReader;
-        use byteorder::{BigEndian, ByteOrder};
-        use std::io::Cursor;
-        
-        let mut data = vec![0u8; 100];
-        // Write correct magic
-        BigEndian::write_u64(&mut data[0..8], 0x53_4E_41_50_53_48_4F_54);
-        // Write invalid version
-        BigEndian::write_u16(&mut data[8..10], 999);
-        
-        let cursor = Cursor::new(data);
-        match SnapshotReader::open(cursor) {
-            Err(_) => {}, // Expected
-            Ok(_) => panic!("Expected error for invalid version"),
-        }
-    }
-
-    #[test]
-    fn test_snapshot_manager_list_snapshots() {
-        use crate::storage::snapshot::SnapshotManager;
-        use nanograph_vfs::{MemoryFileSystem, Path};
-        
-        let fs = std::sync::Arc::new(MemoryFileSystem::new());
-        fs.create_directory_all("/snapshots").unwrap();
-        let manager = SnapshotManager::new(fs.clone(), Path::parse("/snapshots"));
-        
-        // Create some snapshot files
-        fs.create_file("/snapshots/snap1.snapshot").unwrap();
-        fs.create_file("/snapshots/snap2.snapshot").unwrap();
-        fs.create_file("/snapshots/other.txt").unwrap(); // Should be ignored
-        
-        let snapshots = manager.list_snapshots().unwrap();
-        assert_eq!(snapshots.len(), 2);
-        assert!(snapshots.contains(&"snap1".to_string()));
-        assert!(snapshots.contains(&"snap2".to_string()));
-        assert!(!snapshots.contains(&"other.txt".to_string()));
-    }
-
-    #[test]
-    fn test_snapshot_manager_delete() {
-        use crate::storage::snapshot::SnapshotManager;
-        use nanograph_vfs::{MemoryFileSystem, Path};
-        
-        let fs = std::sync::Arc::new(MemoryFileSystem::new());
-        fs.create_directory_all("/snapshots").unwrap();
-        let manager = SnapshotManager::new(fs.clone(), Path::parse("/snapshots"));
-        
-        fs.create_file("/snapshots/test.snapshot").unwrap();
-        assert_eq!(manager.list_snapshots().unwrap().len(), 1);
-        
-        manager.delete_snapshot("test").unwrap();
-        assert_eq!(manager.list_snapshots().unwrap().len(), 0);
-    }
-
-    #[test]
-    fn test_snapshot_data_validation() {
-        use crate::storage::snapshot::{SnapshotConfig, SnapshotManager, SnapshotData};
-        use crate::types::{ConsensusLeaderId, ConsensusLogId, NodeInfo};
-        use nanograph_vfs::{MemoryFileSystem, Path, FileSystem};
-        use openraft::vote::RaftLeaderId;
-        
-        let fs = std::sync::Arc::new(MemoryFileSystem::new());
-        fs.create_directory_all("/snapshots").unwrap();
-        
-        let config = SnapshotConfig::default();
-        let manager = SnapshotManager::with_config(fs.clone(), Path::parse("/snapshots"), config);
-        
-        let metadata = SnapshotMeta {
-            last_log_id: Some(ConsensusLogId::new(
-                ConsensusLeaderId::new(1, NodeId::new(0)).to_committed(),
-                10,
-            )),
-            last_membership: StoredMembership::new(
-                None,
-                {
-                    let mut config = std::collections::BTreeSet::new();
-                    config.insert(NodeId::new(0));
-                    let mut nodes = std::collections::BTreeMap::new();
-                    nodes.insert(NodeId::new(0), NodeInfo::default());
-                    openraft::Membership::new(vec![config], nodes)
-                        .expect("Failed to create membership")
-                },
-            ),
-            snapshot_id: "validate-test".to_string(),
-        };
-        
-        // Write a valid snapshot
-        {
-            let mut writer = manager.create_snapshot_writer(metadata.clone()).unwrap();
-            writer.write_kv(b"key1", b"value1").unwrap();
-            writer.finish().unwrap();
-        }
-        
-        // Validate it
-        {
-            let file = fs.open_file("/snapshots/validate-test.snapshot").unwrap();
-            let mut snapshot_data = SnapshotData::new(
-                Path::parse("/snapshots/validate-test.snapshot"),
-                file,
-                "validate-test".to_string()
-            );
-            assert!(snapshot_data.validate().is_ok());
-        }
-    }
-
-    #[test]
-    fn test_snapshot_data_validation_wrong_id() {
-        use crate::storage::snapshot::{SnapshotConfig, SnapshotManager, SnapshotData};
-        use crate::types::{ConsensusLeaderId, ConsensusLogId, NodeInfo};
-        use nanograph_vfs::{MemoryFileSystem, Path, FileSystem};
-        use openraft::vote::RaftLeaderId;
-        
-        let fs = std::sync::Arc::new(MemoryFileSystem::new());
-        fs.create_directory_all("/snapshots").unwrap();
-        
-        let config = SnapshotConfig::default();
-        let manager = SnapshotManager::with_config(fs.clone(), Path::parse("/snapshots"), config);
-        
-        let metadata = SnapshotMeta {
-            last_log_id: None,
-            last_membership: StoredMembership::new(
-                None,
-                {
-                    let mut config = std::collections::BTreeSet::new();
-                    config.insert(NodeId::new(0));
-                    let mut nodes = std::collections::BTreeMap::new();
-                    nodes.insert(NodeId::new(0), NodeInfo::default());
-                    openraft::Membership::new(vec![config], nodes)
-                        .expect("Failed to create membership")
-                },
-            ),
-            snapshot_id: "correct-id".to_string(),
-        };
-        
-        // Write a snapshot
-        {
-            let mut writer = manager.create_snapshot_writer(metadata.clone()).unwrap();
-            writer.write_kv(b"key1", b"value1").unwrap();
-            writer.finish().unwrap();
-        }
-        
-        // Try to validate with wrong ID
-        {
-            let file = fs.open_file("/snapshots/correct-id.snapshot").unwrap();
-            let mut snapshot_data = SnapshotData::new(
-                Path::parse("/snapshots/correct-id.snapshot"),
-                file,
-                "wrong-id".to_string()
-            );
-            let result = snapshot_data.validate();
-            assert!(result.is_err());
-        }
-    }
-
-    #[test]
-    fn test_snapshot_integrity_algorithms() {
-        use crate::storage::snapshot::{SnapshotConfig, SnapshotManager};
-        use crate::types::NodeInfo;
-        use nanograph_vfs::{MemoryFileSystem, Path, FileSystem};
-        
-        let fs = std::sync::Arc::new(MemoryFileSystem::new());
-        fs.create_directory_all("/snapshots").unwrap();
-        
-        let algos = vec![
-            IntegrityAlgorithm::Crc32c,
-        ];
-        
-        for algo in algos {
+        #[test]
+        fn test_snapshot_config_custom() {
             let config = SnapshotConfig {
-                integrity: algo,
-                compression: CompressionAlgorithm::None,
+                integrity: IntegrityAlgorithm::Crc32c,
+                compression: CompressionAlgorithm::Zstd,
+                encryption: EncryptionAlgorithm::None,
+                encryption_key: EncryptionKey::default(),
+                block_size: 512 * 1024,
+            };
+            assert_eq!(config.block_size, 512 * 1024);
+            assert_eq!(config.compression, CompressionAlgorithm::Zstd);
+        }
+
+        #[test]
+        fn test_snapshot_writer_empty() {
+            use crate::storage::snapshot::{SnapshotConfig, SnapshotWriter};
+            use crate::types::{ConsensusLeaderId, ConsensusLogId, NodeInfo};
+            use nanograph_vfs::MemoryFileSystem;
+            use openraft::vote::RaftLeaderId;
+
+            let fs = std::sync::Arc::new(MemoryFileSystem::new());
+            fs.create_directory_all("/snapshots").unwrap();
+            let file = fs.create_file("/snapshots/empty.snapshot").unwrap();
+
+            let config = SnapshotConfig::default();
+            let metadata = SnapshotMeta {
+                last_log_id: None,
+                last_membership: StoredMembership::new(None, {
+                    let mut config = std::collections::BTreeSet::new();
+                    config.insert(NodeId::new(0));
+                    let mut nodes = std::collections::BTreeMap::new();
+                    nodes.insert(NodeId::new(0), NodeInfo::default());
+                    openraft::Membership::new(vec![config], nodes)
+                        .expect("Failed to create membership")
+                }),
+                snapshot_id: "empty".to_string(),
+            };
+
+            let writer = SnapshotWriter::new(config, metadata, file).unwrap();
+            writer.finish().unwrap();
+        }
+
+        #[test]
+        fn test_snapshot_writer_large_values() {
+            use crate::storage::snapshot::{SnapshotConfig, SnapshotManager};
+            use crate::types::{ConsensusLeaderId, ConsensusLogId, NodeInfo};
+            use nanograph_vfs::{FileSystem, MemoryFileSystem, Path};
+            use openraft::vote::RaftLeaderId;
+
+            let fs = std::sync::Arc::new(MemoryFileSystem::new());
+            fs.create_directory_all("/snapshots").unwrap();
+
+            let config = SnapshotConfig {
+                integrity: IntegrityAlgorithm::Crc32c,
+                compression: CompressionAlgorithm::Lz4,
                 encryption: EncryptionAlgorithm::None,
                 encryption_key: EncryptionKey::default(),
                 block_size: 1024,
             };
-            let manager = SnapshotManager::with_config(fs.clone(), Path::parse("/snapshots"), config);
-            
+            let manager =
+                SnapshotManager::with_config(fs.clone(), Path::parse("/snapshots"), config);
+
+            let metadata = SnapshotMeta {
+                last_log_id: Some(ConsensusLogId::new(
+                    ConsensusLeaderId::new(1, NodeId::new(0)).to_committed(),
+                    100,
+                )),
+                last_membership: StoredMembership::new(None, {
+                    let mut config = std::collections::BTreeSet::new();
+                    config.insert(NodeId::new(0));
+                    let mut nodes = std::collections::BTreeMap::new();
+                    nodes.insert(NodeId::new(0), NodeInfo::default());
+                    openraft::Membership::new(vec![config], nodes)
+                        .expect("Failed to create membership")
+                }),
+                snapshot_id: "large-values".to_string(),
+            };
+
+            // Write large values
+            {
+                let mut writer = manager.create_snapshot_writer(metadata.clone()).unwrap();
+                let large_value = vec![0xAB; 2048]; // 2KB value
+                writer.write_kv(b"large1", &large_value).unwrap();
+                writer.write_kv(b"large2", &large_value).unwrap();
+                writer.finish().unwrap();
+            }
+
+            // Read and verify
+            {
+                let (mut reader, _) = manager.open_snapshot_reader(&metadata.snapshot_id).unwrap();
+                let mut count = 0;
+                while let Ok(items) = reader.next_block() {
+                    for item in items {
+                        let (k, v) = item.unwrap();
+                        assert!(k == b"large1" || k == b"large2");
+                        assert_eq!(v.len(), 2048);
+                        assert!(v.iter().all(|&b| b == 0xAB));
+                        count += 1;
+                    }
+                }
+                assert_eq!(count, 2);
+            }
+        }
+
+        #[test]
+        fn test_snapshot_reader_invalid_magic() {
+            use crate::storage::snapshot::SnapshotReader;
+            use std::io::Cursor;
+
+            let invalid_data = vec![0u8; 100];
+            let cursor = Cursor::new(invalid_data);
+
+            match SnapshotReader::open(cursor) {
+                Err(err) => assert_eq!(err.kind(), std::io::ErrorKind::InvalidData),
+                Ok(_) => panic!("Expected error for invalid magic"),
+            }
+        }
+
+        #[test]
+        fn test_snapshot_reader_invalid_version() {
+            use crate::storage::snapshot::SnapshotReader;
+            use byteorder::{BigEndian, ByteOrder};
+            use std::io::Cursor;
+
+            let mut data = vec![0u8; 100];
+            // Write correct magic
+            BigEndian::write_u64(&mut data[0..8], 0x53_4E_41_50_53_48_4F_54);
+            // Write invalid version
+            BigEndian::write_u16(&mut data[8..10], 999);
+
+            let cursor = Cursor::new(data);
+            match SnapshotReader::open(cursor) {
+                Err(_) => {} // Expected
+                Ok(_) => panic!("Expected error for invalid version"),
+            }
+        }
+
+        #[test]
+        fn test_snapshot_manager_list_snapshots() {
+            use crate::storage::snapshot::SnapshotManager;
+            use nanograph_vfs::{MemoryFileSystem, Path};
+
+            let fs = std::sync::Arc::new(MemoryFileSystem::new());
+            fs.create_directory_all("/snapshots").unwrap();
+            let manager = SnapshotManager::new(fs.clone(), Path::parse("/snapshots"));
+
+            // Create some snapshot files
+            fs.create_file("/snapshots/snap1.snapshot").unwrap();
+            fs.create_file("/snapshots/snap2.snapshot").unwrap();
+            fs.create_file("/snapshots/other.txt").unwrap(); // Should be ignored
+
+            let snapshots = manager.list_snapshots().unwrap();
+            assert_eq!(snapshots.len(), 2);
+            assert!(snapshots.contains(&"snap1".to_string()));
+            assert!(snapshots.contains(&"snap2".to_string()));
+            assert!(!snapshots.contains(&"other.txt".to_string()));
+        }
+
+        #[test]
+        fn test_snapshot_manager_delete() {
+            use crate::storage::snapshot::SnapshotManager;
+            use nanograph_vfs::{MemoryFileSystem, Path};
+
+            let fs = std::sync::Arc::new(MemoryFileSystem::new());
+            fs.create_directory_all("/snapshots").unwrap();
+            let manager = SnapshotManager::new(fs.clone(), Path::parse("/snapshots"));
+
+            fs.create_file("/snapshots/test.snapshot").unwrap();
+            assert_eq!(manager.list_snapshots().unwrap().len(), 1);
+
+            manager.delete_snapshot("test").unwrap();
+            assert_eq!(manager.list_snapshots().unwrap().len(), 0);
+        }
+
+        #[test]
+        fn test_snapshot_data_validation() {
+            use crate::storage::snapshot::{SnapshotConfig, SnapshotData, SnapshotManager};
+            use crate::types::{ConsensusLeaderId, ConsensusLogId, NodeInfo};
+            use nanograph_vfs::{FileSystem, MemoryFileSystem, Path};
+            use openraft::vote::RaftLeaderId;
+
+            let fs = std::sync::Arc::new(MemoryFileSystem::new());
+            fs.create_directory_all("/snapshots").unwrap();
+
+            let config = SnapshotConfig::default();
+            let manager =
+                SnapshotManager::with_config(fs.clone(), Path::parse("/snapshots"), config);
+
+            let metadata = SnapshotMeta {
+                last_log_id: Some(ConsensusLogId::new(
+                    ConsensusLeaderId::new(1, NodeId::new(0)).to_committed(),
+                    10,
+                )),
+                last_membership: StoredMembership::new(None, {
+                    let mut config = std::collections::BTreeSet::new();
+                    config.insert(NodeId::new(0));
+                    let mut nodes = std::collections::BTreeMap::new();
+                    nodes.insert(NodeId::new(0), NodeInfo::default());
+                    openraft::Membership::new(vec![config], nodes)
+                        .expect("Failed to create membership")
+                }),
+                snapshot_id: "validate-test".to_string(),
+            };
+
+            // Write a valid snapshot
+            {
+                let mut writer = manager.create_snapshot_writer(metadata.clone()).unwrap();
+                writer.write_kv(b"key1", b"value1").unwrap();
+                writer.finish().unwrap();
+            }
+
+            // Validate it
+            {
+                let file = fs.open_file("/snapshots/validate-test.snapshot").unwrap();
+                let mut snapshot_data = SnapshotData::new(
+                    Path::parse("/snapshots/validate-test.snapshot"),
+                    file,
+                    "validate-test".to_string(),
+                );
+                assert!(snapshot_data.validate().is_ok());
+            }
+        }
+
+        #[test]
+        fn test_snapshot_data_validation_wrong_id() {
+            use crate::storage::snapshot::{SnapshotConfig, SnapshotData, SnapshotManager};
+            use crate::types::{ConsensusLeaderId, ConsensusLogId, NodeInfo};
+            use nanograph_vfs::{FileSystem, MemoryFileSystem, Path};
+            use openraft::vote::RaftLeaderId;
+
+            let fs = std::sync::Arc::new(MemoryFileSystem::new());
+            fs.create_directory_all("/snapshots").unwrap();
+
+            let config = SnapshotConfig::default();
+            let manager =
+                SnapshotManager::with_config(fs.clone(), Path::parse("/snapshots"), config);
+
             let metadata = SnapshotMeta {
                 last_log_id: None,
-                last_membership: StoredMembership::new(
-                    None,
-                    {
+                last_membership: StoredMembership::new(None, {
+                    let mut config = std::collections::BTreeSet::new();
+                    config.insert(NodeId::new(0));
+                    let mut nodes = std::collections::BTreeMap::new();
+                    nodes.insert(NodeId::new(0), NodeInfo::default());
+                    openraft::Membership::new(vec![config], nodes)
+                        .expect("Failed to create membership")
+                }),
+                snapshot_id: "correct-id".to_string(),
+            };
+
+            // Write a snapshot
+            {
+                let mut writer = manager.create_snapshot_writer(metadata.clone()).unwrap();
+                writer.write_kv(b"key1", b"value1").unwrap();
+                writer.finish().unwrap();
+            }
+
+            // Try to validate with wrong ID
+            {
+                let file = fs.open_file("/snapshots/correct-id.snapshot").unwrap();
+                let mut snapshot_data = SnapshotData::new(
+                    Path::parse("/snapshots/correct-id.snapshot"),
+                    file,
+                    "wrong-id".to_string(),
+                );
+                let result = snapshot_data.validate();
+                assert!(result.is_err());
+            }
+        }
+
+        #[test]
+        fn test_snapshot_integrity_algorithms() {
+            use crate::storage::snapshot::{SnapshotConfig, SnapshotManager};
+            use crate::types::NodeInfo;
+            use nanograph_vfs::{FileSystem, MemoryFileSystem, Path};
+
+            let fs = std::sync::Arc::new(MemoryFileSystem::new());
+            fs.create_directory_all("/snapshots").unwrap();
+
+            let algos = vec![IntegrityAlgorithm::Crc32c];
+
+            for algo in algos {
+                let config = SnapshotConfig {
+                    integrity: algo,
+                    compression: CompressionAlgorithm::None,
+                    encryption: EncryptionAlgorithm::None,
+                    encryption_key: EncryptionKey::default(),
+                    block_size: 1024,
+                };
+                let manager =
+                    SnapshotManager::with_config(fs.clone(), Path::parse("/snapshots"), config);
+
+                let metadata = SnapshotMeta {
+                    last_log_id: None,
+                    last_membership: StoredMembership::new(None, {
                         let mut config = std::collections::BTreeSet::new();
                         config.insert(NodeId::new(0));
                         let mut nodes = std::collections::BTreeMap::new();
                         nodes.insert(NodeId::new(0), NodeInfo::default());
                         openraft::Membership::new(vec![config], nodes)
                             .expect("Failed to create membership")
-                    },
-                ),
-                snapshot_id: format!("integrity-{}", algo.as_u8()),
-            };
-            
-            {
-                let mut writer = manager.create_snapshot_writer(metadata.clone()).unwrap();
-                writer.write_kv(b"test", b"data").unwrap();
-                writer.finish().unwrap();
-            }
-            
-            {
-                let (mut reader, read_metadata) =
-                    manager.open_snapshot_reader(&metadata.snapshot_id).unwrap();
-                assert_eq!(read_metadata.integrity, algo);
-                let mut items = reader.next_block().unwrap();
-                let (k, v) = items.next().unwrap().unwrap();
-                assert_eq!(k, b"test");
-                assert_eq!(v, b"data");
-            }
-        }
-    }
+                    }),
+                    snapshot_id: format!("integrity-{}", algo.as_u8()),
+                };
 
-    #[test]
-    fn test_snapshot_empty_blocks() {
-        use crate::storage::snapshot::{SnapshotConfig, SnapshotManager};
-        use crate::types::NodeInfo;
-        use nanograph_vfs::{MemoryFileSystem, Path, FileSystem};
-        
-        let fs = std::sync::Arc::new(MemoryFileSystem::new());
-        fs.create_directory_all("/snapshots").unwrap();
-        
-        let config = SnapshotConfig::default();
-        let manager = SnapshotManager::with_config(fs.clone(), Path::parse("/snapshots"), config);
-        
-        let metadata = SnapshotMeta {
-            last_log_id: None,
-            last_membership: StoredMembership::new(
-                None,
                 {
-                    let mut config = std::collections::BTreeSet::new();
-                    config.insert(NodeId::new(0));
-                    let mut nodes = std::collections::BTreeMap::new();
-                    nodes.insert(NodeId::new(0), NodeInfo::default());
-                    openraft::Membership::new(vec![config], nodes)
-                        .expect("Failed to create membership")
-                },
-            ),
-            snapshot_id: "empty-blocks".to_string(),
-        };
-        
-        // Write snapshot with no data
-        {
-            let writer = manager.create_snapshot_writer(metadata.clone()).unwrap();
-            writer.finish().unwrap();
-        }
-        
-        // Read should return EOF immediately
-        {
-            let (mut reader, _) = manager.open_snapshot_reader(&metadata.snapshot_id).unwrap();
-            let result = reader.next_block();
-            assert!(result.is_err());
-        }
-    }
+                    let mut writer = manager.create_snapshot_writer(metadata.clone()).unwrap();
+                    writer.write_kv(b"test", b"data").unwrap();
+                    writer.finish().unwrap();
+                }
 
-    #[test]
-    fn test_snapshot_many_small_kvs() {
-        use crate::storage::snapshot::{SnapshotConfig, SnapshotManager};
-        use crate::types::NodeInfo;
-        use nanograph_vfs::{MemoryFileSystem, Path, FileSystem};
-        
-        let fs = std::sync::Arc::new(MemoryFileSystem::new());
-        fs.create_directory_all("/snapshots").unwrap();
-        
-        let config = SnapshotConfig {
-            integrity: IntegrityAlgorithm::Crc32c,
-            compression: CompressionAlgorithm::Lz4,
-            encryption: EncryptionAlgorithm::None,
-            encryption_key: EncryptionKey::default(),
-            block_size: 256, // Small blocks
-        };
-        let manager = SnapshotManager::with_config(fs.clone(), Path::parse("/snapshots"), config);
-        
-        let metadata = SnapshotMeta {
-            last_log_id: None,
-            last_membership: StoredMembership::new(
-                None,
                 {
-                    let mut config = std::collections::BTreeSet::new();
-                    config.insert(NodeId::new(0));
-                    let mut nodes = std::collections::BTreeMap::new();
-                    nodes.insert(NodeId::new(0), NodeInfo::default());
-                    openraft::Membership::new(vec![config], nodes)
-                        .expect("Failed to create membership")
-                },
-            ),
-            snapshot_id: "many-small".to_string(),
-        };
-        
-        // Write many small KVs
-        let count = 100;
-        {
-            let mut writer = manager.create_snapshot_writer(metadata.clone()).unwrap();
-            for i in 0..count {
-                let key = format!("k{:03}", i);
-                let value = format!("v{:03}", i);
-                writer.write_kv(key.as_bytes(), value.as_bytes()).unwrap();
-            }
-            writer.finish().unwrap();
-        }
-        
-        // Read and verify all
-        {
-            let (mut reader, _) = manager.open_snapshot_reader(&metadata.snapshot_id).unwrap();
-            let mut read_count = 0;
-            while let Ok(items) = reader.next_block() {
-                for item in items {
-                    let (k, v) = item.unwrap();
-                    let key_str = String::from_utf8(k).unwrap();
-                    let val_str = String::from_utf8(v).unwrap();
-                    assert!(key_str.starts_with("k"));
-                    assert!(val_str.starts_with("v"));
-                    read_count += 1;
+                    let (mut reader, read_metadata) =
+                        manager.open_snapshot_reader(&metadata.snapshot_id).unwrap();
+                    assert_eq!(read_metadata.integrity, algo);
+                    let mut items = reader.next_block().unwrap();
+                    let (k, v) = items.next().unwrap().unwrap();
+                    assert_eq!(k, b"test");
+                    assert_eq!(v, b"data");
                 }
             }
-            assert_eq!(read_count, count);
         }
-    }
+
+        #[test]
+        fn test_snapshot_empty_blocks() {
+            use crate::storage::snapshot::{SnapshotConfig, SnapshotManager};
+            use crate::types::NodeInfo;
+            use nanograph_vfs::{FileSystem, MemoryFileSystem, Path};
+
+            let fs = std::sync::Arc::new(MemoryFileSystem::new());
+            fs.create_directory_all("/snapshots").unwrap();
+
+            let config = SnapshotConfig::default();
+            let manager =
+                SnapshotManager::with_config(fs.clone(), Path::parse("/snapshots"), config);
+
+            let metadata = SnapshotMeta {
+                last_log_id: None,
+                last_membership: StoredMembership::new(None, {
+                    let mut config = std::collections::BTreeSet::new();
+                    config.insert(NodeId::new(0));
+                    let mut nodes = std::collections::BTreeMap::new();
+                    nodes.insert(NodeId::new(0), NodeInfo::default());
+                    openraft::Membership::new(vec![config], nodes)
+                        .expect("Failed to create membership")
+                }),
+                snapshot_id: "empty-blocks".to_string(),
+            };
+
+            // Write snapshot with no data
+            {
+                let writer = manager.create_snapshot_writer(metadata.clone()).unwrap();
+                writer.finish().unwrap();
+            }
+
+            // Read should return EOF immediately
+            {
+                let (mut reader, _) = manager.open_snapshot_reader(&metadata.snapshot_id).unwrap();
+                let result = reader.next_block();
+                assert!(result.is_err());
+            }
+        }
+
+        #[test]
+        fn test_snapshot_many_small_kvs() {
+            use crate::storage::snapshot::{SnapshotConfig, SnapshotManager};
+            use crate::types::NodeInfo;
+            use nanograph_vfs::{FileSystem, MemoryFileSystem, Path};
+
+            let fs = std::sync::Arc::new(MemoryFileSystem::new());
+            fs.create_directory_all("/snapshots").unwrap();
+
+            let config = SnapshotConfig {
+                integrity: IntegrityAlgorithm::Crc32c,
+                compression: CompressionAlgorithm::Lz4,
+                encryption: EncryptionAlgorithm::None,
+                encryption_key: EncryptionKey::default(),
+                block_size: 256, // Small blocks
+            };
+            let manager =
+                SnapshotManager::with_config(fs.clone(), Path::parse("/snapshots"), config);
+
+            let metadata = SnapshotMeta {
+                last_log_id: None,
+                last_membership: StoredMembership::new(None, {
+                    let mut config = std::collections::BTreeSet::new();
+                    config.insert(NodeId::new(0));
+                    let mut nodes = std::collections::BTreeMap::new();
+                    nodes.insert(NodeId::new(0), NodeInfo::default());
+                    openraft::Membership::new(vec![config], nodes)
+                        .expect("Failed to create membership")
+                }),
+                snapshot_id: "many-small".to_string(),
+            };
+
+            // Write many small KVs
+            let count = 100;
+            {
+                let mut writer = manager.create_snapshot_writer(metadata.clone()).unwrap();
+                for i in 0..count {
+                    let key = format!("k{:03}", i);
+                    let value = format!("v{:03}", i);
+                    writer.write_kv(key.as_bytes(), value.as_bytes()).unwrap();
+                }
+                writer.finish().unwrap();
+            }
+
+            // Read and verify all
+            {
+                let (mut reader, _) = manager.open_snapshot_reader(&metadata.snapshot_id).unwrap();
+                let mut read_count = 0;
+                while let Ok(items) = reader.next_block() {
+                    for item in items {
+                        let (k, v) = item.unwrap();
+                        let key_str = String::from_utf8(k).unwrap();
+                        let val_str = String::from_utf8(v).unwrap();
+                        assert!(key_str.starts_with("k"));
+                        assert!(val_str.starts_with("v"));
+                        read_count += 1;
+                    }
+                }
+                assert_eq!(read_count, count);
+            }
+        }
     }
 }

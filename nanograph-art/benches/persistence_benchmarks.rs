@@ -19,7 +19,7 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use futures::StreamExt;
 use nanograph_art::{AdaptiveRadixTree, ArtKeyValueStore};
-use nanograph_kvt::{IndexNumber, KeyValueShardStore, ShardId, TableId};
+use nanograph_kvt::{KeyValueShardStore, ShardId};
 use std::hint::black_box;
 use std::sync::Arc;
 use tempfile::TempDir;

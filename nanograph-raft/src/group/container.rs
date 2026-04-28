@@ -16,10 +16,9 @@
 
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::types::{MetadataChange, NodeInfo, RaftClusterState};
+use nanograph_core::object::{ShardRecord, ShardType};
 use nanograph_core::{
-    object::{
-        ClusterRecord, NodeId, RegionId, ShardId, ShardRecord, ShardStatus, StorageEngineType,
-    },
+    object::{ClusterRecord, NodeId, RegionId, ShardId, ShardStatus, StorageEngineType},
     types::Timestamp,
 };
 use std::sync::Arc;
@@ -131,18 +130,26 @@ impl ContainerShardRaftGroup {
 
             MetadataChange::CreateShard {
                 shard_id,
+                shard_type,
                 range,
                 replicas,
             } => {
                 info!("Creating shard {} with replicas {:?}", shard_id, replicas);
 
                 let shard_metadata = ShardRecord {
-                    id: shard_id,
-                    name: format!("shard_{}", shard_id.as_u128()),
+                    shard_id: shard_id,
+                    label: format!(
+                        "shard_{}_{}_{}_{}",
+                        shard_id.tenant(),
+                        shard_id.database(),
+                        shard_id.object(),
+                        shard_id.as_u128()
+                    ),
                     version: 0,
                     created_at: Timestamp::now(),
+                    updated_at: Timestamp::now(),
+                    shard_type,
                     engine_type: StorageEngineType::new("lsm"),
-                    last_modified: Timestamp::now(),
                     range,
                     leader: None,
                     replicas: replicas.clone(),
@@ -200,11 +207,13 @@ impl ContainerShardRaftGroup {
     pub async fn create_shard(
         &self,
         shard_id: ShardId,
+        shard_type: ShardType,
         range: (Vec<u8>, Vec<u8>),
         replicas: Vec<NodeId>,
     ) -> ConsensusResult<()> {
         self.propose_change(MetadataChange::CreateShard {
             shard_id,
+            shard_type,
             range,
             replicas,
         })

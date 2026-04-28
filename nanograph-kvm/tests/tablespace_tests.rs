@@ -14,10 +14,7 @@
 // limitations under the License.
 //
 
-use nanograph_core::object::{
-    ClusterId, NodeId, Permission, PermissionGrant, ResourceScope, SecurityPrincipal, StorageTier,
-    SystemUserRecord, TablespaceCreate, TablespaceId, TablespaceUpdate, UserId,
-};
+use nanograph_core::object::{ClusterId, NodeId, Permission, PermissionGrant, ResourceScope, SecurityPrincipal, StorageTier, SubjectId, SystemUserRecord, TablespaceCreate, TablespaceId, TablespaceUpdate, UserId};
 use nanograph_core::types::Timestamp;
 use nanograph_kvm::{KeyValueDatabaseConfig, KeyValueDatabaseManager};
 use nanograph_raft::ConsensusError::Storage;
@@ -26,7 +23,7 @@ use std::time::Duration;
 
 fn create_test_principal() -> SecurityPrincipal {
     let user_record = SystemUserRecord {
-        user_id: UserId::new(1),
+        user_id: UserId::new(SubjectId::new(1)),
         username: "admin".to_string(),
         version: 1,
         created_at: Timestamp::now(),

@@ -14,7 +14,8 @@
 // limitations under the License.
 //
 
-use crate::object::{ObjectId, PermissionGrant, TenantId};
+use crate::object::security::SubjectId;
+use crate::object::{PermissionGrant, TenantId};
 use crate::types::{PropertyUpdate, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -23,27 +24,27 @@ use std::collections::HashMap;
 #[derive(
     Copy, Clone, Debug, Default, Ord, PartialOrd, Eq, PartialEq, Hash, Serialize, Deserialize,
 )]
-pub struct TenantRoleId(pub ObjectId);
+pub struct TenantRoleId(pub SubjectId);
 
 impl TenantRoleId {
-    pub fn new(id: u32) -> Self {
+    pub fn new(id: SubjectId) -> Self {
         Self(id)
     }
 
-    pub fn as_u64(&self) -> u32 {
+    pub fn subject(&self) -> SubjectId {
         self.0
     }
 }
 
 impl From<u32> for TenantRoleId {
     fn from(id: u32) -> Self {
-        Self(id)
+        Self(SubjectId::new(id))
     }
 }
 
 impl std::fmt::Display for TenantRoleId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TenantRole({:X})", self.0)
+        write!(f, "TenantRole({})", self.0)
     }
 }
 
@@ -53,16 +54,16 @@ mod tests {
 
     #[test]
     fn test_tenant_role_id() {
-        let id = TenantRoleId::new(0x12345678);
-        assert_eq!(id.as_u64(), 0x12345678);
+        let id = TenantRoleId::new(SubjectId::new(0x12345678));
+        assert_eq!(id.subject().as_u32(), 0x12345678);
         assert_eq!(TenantRoleId::from(0x12345678), id);
         assert_eq!(format!("{}", id), "TenantRole(12345678)");
     }
 
     #[test]
     fn test_system_role_id() {
-        let id = SystemRoleId::new(0xABCDEF01);
-        assert_eq!(id.as_u64(), 0xABCDEF01);
+        let id = SystemRoleId::new(SubjectId::new(0xABCDEF01));
+        assert_eq!(id.subject().as_u32(), 0xABCDEF01);
         assert_eq!(SystemRoleId::from(0xABCDEF01), id);
         assert_eq!(format!("{}", id), "SystemRole(ABCDEF01)");
     }
@@ -242,27 +243,27 @@ pub struct TenantRoleRecord {
 #[derive(
     Copy, Clone, Debug, Default, Ord, PartialOrd, Eq, PartialEq, Hash, Serialize, Deserialize,
 )]
-pub struct SystemRoleId(pub ObjectId);
+pub struct SystemRoleId(pub SubjectId);
 
 impl SystemRoleId {
-    pub fn new(id: u32) -> Self {
+    pub fn new(id: SubjectId) -> Self {
         Self(id)
     }
 
-    pub fn as_u64(&self) -> u32 {
+    pub fn subject(&self) -> SubjectId {
         self.0
     }
 }
 
 impl From<u32> for SystemRoleId {
     fn from(id: u32) -> Self {
-        Self(id)
+        Self(SubjectId::new(id))
     }
 }
 
 impl std::fmt::Display for SystemRoleId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SystemRole({:X})", self.0)
+        write!(f, "SystemRole({})", self.0)
     }
 }
 

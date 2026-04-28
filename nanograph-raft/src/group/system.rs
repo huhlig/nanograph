@@ -18,7 +18,7 @@
 
 use crate::error::{ConsensusError, ConsensusResult};
 use crate::types::{MetadataChange, NodeInfo, RaftClusterState};
-use nanograph_core::object::{ClusterRecord, StorageEngineType};
+use nanograph_core::object::{ClusterRecord, ShardType, StorageEngineType};
 use nanograph_core::{
     object::{NodeId, ShardId, ShardRecord, ShardStatus},
     types::Timestamp,
@@ -132,18 +132,23 @@ impl SystemShardRaftGroup {
 
             MetadataChange::CreateShard {
                 shard_id,
+                shard_type,
                 range,
                 replicas,
             } => {
                 info!("Creating shard {} with replicas {:?}", shard_id, replicas);
 
                 let shard_metadata = ShardRecord {
-                    id: shard_id,
-                    name: format!("shard_{}", shard_id.as_u128()),
+                    shard_id: shard_id,
+                    label: match shard_type {
+                        ShardType::TableShard => ShardRecord::generate_table_label(shard_id),
+                        ShardType::IndexShard => ShardRecord::generate_index_label(shard_id),
+                    },
                     version: 0,
                     created_at: Timestamp::now(),
+                    updated_at: Timestamp::now(),
+                    shard_type,
                     engine_type: StorageEngineType::new("lsm"),
-                    last_modified: Timestamp::now(),
                     range,
                     leader: None,
                     replicas: replicas.clone(),
@@ -201,11 +206,13 @@ impl SystemShardRaftGroup {
     pub async fn create_shard(
         &self,
         shard_id: ShardId,
+        shard_type: ShardType,
         range: (Vec<u8>, Vec<u8>),
         replicas: Vec<NodeId>,
     ) -> ConsensusResult<()> {
         self.propose_change(MetadataChange::CreateShard {
             shard_id,
+            shard_type,
             range,
             replicas,
         })

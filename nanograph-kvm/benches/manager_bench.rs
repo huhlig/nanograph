@@ -16,11 +16,7 @@
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use nanograph_art::ArtKeyValueStore;
-use nanograph_core::object::{
-    ClusterCreate, ContainerId, DatabaseCreate, NodeId, Permission, PermissionGrant, ResourceScope,
-    SecurityPrincipal, StorageEngineType, SystemUserRecord, TableCreate, TableRecord,
-    TablespaceCreate, TenantCreate, UserId,
-};
+use nanograph_core::object::{ClusterCreate, ContainerId, DatabaseCreate, NodeId, Permission, PermissionGrant, ResourceScope, SecurityPrincipal, StorageEngineType, SubjectId, SystemUserRecord, TableCreate, TableRecord, TablespaceCreate, TenantCreate, UserId};
 use nanograph_core::types::Timestamp;
 use nanograph_kvm::{KeyValueDatabaseConfig, KeyValueDatabaseManager};
 use std::collections::HashMap;
@@ -30,7 +26,7 @@ use tokio::runtime::Runtime;
 
 fn create_test_principal() -> SecurityPrincipal {
     let user_record = SystemUserRecord {
-        user_id: UserId::new(1),
+        user_id: UserId::new(SubjectId::new(1)),
         username: "admin".to_string(),
         version: 1,
         created_at: Timestamp::now(),
@@ -135,7 +131,7 @@ fn bench_metadata_ops(c: &mut Criterion) {
 fn bench_kv_ops(c: &mut Criterion) {
     let (manager, principal, rt) = setup_manager();
     let (container_id, table) = rt.block_on(setup_hierarchy(&manager, &principal));
-    let table_id = table.id;
+    let table_id = table.table_id;
 
     c.bench_function("kv_put", |b| {
         b.to_async(&rt).iter(|| {
@@ -178,7 +174,7 @@ fn bench_kv_ops(c: &mut Criterion) {
             let table_id = table_id;
             async move {
                 manager
-                    .delete(&principal, &container_id, &table_id, b"key")
+                    .table_entry_delete(&principal, &container_id, &table_id, b"key")
                     .await
                     .unwrap();
             }
@@ -189,7 +185,7 @@ fn bench_kv_ops(c: &mut Criterion) {
 fn bench_batch_ops(c: &mut Criterion) {
     let (manager, principal, rt) = setup_manager();
     let (container_id, table) = rt.block_on(setup_hierarchy(&manager, &principal));
-    let table_id = table.id;
+    let table_id = table.table_id;
 
     let pairs: Vec<(Vec<u8>, Vec<u8>)> = (0..100)
         .map(|i| {
@@ -213,7 +209,7 @@ fn bench_batch_ops(c: &mut Criterion) {
                     .map(|(k, v)| (k.as_slice(), v.as_slice()))
                     .collect();
                 manager
-                    .batch_put(&principal, &container_id, &table_id, &borrowed_pairs)
+                    .table_entry_batch_put(&principal, &container_id, &table_id, &borrowed_pairs)
                     .await
                     .unwrap();
             }

@@ -4,7 +4,7 @@
 //! including shard management, batch operations, and basic queries.
 
 use nanograph_art::ArtKeyValueStore;
-use nanograph_kvt::{IndexNumber, KeyValueShardStore, ShardId, TableId};
+use nanograph_kvt::{KeyValueShardStore, ShardId};
 use std::sync::Arc;
 
 #[tokio::main]

@@ -91,12 +91,13 @@ impl ObjectPathResolver {
     }
 
     /// Returns the next available object ID.
+    /// TODO: MUST use Object Allocator
     pub fn get_next_object_id(&mut self) -> ObjectId {
         if let Some(next_id) = self.resolver_available_nodes.pop_first() {
             next_id
         } else {
             let next_id = self.resolver_next_id;
-            self.resolver_next_id += 1;
+            self.resolver_next_id = ObjectId::new(self.resolver_next_id.as_u32() + 1);
             next_id
         }
     }
@@ -348,7 +349,7 @@ impl Default for ObjectPathResolver {
             resolver_nodes: Default::default(),
             resolver_paths: Default::default(),
             resolver_available_nodes: Default::default(),
-            resolver_next_id: 0,
+            resolver_next_id: ObjectId::new(0),
         }
     }
 }

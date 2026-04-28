@@ -20,8 +20,9 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures_core::Stream;
-use nanograph_core::object::{IndexNumber, KeyRange, ShardId, TableId};
+use nanograph_core::object::{KeyRange, ShardId};
 use nanograph_core::types::Timestamp;
+use nanograph_vfs::{DynamicFileSystem, Path};
 use std::collections::{BTreeMap, HashMap};
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
@@ -171,7 +172,14 @@ impl KeyValueShardStore for MemoryKeyValueShardStore {
         Ok(Arc::new(MemoryTransaction::new(self.shards.clone())))
     }
 
-    async fn create_shard(&self, shard: ShardId) -> KeyValueResult<()> {
+    fn create_shard(
+        &self,
+        shard: ShardId,
+        _vfs: Arc<dyn DynamicFileSystem>,
+        _data_path: Path,
+        _wal_path: Path,
+    ) -> KeyValueResult<()> {
+        // Memory store doesn't use filesystem paths
         let mut shards = self
             .shards
             .write()
@@ -440,7 +448,7 @@ impl Transaction for MemoryTransaction {
 mod tests {
     use super::*;
     use futures::StreamExt;
-    use nanograph_core::object::{DatabaseId, ShardNumber, TenantId};
+    use nanograph_core::object::{DatabaseId, ShardNumber, TableId, TenantId};
 
     async fn setup_store() -> (MemoryKeyValueShardStore, ShardId) {
         let store = MemoryKeyValueShardStore::new();
@@ -448,8 +456,11 @@ mod tests {
         let database_id = DatabaseId::from(1);
         let table_id = TableId::from(1);
         let shard_number = ShardNumber::from(1);
-        let shard_id = ShardId::from_parts(tenant_id, database_id, table_id, shard_number);
-        store.create_shard(shard_id).await.unwrap();
+        let shard_id = ShardId::from_parts(tenant_id, database_id, table_id.0, shard_number);
+        let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
+        let data_path = nanograph_vfs::Path::from("/data");
+        let wal_path = nanograph_vfs::Path::from("/wal");
+        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
         (store, shard_id)
     }
 
@@ -503,22 +514,24 @@ mod tests {
         let tenant1 = TenantId::from(1);
         let database1 = DatabaseId::from(1);
         let table1 = TableId::from(1);
-        let shard1 = ShardId::from_parts(tenant1, database1, table1, ShardNumber::from(1));
-        let shard2 = ShardId::from_parts(tenant1, database1, table1, ShardNumber::from(2));
+        let shard1 = ShardId::from_parts(tenant1, database1, table1.0, ShardNumber::from(1));
+        let shard2 = ShardId::from_parts(tenant1, database1, table1.0, ShardNumber::from(2));
         let table2 = TableId::from(2);
-        let shard3 = ShardId::from_parts(tenant1, database1, table2, ShardNumber::from(1));
-        let shard4 = ShardId::from_parts(tenant1, database1, table2, ShardNumber::from(2));
+        let shard3 = ShardId::from_parts(tenant1, database1, table2.0, ShardNumber::from(1));
+        let shard4 = ShardId::from_parts(tenant1, database1, table2.0, ShardNumber::from(2));
 
-        store.create_shard(shard1).await.unwrap();
-        let s2 = store.create_shard(shard2).await.unwrap();
-        let s3 = store.create_shard(shard3).await.unwrap();
+        let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
+        let data_path = nanograph_vfs::Path::from("/data");
+        let wal_path = nanograph_vfs::Path::from("/wal");
+        store.create_shard(shard1, vfs.clone(), data_path.clone(), wal_path.clone()).unwrap();
+        store.create_shard(shard2, vfs.clone(), data_path.clone(), wal_path.clone()).unwrap();
+        store.create_shard(shard3, vfs, data_path, wal_path).unwrap();
 
         let shards = store.list_shards().await.unwrap();
         assert_eq!(shards.len(), 3);
         assert!(shards.contains(&shard1));
         assert!(shards.contains(&shard2));
         assert!(shards.contains(&shard3));
-        assert!(shards.contains(&shard4));
 
         assert!(store.shard_exists(shard1).await.unwrap());
         store.drop_shard(shard1).await.unwrap();
@@ -547,17 +560,16 @@ mod tests {
         assert_eq!(items[0].0, b"a1");
         assert_eq!(items[1].0, b"a2");
 
-        // Range scan
+        // Range scan (from_to uses Excluded end bound, so c1 is not included)
         let range = KeyRange::from_to(b"a2".to_vec(), b"c1".to_vec());
         let mut iter = store.scan(shard, range).await.unwrap();
         let mut items = Vec::new();
         while let Some(res) = iter.next().await {
             items.push(res.unwrap());
         }
-        assert_eq!(items.len(), 3);
+        assert_eq!(items.len(), 2);
         assert_eq!(items[0].0, b"a2");
         assert_eq!(items[1].0, b"b1");
-        assert_eq!(items[2].0, b"c1");
 
         // Reverse scan
         let mut range = KeyRange::all();

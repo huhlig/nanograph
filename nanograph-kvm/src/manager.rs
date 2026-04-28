@@ -14,19 +14,18 @@
 // limitations under the License.
 //
 
-use crate::cache::SystemMetadataCache;
 use crate::config::KeyValueDatabaseConfig;
 use crate::context::KeyValueDatabaseContext;
 use crate::handle::{ContainerHandle, SystemHandle, TableHandle, TenantHandle};
-use nanograph_core::object::ContainerId;
 use nanograph_core::object::{
     ClusterId, ClusterMetadata, DatabaseCreate, DatabaseId, DatabaseMetadata, DatabaseUpdate,
-    NamespaceCreate, NamespaceId, NamespaceRecord, NamespaceUpdate, NodeId, RegionId,
-    RegionMetadata, SecurityPrincipal, ServerMetadata, ShardId, SystemUserCreate,
-    SystemUserMetadata, SystemUserUpdate, TableCreate, TableId, TableRecord, TableUpdate,
-    TablespaceCreate, TablespaceId, TablespaceRecord, TablespaceUpdate, TenantCreate, TenantId,
-    TenantMetadata, TenantUpdate, TenantUserCreate, TenantUserMetadata, TenantUserUpdate, UserId,
+    IndexCreate, IndexUpdate, NamespaceCreate, NamespaceId, NamespaceRecord, NamespaceUpdate,
+    NodeId, RegionId, RegionMetadata, SecurityPrincipal, ServerMetadata, SystemUserCreate,
+    SystemUserMetadata, SystemUserUpdate, TableCreate, TableRecord, TableUpdate, TablespaceCreate,
+    TablespaceId, TablespaceRecord, TablespaceUpdate, TenantCreate, TenantId, TenantMetadata,
+    TenantUpdate, TenantUserCreate, TenantUserMetadata, TenantUserUpdate, UserId,
 };
+use nanograph_core::object::{ContainerId, IndexId, TableId};
 use nanograph_kvt::KeyValueResult;
 use nanograph_raft::{
     ClusterCreate, ClusterUpdate, ConsensusManager, RegionCreate, RegionUpdate, ServerCreate,
@@ -927,7 +926,7 @@ impl KeyValueDatabaseManager {
     /// # Parameters
     /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `container_id`: [`ContainerId`] of the database container
-    /// - `table_id`: [`TableId`] of the table
+    /// - `table_id`: [`ObjectId`] of the table
     ///
     /// # Returns
     /// A [`TableHandle`] for table operations
@@ -1559,7 +1558,7 @@ impl KeyValueDatabaseManager {
     /// # Parameters
     /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `container_id`: [`ContainerId`] that owns the table
-    /// - `table_id`: [`TableId`] of the table to look up
+    /// - `table_id`: [`ObjectId`] of the table to look up
     ///
     /// # Returns
     /// - `Some(TableRecord)` if table exists
@@ -1606,7 +1605,7 @@ impl KeyValueDatabaseManager {
     /// # Parameters
     /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `container_id`: [`ContainerId`] that owns the table
-    /// - `table_id`: [`TableId`] of the table to update
+    /// - `table_id`: [`ObjectId`] of the table to update
     /// - `config`: [`TableUpdate`] containing updates
     ///
     /// # Returns
@@ -1631,7 +1630,7 @@ impl KeyValueDatabaseManager {
     /// # Parameters
     /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `container_id`: [`ContainerId`] that owns the table
-    /// - `table_id`: [`TableId`] of the table to delete
+    /// - `table_id`: [`ObjectId`] of the table to delete
     ///
     /// # Returns
     /// `Ok(())` if successful
@@ -1643,6 +1642,128 @@ impl KeyValueDatabaseManager {
     ) -> KeyValueResult<()> {
         self.context
             .delete_table(principal, container_id, table_id)
+            .await
+    }
+    /**********************************************************************************************\
+     * Index Operations                                                                           *
+    \**********************************************************************************************/
+
+    /// Get all indexes for a table.
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::TableDataQuery`] on [`ResourceScope::Database`]
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container_id`: [`ContainerId`] that owns the table
+    /// - `table_id`: [`ObjectId`] to list indexes for
+    ///
+    /// # Returns
+    /// An iterator over [`IndexRecord`] for all indexes on the table
+    pub async fn get_indexes(
+        &self,
+        principal: &SecurityPrincipal,
+        container_id: &ContainerId,
+    ) -> KeyValueResult<impl IntoIterator<Item = nanograph_core::object::IndexRecord>> {
+        self.context.get_indexes(principal, container_id).await
+    }
+
+    /// Get metadata for a specific index.
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::TableDataQuery`] on [`ResourceScope::Database`]
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container_id`: [`ContainerId`] that owns the table
+    /// - `table_id`: [`ObjectId`] that owns the index
+    /// - `index_id`: [`IndexId`] to look up
+    ///
+    /// # Returns
+    /// - `Some(IndexRecord)` if index exists
+    /// - `None` if index not found
+    pub async fn get_index(
+        &self,
+        principal: &SecurityPrincipal,
+        container_id: &ContainerId,
+        index_id: &IndexId,
+    ) -> KeyValueResult<Option<nanograph_core::object::IndexRecord>> {
+        self.context
+            .get_index(principal, container_id, index_id)
+            .await
+    }
+
+    /// Create a new index on a table.
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::TableCreate`] on [`ResourceScope::Database`]
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container_id`: [`ContainerId`] that owns the table
+    /// - `table_id`: [`ObjectId`] to create index on
+    /// - `config`: [`IndexCreate`] containing name, type, columns, options
+    ///
+    /// # Returns
+    /// `Ok(IndexRecord)` with the created index metadata
+    pub async fn create_index(
+        &self,
+        principal: &SecurityPrincipal,
+        container_id: &ContainerId,
+        config: IndexCreate,
+    ) -> KeyValueResult<nanograph_core::object::IndexRecord> {
+        self.context
+            .create_index(principal, container_id, config)
+            .await
+    }
+
+    /// Update an existing index.
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::TableCreate`] on [`ResourceScope::Database`]
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container_id`: [`ContainerId`] that owns the table
+    /// - `table_id`: [`ObjectId`] that owns the index
+    /// - `index_id`: [`IndexId`] to update
+    /// - `config`: [`IndexUpdate`] with changes
+    ///
+    /// # Returns
+    /// `Ok(IndexRecord)` with updated metadata
+    pub async fn update_index(
+        &self,
+        principal: &SecurityPrincipal,
+        container_id: &ContainerId,
+        index_id: &IndexId,
+        config: IndexUpdate,
+    ) -> KeyValueResult<nanograph_core::object::IndexRecord> {
+        self.context
+            .update_index(principal, container_id, index_id, config)
+            .await
+    }
+
+    /// Delete an index from a table.
+    ///
+    /// # Access Control
+    /// - Requires [`Permission::TableDelete`] on [`ResourceScope::Database`]
+    ///
+    /// # Parameters
+    /// - `principal`: [`SecurityPrincipal`] for authorization
+    /// - `container_id`: [`ContainerId`] that owns the table
+    /// - `table_id`: [`ObjectId`] that owns the index
+    /// - `index_id`: [`IndexId`] to delete
+    ///
+    /// # Returns
+    /// `Ok(())` if successful
+    pub async fn delete_index(
+        &self,
+        principal: &SecurityPrincipal,
+        container_id: &ContainerId,
+        index_id: &IndexId,
+    ) -> KeyValueResult<()> {
+        self.context
+            .delete_index(principal, container_id, index_id)
             .await
     }
 
@@ -1658,7 +1779,7 @@ impl KeyValueDatabaseManager {
     /// # Parameters
     /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `container_id`: [`ContainerId`] that owns the table
-    /// - `table_id`: [`TableId`] of the target table
+    /// - `table_id`: [`ObjectId`] of the target table
     /// - `key`: Byte array key
     /// - `value`: Byte array value
     ///
@@ -1673,7 +1794,7 @@ impl KeyValueDatabaseManager {
         value: &[u8],
     ) -> KeyValueResult<()> {
         self.context
-            .put(principal, container_id, table_id, key, value)
+            .table_entry_put(principal, container_id, table_id, key, value)
             .await
     }
 
@@ -1685,7 +1806,7 @@ impl KeyValueDatabaseManager {
     /// # Parameters
     /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `container_id`: [`ContainerId`] that owns the table
-    /// - `table_id`: [`TableId`] of the target table
+    /// - `table_id`: [`ObjectId`] of the target table
     /// - `key`: Byte array key to look up
     ///
     /// # Returns
@@ -1699,7 +1820,7 @@ impl KeyValueDatabaseManager {
         key: &[u8],
     ) -> KeyValueResult<Option<Vec<u8>>> {
         self.context
-            .get(principal, container_id, table_id, key)
+            .table_entry_get(principal, container_id, table_id, key)
             .await
     }
 
@@ -1711,13 +1832,13 @@ impl KeyValueDatabaseManager {
     /// # Parameters
     /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `container_id`: [`ContainerId`] that owns the table
-    /// - `table_id`: [`TableId`] of the target table
+    /// - `table_id`: [`ObjectId`] of the target table
     /// - `key`: Byte array key to delete
     ///
     /// # Returns
     /// - `Ok(true)` if the key was found and deleted
     /// - `Ok(false)` if the key did not exist
-    pub async fn delete(
+    pub async fn table_entry_delete(
         &self,
         principal: &SecurityPrincipal,
         container_id: &ContainerId,
@@ -1725,7 +1846,7 @@ impl KeyValueDatabaseManager {
         key: &[u8],
     ) -> KeyValueResult<bool> {
         self.context
-            .delete(principal, container_id, table_id, key)
+            .table_entry_delete(principal, container_id, table_id, key)
             .await
     }
 
@@ -1737,12 +1858,12 @@ impl KeyValueDatabaseManager {
     /// # Parameters
     /// - `principal`: [`SecurityPrincipal`] for authorization
     /// - `container_id`: [`ContainerId`] that owns the table
-    /// - `table_id`: [`TableId`] of the target table
+    /// - `table_id`: [`ObjectId`] of the target table
     /// - `pairs`: Slice of key-value byte array pairs to insert
     ///
     /// # Returns
     /// `Ok(())` if all operations in the batch were successful
-    pub async fn batch_put(
+    pub async fn table_entry_batch_put(
         &self,
         principal: &SecurityPrincipal,
         container_id: &ContainerId,
@@ -1750,7 +1871,7 @@ impl KeyValueDatabaseManager {
         pairs: &[(&[u8], &[u8])],
     ) -> KeyValueResult<()> {
         self.context
-            .batch_put(principal, container_id, table_id, pairs)
+            .table_entry_batch_put(principal, container_id, table_id, pairs)
             .await
     }
 

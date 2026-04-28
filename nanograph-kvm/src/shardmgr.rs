@@ -15,12 +15,11 @@
 //
 
 use nanograph_core::config::StorageConfig;
-use nanograph_core::object::ShardCreate;
+use nanograph_core::object::{IndexId, ShardCreate, ShardType, TableId};
 use nanograph_kvt::StoragePathResolver;
 use nanograph_kvt::{
     DynamicFileSystem, KeyRange, KeyValueError, KeyValueIterator, KeyValueResult,
-    KeyValueShardStore, ShardId, ShardState, StorageEngineType, TableId, TablespaceId,
-    metrics::ShardStats,
+    KeyValueShardStore, ShardId, ShardState, StorageEngineType, metrics::ShardStats,
 };
 use nanograph_raft::NodeId;
 use std::collections::HashMap;
@@ -145,7 +144,10 @@ impl KeyValueShardManager {
     }
 
     /// Get the storage engine for a specific shard
-    async fn get_engine_for_shard(&self, shard: ShardId) -> KeyValueResult<Arc<dyn KeyValueShardStore>> {
+    async fn get_engine_for_shard(
+        &self,
+        shard: ShardId,
+    ) -> KeyValueResult<Arc<dyn KeyValueShardStore>> {
         let shards = self.shards.read().await;
         let shard = shards.get(&shard).ok_or(KeyValueError::InvalidKey(format!(
             "Shard {:?} not found",
@@ -161,48 +163,9 @@ impl KeyValueShardManager {
             )))
     }
 
-    /// Create a new shard with the specified configuration
-    pub async fn create_shard(&self, config: ShardCreate) -> KeyValueResult<ShardId> {
-        // Get the engine for this table type
-        let engine = self
-            .engines
-            .get(&config.engine_type)
-            .ok_or(KeyValueError::InvalidValue(format!(
-                "Engine type {:?} not registered",
-                config.engine_type
-            )))?;
-
-        // Create shard in the underlying engine
-        let shard_id = ShardId::from_parts(
-            config.container.tenant(),
-            config.container.database(),
-            config.table,
-            config.shard_number,
-        );
-        engine.create_shard(shard_id).await?;
-
-        let shard_state = ShardState {
-            id: shard_id,
-            engine_type: config.engine_type.clone(),
-            replication_factor: config.replication_factor,
-        };
-
-        {
-            let mut shards = self.shards.write().await;
-            shards.insert(shard_id, shard_state);
-        }
-
-        Ok(shard_id)
-    }
-
     /// Create a new shard with tablespace-aware path resolution
     /// This method uses the StoragePathResolver to determine storage paths based on tablespace configuration
-    pub async fn create_shard_with_tablespace(
-        &self,
-        config: ShardCreate,
-        table_id: TableId,
-        tablespace_id: TablespaceId,
-    ) -> KeyValueResult<ShardId> {
+    pub async fn create_shard(&self, config: ShardCreate) -> KeyValueResult<ShardId> {
         // Get the engine for this table type
         let engine = self
             .engines
@@ -214,37 +177,58 @@ impl KeyValueShardManager {
 
         // Create shard ID
         let shard_id = ShardId::from_parts(
-            config.container.tenant(),
-            config.container.database(),
-            config.table,
+            config.container_id.tenant(),
+            config.container_id.database(),
+            config.object_id,
             config.shard_number,
         );
 
         // Resolve storage paths using tablespace configuration
-        let data_path = self.path_resolver.shard_data_path(
-            tablespace_id,
-            config.container.tenant(),
-            config.container.database(),
-            table_id,
-            config.shard_number,
-        )?;
-
-        let wal_path = self.path_resolver.shard_wal_path(
-            tablespace_id,
-            config.container.tenant(),
-            config.container.database(),
-            table_id,
-            config.shard_number,
-        )?;
+        let (data_path, wal_path) = match config.shard_type {
+            ShardType::TableShard => {
+                let data_path = self.path_resolver.table_shard_data_path(
+                    config.tablespace_id,
+                    config.container_id.tenant(),
+                    config.container_id.database(),
+                    TableId::new(config.object_id),
+                    config.shard_number,
+                )?;
+                let wal_path = self.path_resolver.table_shard_wal_path(
+                    config.tablespace_id,
+                    config.container_id.tenant(),
+                    config.container_id.database(),
+                    TableId::new(config.object_id),
+                    config.shard_number,
+                )?;
+                (data_path, wal_path)
+            }
+            ShardType::IndexShard => {
+                let data_path = self.path_resolver.index_shard_data_path(
+                    config.tablespace_id,
+                    config.container_id.tenant(),
+                    config.container_id.database(),
+                    IndexId::new(config.object_id),
+                    config.shard_number,
+                )?;
+                let wal_path = self.path_resolver.index_shard_wal_path(
+                    config.tablespace_id,
+                    config.container_id.tenant(),
+                    config.container_id.database(),
+                    IndexId::new(config.object_id),
+                    config.shard_number,
+                )?;
+                (data_path, wal_path)
+            }
+        };
 
         // Use the trait method to create the shard with tablespace-aware paths
         // Cast VFS to Arc<dyn Any> for the trait method
         let vfs_any = self.vfs.clone();
-        engine.create_shard_with_tablespace(shard_id, vfs_any, data_path, wal_path)?;
+        engine.create_shard(shard_id, vfs_any, data_path, wal_path)?;
 
         // Store shard state
         let shard_state = ShardState {
-            id: shard_id,
+            shard_id,
             engine_type: config.engine_type.clone(),
             replication_factor: config.replication_factor,
         };

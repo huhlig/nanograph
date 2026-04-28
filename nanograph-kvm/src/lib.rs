@@ -14,6 +14,7 @@
 // limitations under the License.
 //
 
+mod allocator;
 mod cache;
 mod config;
 mod context;
@@ -22,6 +23,7 @@ mod manager;
 mod shardmgr;
 mod utility;
 
+pub use self::allocator::{AllocationCommand, AllocationError, AllocationResult, ObjectAllocator};
 pub use self::config::KeyValueDatabaseConfig;
 pub use self::manager::KeyValueDatabaseManager;
 pub use nanograph_util::{deserialize, serialize};

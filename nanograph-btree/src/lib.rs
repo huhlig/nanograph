@@ -46,7 +46,7 @@
 //!
 //! ```rust
 //! use nanograph_btree::BTreeKeyValueStore;
-//! use nanograph_kvt::{KeyValueShardStore, TableId, IndexNumber};
+//! use nanograph_kvt::{KeyValueShardStore, ObjectId, IndexNumber};
 //!
 //! # #[tokio::main]
 //! # async fn main() {
@@ -54,7 +54,7 @@
 //! let store = BTreeKeyValueStore::default();
 //!
 //! // Create a shard
-//! let table_id = TableId::new(1);
+//! let table_id = ObjectId::new(1);
 //! let shard_index = IndexNumber::new(0);
 //! let shard = store.create_shard(table_id, shard_index).await.unwrap();
 //!
@@ -103,14 +103,14 @@
 //!
 //! ```rust
 //! use nanograph_btree::BTreeKeyValueStore;
-//! use nanograph_kvt::{KeyValueShardStore, KeyRange, TableId, IndexNumber};
+//! use nanograph_kvt::{KeyValueShardStore, KeyRange, ObjectId, IndexNumber};
 //! use std::collections::Bound;
 //! use futures::StreamExt;
 //!
 //! # #[tokio::main]
 //! # async fn main() {
 //! let store = BTreeKeyValueStore::default();
-//! let table_id = TableId::new(1);
+//! let table_id = ObjectId::new(1);
 //! let shard_index = IndexNumber::new(0);
 //! let shard = store.create_shard(table_id, shard_index).await.unwrap();
 //!
@@ -141,12 +141,12 @@
 //!
 //! ```rust
 //! use nanograph_btree::BTreeKeyValueStore;
-//! use nanograph_kvt::{KeyValueShardStore, TableId, IndexNumber};
+//! use nanograph_kvt::{KeyValueShardStore, ObjectId, IndexNumber};
 //!
 //! # #[tokio::main]
 //! # async fn main() {
 //! let store = BTreeKeyValueStore::default();
-//! let table_id = TableId::new(1);
+//! let table_id = ObjectId::new(1);
 //! let shard_index = IndexNumber::new(0);
 //! let shard = store.create_shard(table_id, shard_index).await.unwrap();
 //!

@@ -14,11 +14,45 @@
 // limitations under the License.
 //
 
-use crate::object::security::{SystemGroupId, SystemRoleId, TenantGroupId, TenantRoleId};
-use crate::object::{PermissionGrant, TenantId, UserId};
+use crate::object::security::{
+    SubjectId, SystemGroupId, SystemRoleId, TenantGroupId, TenantRoleId,
+};
+use crate::object::{PermissionGrant, TenantId};
 use crate::types::{PropertyUpdate, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// User identifier (database)
+///
+/// Represents a user with access to data.
+/// Uses a 32-bit identifier for compactness and to avoid overflow.
+#[derive(
+    Copy, Clone, Debug, Default, Ord, PartialOrd, Eq, PartialEq, Hash, Serialize, Deserialize,
+)]
+pub struct UserId(pub SubjectId);
+
+impl UserId {
+    /// Create a new cluster identifier.
+    pub fn new(id: SubjectId) -> Self {
+        Self(id)
+    }
+
+    pub fn subject(&self) -> SubjectId {
+        self.0
+    }
+}
+
+impl From<u32> for UserId {
+    fn from(id: u32) -> Self {
+        Self(SubjectId::new(id))
+    }
+}
+
+impl std::fmt::Display for UserId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "User({})", self.0)
+    }
+}
 
 /// Configuration for SuperUser creation
 #[derive(Clone, Debug)]

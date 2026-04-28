@@ -14,13 +14,14 @@
 // limitations under the License.
 //
 
+use crate::object::security::user::UserId;
 use crate::object::security::{
     SystemGroupRecord, SystemRoleRecord, SystemUserRecord, TenantGroupRecord, TenantRoleRecord,
     TenantUserRecord,
 };
 use crate::object::{
-    DatabaseId, FunctionId, NamespaceId, Permission, PermissionGrant, TableId, TablespaceId,
-    TenantId, UserId,
+    DatabaseId, FunctionId, IndexId, NamespaceId, Permission, PermissionGrant, TableId,
+    TablespaceId, TenantId,
 };
 use crate::types::Timestamp;
 
@@ -371,6 +372,19 @@ impl SecurityPrincipal {
         self.effective_grants
             .iter()
             .any(|grant| grant.allows_table(permission, tenant_id, database_id, table_id))
+    }
+
+    /// Check if principal has permission on a specific table
+    pub fn has_index_permission(
+        &self,
+        permission: &Permission,
+        tenant_id: &TenantId,
+        database_id: &DatabaseId,
+        index_id: &IndexId,
+    ) -> bool {
+        self.effective_grants
+            .iter()
+            .any(|grant| grant.allows_index(permission, tenant_id, database_id, index_id))
     }
 
     /// Check if principal has permission on a specific namespace

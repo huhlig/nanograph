@@ -22,7 +22,7 @@ use axum::{
     Json, Router,
 };
 use clap::Parser;
-use nanograph_core::object::{ContainerId, DatabaseId, SecurityPrincipal, TableId, TenantId};
+use nanograph_core::object::{ContainerId, DatabaseId, SecurityPrincipal, ObjectId, TenantId, TableId};
 use nanograph_kvm::{KeyValueDatabaseConfig, KeyValueDatabaseManager};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -123,7 +123,7 @@ async fn put_value(
     let tenant_id = TenantId::from(tenant_id);
     let database_id = DatabaseId::from(database_id);
     let container_id = ContainerId::from_parts(tenant_id, database_id);
-    let table_id = TableId::from(table_id);
+    let table_id = TableId::new(ObjectId::from(table_id));
 
     let key = payload.key.as_bytes();
     let value = payload.value.as_bytes();
@@ -147,7 +147,7 @@ async fn get_value(
     let tenant_id = TenantId::from(tenant_id);
     let database_id = DatabaseId::from(database_id);
     let container_id = ContainerId::from_parts(tenant_id, database_id);
-    let table_id = TableId::from(table_id);
+    let table_id =TableId::new(ObjectId::from(table_id));
 
     match state
         .manager
@@ -177,11 +177,11 @@ async fn delete_value(
     let tenant_id = TenantId::from(tenant_id);
     let database_id = DatabaseId::from(database_id);
     let container_id = ContainerId::from_parts(tenant_id, database_id);
-    let table_id = TableId::from(table_id);
+    let table_id = TableId::new(ObjectId::from(table_id));
 
     match state
         .manager
-        .delete(&state.principal, &container_id, &table_id, key.as_bytes())
+        .table_entry_delete(&state.principal, &container_id, &table_id, key.as_bytes())
         .await
     {
         Ok(deleted) => (

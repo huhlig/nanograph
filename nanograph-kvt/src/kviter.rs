@@ -27,7 +27,7 @@ pub trait KeyValueIterator: Stream<Item = KeyValueResult<(Vec<u8>, Vec<u8>)>> + 
     /// Positions the iterator at the first key >= the given key.
     fn seek(&mut self, key: &[u8]) -> KeyValueResult<()>;
 
-    /// Get current position
+    /// Get the current position
     ///
     /// Returns the key at the current iterator position, or None if exhausted.
     fn position(&self) -> Option<Vec<u8>>;

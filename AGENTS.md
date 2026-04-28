@@ -5,11 +5,10 @@ This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get sta
 ## Quick Reference
 
 ```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
+bd ready                # Find available work
+bd show <id>            # View issue details
 bd update <id> --claim  # Claim work atomically
-bd close <id>         # Complete work
-bd sync               # Sync with git
+bd close <id>           # Complete work
 ```
 
 ## Non-Interactive Shell Commands

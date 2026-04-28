@@ -97,12 +97,12 @@ async fn test_manager_full_lifecycle() {
             let value = b"value-1";
 
             manager
-                .put(&principal, &container_id, &table.id, key, value)
+                .put(&principal, &container_id, &table.table_id, key, value)
                 .await
                 .expect("Failed to put key-value");
 
             let retrieved = manager
-                .get(&principal, &container_id, &table.id, key)
+                .get(&principal, &container_id, &table.table_id, key)
                 .await
                 .expect("Failed to get key-value");
 
@@ -110,13 +110,13 @@ async fn test_manager_full_lifecycle() {
 
             // 8. Delete
             let deleted = manager
-                .delete(&principal, &container_id, &table.id, key)
+                .table_entry_delete(&principal, &container_id, &table.table_id, key)
                 .await
                 .expect("Failed to delete key");
             assert!(deleted);
 
             let retrieved_after = manager
-                .get(&principal, &container_id, &table.id, key)
+                .get(&principal, &container_id, &table.table_id, key)
                 .await
                 .expect("Failed to get key after delete");
             assert!(retrieved_after.is_none());

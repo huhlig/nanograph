@@ -6,6 +6,7 @@
 use nanograph_kvt::metrics::StatValue;
 use nanograph_kvt::{KeyValueShardStore, ShardId};
 use nanograph_lsm::LSMKeyValueStore;
+use nanograph_vfs::{MemoryFileSystem, Path};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -20,7 +21,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a shard
     println!("\n--- Creating Shard ---");
     let shard_id = ShardId::new(1);
-    store.create_shard(shard_id).await?;
+    let vfs = Arc::new(MemoryFileSystem::new());
+    let data_path = Path::from("/data");
+    let wal_path = Path::from("/wal");
+    store.create_shard(shard_id, vfs, data_path, wal_path)?;
     println!("✓ Created shard: {:?}", shard_id);
 
     // Basic operations (writes are fast - go to MemTable)

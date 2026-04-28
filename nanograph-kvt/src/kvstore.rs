@@ -20,7 +20,7 @@ use crate::kviter::KeyValueIterator;
 use crate::metrics::ShardStats;
 use crate::transaction::Transaction;
 use async_trait::async_trait;
-use nanograph_core::object::{IndexNumber, KeyRange, ShardId, TableId};
+use nanograph_core::object::{KeyRange, ShardId};
 use nanograph_vfs::{DynamicFileSystem, Path};
 use std::ops::Bound;
 use std::sync::Arc;
@@ -150,9 +150,8 @@ pub trait KeyValueShardStore: Send + Sync {
 
     /// Create a new shard with tablespace-aware configuration
     ///
-    /// This method allows the shard manager to create shards with specific storage paths
-    /// resolved from tablespace configuration. The VFS and paths are provided by the
-    /// shard manager's StoragePathResolver.
+    /// This method creates shards with specific storage paths resolved from tablespace
+    /// configuration. The VFS and paths are provided by the shard manager's StoragePathResolver.
     ///
     /// # Arguments
     /// * `shard` - The shard ID to create
@@ -160,24 +159,16 @@ pub trait KeyValueShardStore: Send + Sync {
     /// * `data_path` - Resolved path for data files
     /// * `wal_path` - Resolved path for WAL files
     ///
-    /// # Default Implementation
-    /// The default implementation falls back to the standard `create_shard` method,
-    /// ignoring the tablespace paths. Storage engines should override this to support
-    /// tablespace-aware storage.
-    fn create_shard_with_tablespace(
+    /// # Note
+    /// All storage engines must implement this method. The old `create_shard` method has been
+    /// removed in favor of always using tablespace-aware shard creation.
+    fn create_shard(
         &self,
-        _shard: ShardId,
-        _vfs: Arc<dyn DynamicFileSystem>,
-        _data_path: Path,
-        _wal_path: Path,
-    ) -> KeyValueResult<()> {
-        // Default implementation: not supported
-        // Storage engines that support tablespaces should override this method
-        Err(KeyValueError::InvalidValue(
-            "Tablespace-aware shard creation not supported by this storage engine".to_string(),
-        ))
-    }
-    async fn create_shard(&self, shard: ShardId) -> KeyValueResult<()>;
+        shard: ShardId,
+        vfs: Arc<dyn DynamicFileSystem>,
+        data_path: Path,
+        wal_path: Path,
+    ) -> KeyValueResult<()>;
 
     /// Drop a shard and all its data
     async fn drop_shard(&self, shard: ShardId) -> KeyValueResult<()>;

@@ -9,7 +9,7 @@
 Build a unified Rust-based query compiler that:
 
 - Accepts:
-  - Gremlin (Apache TinkerPop)
+  - Gremlin
   - Cypher
   - GQL (ISO standard)
 - Produces:
@@ -22,7 +22,7 @@ Build a unified Rust-based query compiler that:
 
 The architecture mirrors LLVM-style compiler design:
 
-Multiple frontends → Unified AST → Logical Graph Algebra → Bytecode → Engine
+Multiple frontends → Unified AST → Logical Graph Algebra → Bytecode → Interpreter / Adapter
 
 ---
 
@@ -43,7 +43,7 @@ Multiple frontends → Unified AST → Logical Graph Algebra → Bytecode → En
                        ↓
             Common Graph Bytecode (CGB)
                        ↓
-           VM / Engine Adapter Layer
+           Interpreter VM / Engine Adapter
 ```
 
 ````
@@ -79,12 +79,10 @@ Multiple frontends → Unified AST → Logical Graph Algebra → Bytecode → En
 
 ## Phase 1 — Define Common Graph Bytecode (CGB)
 
-This is the system’s core.
-
 ### Design Goals
 
 - Language-neutral
-- Register-based (not stack-based)
+- Register-based
 - Strongly typed
 - Logical (not physical)
 - Serializable & versioned
@@ -92,91 +90,24 @@ This is the system’s core.
 
 ---
 
-### 1.1 Instruction Categories
-
-#### Graph Operators
-- `ScanNode`
-- `ScanEdge`
-- `Expand`
-- `Match`
-- `OptionalMatch`
-- `PathConstruct`
-
-#### Relational Operators
-- `Filter`
-- `Project`
-- `Aggregate`
-- `Sort`
-- `Limit`
-- `Distinct`
-
-#### Control Operators
-- `Apply` (subqueries)
-- `Union`
-- `Exists`
-
-#### Expression Operators
-- Arithmetic
-- Boolean
-- Comparison
-- Property access
-- Function calls
-
----
-
-### 1.2 Example CGB Program
-
-```json
-[
-  ["ScanNode", 0, {"label": "Person"}],
-  ["Expand", 0, "OUT", "KNOWS", 1],
-  ["Filter", "reg1.age > 30"],
-  ["Project", {"name": "reg1.name"}]
-]
-````
-
-Registers:
-
-* `reg0` → node `n`
-* `reg1` → node `m`
-
----
-
-### 1.3 Rust Representation (Conceptual)
-
-```rust
-pub enum Instruction {
-    ScanNode { out: RegId, label: Option<String> },
-    Expand { from: RegId, dir: Direction, label: Option<String>, out: RegId },
-    Filter { predicate: Expr },
-    Project { mappings: Vec<(String, Expr)> },
-    Aggregate { group_keys: Vec<Expr>, aggs: Vec<Aggregation> },
-    Limit { count: usize },
-}
-```
-
----
-
-## Phase 2 — Unified AST
+# 4. Unified AST
 
 All frontends must compile into this shared AST.
 
 ### Core AST Nodes
 
-* `Query`
-* `MatchClause`
-* `Pattern`
-* `NodePattern`
-* `RelationshipPattern`
-* `WhereClause`
-* `Projection`
-* `Aggregation`
-* `OrderBy`
-* `Limit`
-* `Subquery`
-* `TraversalStep` (for Gremlin)
-
----
+- `Query`
+- `MatchClause`
+- `Pattern`
+- `NodePattern`
+- `RelationshipPattern`
+- `WhereClause`
+- `Projection`
+- `Aggregation`
+- `OrderBy`
+- `Limit`
+- `Subquery`
+- `TraversalStep` (for Gremlin)
 
 ### Rust Sketch
 
@@ -187,17 +118,15 @@ pub enum AstNode {
     Pattern(Pattern),
     Expr(Expr),
 }
-```
+````
 
 ---
 
-## Phase 3 — Frontend Parsers
+# 5. Frontend Parsers
 
 ---
 
-### 3.1 Gremlin Frontend
-
-Strategy:
+## Gremlin Frontend
 
 * Parse traversal DSL subset
 * Disallow lambdas (MVP)
@@ -214,27 +143,18 @@ Gremlin → Unified AST
 
 ---
 
-### 3.2 Cypher Frontend
-
-Strategy:
+## Cypher Frontend
 
 * Use ANTLR grammar or pest
 * Implement visitor → AST
-
-Concerns:
-
-* Variable scoping
-* WITH clauses
-* Pattern semantics
+* Handle variable scoping and WITH clauses
 
 Output:
 Cypher → Unified AST
 
 ---
 
-### 3.3 GQL Frontend
-
-Strategy:
+## GQL Frontend
 
 * Start with MATCH / SELECT subset
 * Align closely with Cypher frontend
@@ -244,9 +164,9 @@ GQL → Unified AST
 
 ---
 
-## Phase 4 — Semantic Analyzer
+# 6. Semantic Analyzer
 
-This validates and annotates the AST.
+Validates and annotates AST.
 
 ### Responsibilities
 
@@ -255,16 +175,6 @@ This validates and annotates the AST.
 * Type inference
 * Pattern normalization
 * Aggregation validation
-
----
-
-### Symbol Tables
-
-* Query scope
-* Subquery scope
-* Pattern scope
-
----
 
 ### Type System
 
@@ -285,7 +195,7 @@ pub enum Type {
 
 ---
 
-## Phase 5 — Logical Graph Algebra IR
+# 7. Logical Graph Algebra IR
 
 Language-neutral algebra layer.
 
@@ -303,8 +213,6 @@ Language-neutral algebra layer.
 * `Apply`
 * `OptionalMatch`
 
----
-
 ### Rust Example
 
 ```rust
@@ -318,103 +226,303 @@ pub enum LogicalPlan {
 
 ---
 
-## Phase 6 — Lowering to CGB
+# 8. Common Graph Bytecode (CGB)
 
-LogicalPlan → Linear CGB
+CGB is:
 
-Steps:
-
-1. Plan traversal
-2. Register allocation
-3. Expression lowering
-4. Dependency ordering
-5. Instruction emission
-
-Deliverable:
-Executable CGB program
+* Register-based
+* Strongly typed
+* Logical
+* Deterministic
+* Serializable
+* Versioned
 
 ---
 
-## Phase 7 — Execution Layer
+# 9. Bytecode Operator Definitions
 
-Two possible directions:
+Each instruction:
 
-### Option A — CGB Interpreter (VM)
+```rust
+pub struct Instruction {
+    pub opcode: OpCode,
+    pub args: Vec<Operand>,
+}
+```
 
-* Rust VM
-* Pluggable storage backend
-* In-memory graph engine
-
-### Option B — Engine Adapters
-
-Translate CGB to:
-
-* Gremlin bytecode
-* Cypher execution plan
-* Engine-native APIs
+Registers identified by `RegId(u16)`.
 
 ---
 
-# 4. Cross-Language Semantic Strategy
+## 9.1 Runtime Value Model
 
-| Area                      | Strategy                         |
-| ------------------------- | -------------------------------- |
-| Imperative vs Declarative | Normalize to declarative algebra |
-| Path binding              | Explicit IR operator             |
-| Optional match            | Dedicated algebra node           |
-| Aggregation               | Graph relational algebra         |
-| Subqueries                | Apply operator                   |
-
----
-
-# 5. Testing Strategy
-
-### 5.1 Golden Query Suite
-
-For each query:
-
-* Gremlin
-* Cypher
-* GQL
-
-Ensure:
-
-* Same AST
-* Same LogicalPlan
-* Same Bytecode
+```rust
+pub enum Value {
+    Node(NodeId),
+    Edge(EdgeId),
+    Path(Vec<NodeId>, Vec<EdgeId>),
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+    String(String),
+    List(Vec<Value>),
+    Map(HashMap<String, Value>),
+    Null,
+}
+```
 
 ---
 
-### 5.2 Property-Based Testing
+## 9.2 Graph Operators
 
-* Random graph generation
-* Random pattern queries
-* Compare results across backends
+### ScanNode
+
+```rust
+ScanNode {
+    out: RegId,
+    label: Option<LabelId>,
+}
+```
+
+### ScanEdge
+
+```rust
+ScanEdge {
+    out: RegId,
+    label: Option<LabelId>,
+}
+```
+
+### Expand
+
+```rust
+Expand {
+    from: RegId,
+    direction: Direction,
+    edge_label: Option<LabelId>,
+    out: RegId,
+}
+```
+
+### MatchPattern
+
+```rust
+MatchPattern {
+    pattern_id: PatternId,
+    bindings: Vec<RegId>,
+}
+```
+
+### OptionalExpand
+
+Preserves input row when no match.
+
+### PathConstruct
+
+```rust
+PathConstruct {
+    nodes: Vec<RegId>,
+    edges: Vec<RegId>,
+    out: RegId,
+}
+```
 
 ---
 
-### 5.3 Differential Testing
+## 9.3 Relational Operators
 
-Compare against:
+### Filter
 
-* Neo4j
-* Apache TinkerPop reference engine
+```rust
+Filter {
+    predicate: ExprId,
+}
+```
+
+### Project
+
+```rust
+Project {
+    expressions: Vec<(SymbolId, ExprId)>,
+}
+```
+
+### Aggregate
+
+```rust
+Aggregate {
+    group_keys: Vec<ExprId>,
+    aggregations: Vec<Aggregation>,
+}
+```
+
+Supported:
+
+* COUNT
+* SUM
+* AVG
+* MIN
+* MAX
+* COLLECT
+
+### Sort
+
+```rust
+Sort {
+    keys: Vec<SortKey>,
+}
+```
+
+### Limit
+
+```rust
+Limit {
+    count: usize,
+}
+```
+
+### Distinct
+
+Removes duplicate rows.
+
+### Apply
+
+```rust
+Apply {
+    subplan: PlanId,
+    correlation: Vec<(OuterReg, InnerReg)>,
+}
+```
 
 ---
 
-# 6. Suggested Rust Tech Stack
+## 9.4 Expression Operators
 
-| Layer           | Tool               |
-| --------------- | ------------------ |
-| Parsing         | pest or ANTLR      |
-| Serialization   | serde / prost      |
-| IR optimization | Custom rule engine |
-| Testing         | proptest           |
-| CLI             | clap               |
+Expressions compiled separately and referenced via `ExprId`.
+
+Supported:
+
+* Arithmetic
+* Boolean logic
+* Comparisons
+* Property access
+* Function calls
+* List construction
+* Map construction
+* Null-safe operations
 
 ---
 
-# 7. Suggested Repository Structure
+# 10. Interpreter Architecture
+
+---
+
+## 10.1 Execution Model
+
+Pull-based Volcano iterator model.
+
+```rust
+trait Operator {
+    fn open(&mut self, ctx: &mut ExecContext);
+    fn next(&mut self, ctx: &mut ExecContext) -> Option<Row>;
+    fn close(&mut self, ctx: &mut ExecContext);
+}
+```
+
+---
+
+## 10.2 Execution Context
+
+```rust
+pub struct ExecContext<'a> {
+    pub graph: &'a dyn GraphStorage,
+    pub registers: RegisterFile,
+    pub memory: MemoryManager,
+}
+```
+
+---
+
+## 10.3 Register File
+
+```rust
+pub struct RegisterFile {
+    values: Vec<Value>,
+}
+```
+
+Fixed-size per query.
+
+---
+
+## 10.4 GraphStorage Trait
+
+```rust
+pub trait GraphStorage {
+    fn scan_nodes(&self, label: Option<LabelId>) -> NodeIterator;
+    fn scan_edges(&self, label: Option<LabelId>) -> EdgeIterator;
+
+    fn expand(
+        &self,
+        node: NodeId,
+        direction: Direction,
+        label: Option<LabelId>,
+    ) -> NodeIterator;
+
+    fn get_property(&self, element: ElementId, key: PropertyId) -> Value;
+}
+```
+
+Backends:
+
+* In-memory graph
+* Adapter to external DB
+* Distributed storage
+
+---
+
+## 10.5 Plan Builder
+
+```rust
+pub struct PlanBuilder;
+
+impl PlanBuilder {
+    pub fn build(program: &Program) -> Box<dyn Operator>;
+}
+```
+
+Responsibilities:
+
+* Convert linear bytecode → operator tree
+* Wire inputs/outputs
+* Allocate registers
+* Inject expression evaluators
+
+---
+
+## 10.6 Streaming vs Blocking
+
+Streaming:
+
+* ScanNode
+* Expand
+* Filter
+* Project
+
+Blocking:
+
+* Aggregate
+* Sort
+* Distinct
+
+Future:
+
+* Spill to disk
+* Parallel execution
+
+---
+
+# 11. Repository Structure
 
 ```
 graph-compiler/
@@ -441,46 +549,42 @@ graph-compiler/
 
 ---
 
-# 8. Timeline (MVP)
+# 12. MVP Scope
 
-| Phase            | Duration |
-| ---------------- | -------- |
-| Research         | 1 month  |
-| AST + CGB        | 1 month  |
-| Cypher frontend  | 1 month  |
-| Gremlin frontend | 1 month  |
-| VM prototype     | 1 month  |
+* ScanNode
+* Expand
+* Filter
+* Project
+* Aggregate (COUNT only)
+* Limit
+* In-memory storage
+* Cypher frontend only
 
-Total: ~4–5 months for functional MVP
+Then expand to:
 
----
-
-# 9. Architectural Principles
-
-1. Frontends are isolated.
-2. AST is language-neutral.
-3. Logical algebra is canonical.
-4. Bytecode is stable & versioned.
-5. Optimizer is frontend-agnostic.
-6. Execution is pluggable.
+* Gremlin
+* GQL
+* Subqueries
+* Optional match
+* Cost-based optimization
 
 ---
 
-# 10. Long-Term Goals
+# 13. Long-Term Vision
 
 * Cost-based optimizer
 * Index pushdown
 * Distributed execution
 * Query federation
 * Plan caching
-* WASM execution target
+* WASM backend
 * Enterprise-grade runtime
 
 ---
 
 # Final Objective
 
-Create a **Graph Query LLVM** in Rust:
+Create a Rust-native **Graph Query LLVM**:
 
 * Portable
 * Engine-agnostic

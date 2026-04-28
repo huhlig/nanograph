@@ -78,17 +78,23 @@ impl TableHandle {
 
     /// Get metadata for this table.
     pub async fn get_metadata(&self) -> KeyValueResult<Option<TableRecord>> {
-        self.context.get_table(&self.principal, &self.container_id, &self.table_id).await
+        self.context
+            .get_table(&self.principal, &self.container_id, &self.table_id)
+            .await
     }
 
     /// Update this table's configuration.
     pub async fn update(&self, config: TableUpdate) -> KeyValueResult<TableRecord> {
-        self.context.update_table(&self.principal, &self.container_id, &self.table_id, config).await
+        self.context
+            .update_table(&self.principal, &self.container_id, &self.table_id, config)
+            .await
     }
 
     /// Delete this table.
     pub async fn delete_table(&self) -> KeyValueResult<()> {
-        self.context.delete_table(&self.principal, &self.container_id, &self.table_id).await
+        self.context
+            .delete_table(&self.principal, &self.container_id, &self.table_id)
+            .await
     }
 
     //
@@ -114,7 +120,7 @@ impl TableHandle {
     /// ```
     pub async fn put(&self, key: &[u8], value: &[u8]) -> KeyValueResult<()> {
         self.context
-            .put(
+            .table_entry_put(
                 &self.principal,
                 &self.container_id,
                 &self.table_id,
@@ -145,7 +151,7 @@ impl TableHandle {
     /// ```
     pub async fn get(&self, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
         self.context
-            .get(&self.principal, &self.container_id, &self.table_id, key)
+            .table_entry_get(&self.principal, &self.container_id, &self.table_id, key)
             .await
     }
 
@@ -170,7 +176,7 @@ impl TableHandle {
     /// ```
     pub async fn delete(&self, key: &[u8]) -> KeyValueResult<bool> {
         self.context
-            .delete(&self.principal, &self.container_id, &self.table_id, key)
+            .table_entry_delete(&self.principal, &self.container_id, &self.table_id, key)
             .await
     }
 
@@ -200,7 +206,7 @@ impl TableHandle {
     /// ```
     pub async fn batch_put(&self, pairs: &[(&[u8], &[u8])]) -> KeyValueResult<()> {
         self.context
-            .batch_put(&self.principal, &self.container_id, &self.table_id, pairs)
+            .table_entry_batch_put(&self.principal, &self.container_id, &self.table_id, pairs)
             .await
     }
 }

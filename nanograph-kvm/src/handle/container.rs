@@ -371,7 +371,7 @@ impl ContainerHandle {
             .context
             .create_table(&self.principal, &self.container_id, config)
             .await?;
-        Ok(record.id)
+        Ok(record.table_id)
     }
 
     /// Update an existing table's metadata.
@@ -423,7 +423,7 @@ impl ContainerHandle {
     /// TODO: Figure out how to deal with tenants and containers
     pub async fn put(&self, table: &TableId, key: &[u8], value: &[u8]) -> KeyValueResult<()> {
         self.context
-            .put(&self.principal, &self.container_id, table, key, value)
+            .table_entry_put(&self.principal, &self.container_id, table, key, value)
             .await
     }
 
@@ -441,7 +441,7 @@ impl ContainerHandle {
     /// * `Err(KeyValueError)` - The operation failed
     pub async fn get(&self, table: &TableId, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
         self.context
-            .get(&self.principal, &self.container_id, table, key)
+            .table_entry_get(&self.principal, &self.container_id, table, key)
             .await
     }
 
@@ -459,7 +459,7 @@ impl ContainerHandle {
     /// * `Err(KeyValueError)` - The operation failed
     pub async fn delete(&self, table: &TableId, key: &[u8]) -> KeyValueResult<bool> {
         self.context
-            .delete(&self.principal, &self.container_id, table, key)
+            .table_entry_delete(&self.principal, &self.container_id, table, key)
             .await
     }
 
@@ -478,7 +478,7 @@ impl ContainerHandle {
     /// * `Err(KeyValueError)` - The operation failed
     pub async fn batch_put(&self, table: &TableId, pairs: &[(&[u8], &[u8])]) -> KeyValueResult<()> {
         self.context
-            .batch_put(&self.principal, &self.container_id, table, pairs)
+            .table_entry_batch_put(&self.principal, &self.container_id, table, pairs)
             .await
     }
 }

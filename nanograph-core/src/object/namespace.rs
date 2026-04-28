@@ -29,25 +29,24 @@ pub struct NamespaceId(pub ObjectId);
 
 impl NamespaceId {
     /// Create a new namespace identifier.
-    pub fn new(id: u32) -> Self {
+    pub fn new(id: ObjectId) -> Self {
         Self(id)
     }
 
-    /// Return the namespace identifier as a u64.
-    pub fn as_u64(&self) -> u32 {
+    pub fn object(&self) -> ObjectId {
         self.0
     }
 }
 
 impl From<u32> for NamespaceId {
     fn from(id: u32) -> Self {
-        Self(id)
+        Self(ObjectId::new(id))
     }
 }
 
 impl std::fmt::Display for NamespaceId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Namespace({:X})", self.0)
+        write!(f, "Namespace({})", self.0)
     }
 }
 
@@ -57,8 +56,8 @@ mod tests {
 
     #[test]
     fn test_namespace_id() {
-        let id = NamespaceId::new(0x12345678);
-        assert_eq!(id.as_u64(), 0x12345678);
+        let id = NamespaceId::new(ObjectId::new(0x12345678));
+        assert_eq!(id.object().as_u32(), 0x12345678);
         assert_eq!(NamespaceId::from(0x12345678), id);
         assert_eq!(format!("{}", id), "Namespace(12345678)");
     }

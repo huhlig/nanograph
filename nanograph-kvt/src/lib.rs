@@ -34,11 +34,11 @@
 //! ## Basic Store Operations
 //!
 //! ```rust,no_run
-//! use nanograph_kvt::{KeyValueShardStore, ShardId, KeyRange, TableId, IndexNumber};
+//! use nanograph_kvt::{KeyValueShardStore, ShardId, KeyRange, ObjectId, IndexNumber};
 //!
 //! async fn example(store: impl KeyValueShardStore) -> Result<(), Box<dyn std::error::Error>> {
 //!     // Create a shard (table ID 1, shard index 0)
-//!     let table_id = TableId::from(1u64);
+//!     let table_id = ObjectId::from(1u64);
 //!     let shard = store.create_shard(table_id, IndexNumber::from(0u32)).await?;
 //!
 //!     // Simple put/get
@@ -57,11 +57,11 @@
 //! ## Range Scans
 //!
 //! ```rust,no_run
-//! use nanograph_kvt::{KeyValueShardStore, KeyRange, TableId, IndexNumber};
+//! use nanograph_kvt::{KeyValueShardStore, KeyRange, ObjectId, IndexNumber};
 //! use futures::StreamExt;
 //!
 //! async fn range_example(store: impl KeyValueShardStore) -> Result<(), Box<dyn std::error::Error>> {
-//!     let table_id = TableId::from(1u64);
+//!     let table_id = ObjectId::from(1u64);
 //!     let shard = store.create_shard(table_id, IndexNumber::from(0u32)).await?;
 //!
 //!     // Insert data with common prefix
@@ -85,10 +85,10 @@
 //! ## Transactions
 //!
 //! ```rust,no_run
-//! use nanograph_kvt::{KeyValueShardStore, TableId, IndexNumber};
+//! use nanograph_kvt::{KeyValueShardStore, ObjectId, IndexNumber};
 //!
 //! async fn transaction_example(store: impl KeyValueShardStore) -> Result<(), Box<dyn std::error::Error>> {
-//!     let table_id = TableId::from(1u64);
+//!     let table_id = ObjectId::from(1u64);
 //!     let shard = store.create_shard(table_id, IndexNumber::from(0u32)).await?;
 //!
 //!     // Start a transaction
@@ -112,10 +112,10 @@
 //! ## Batch Operations
 //!
 //! ```rust,no_run
-//! use nanograph_kvt::{KeyValueShardStore, TableId, IndexNumber};
+//! use nanograph_kvt::{KeyValueShardStore, ObjectId, IndexNumber};
 //!
 //! async fn batch_example(store: impl KeyValueShardStore) -> Result<(), Box<dyn std::error::Error>> {
-//!     let table_id = TableId::from(1u64);
+//!     let table_id = ObjectId::from(1u64);
 //!     let shard = store.create_shard(table_id, IndexNumber::from(0u32)).await?;
 //!
 //!     // Batch put - need to convert to slice references
@@ -175,7 +175,7 @@ pub use self::resolver::{StoragePathResolver, TablespaceStorage};
 pub use self::transaction::Transaction;
 pub use self::transaction::TransactionId;
 pub use nanograph_core::object::{
-    IndexNumber, KeyRange, ShardId, ShardState, StorageEngineType, TableId, TablespaceId,
+    IndexId, KeyRange, ObjectId, ShardId, ShardState, StorageEngineType, TableId, TablespaceId,
 };
 pub use nanograph_core::types::Timestamp;
 pub use nanograph_vfs::{DynamicFileSystem, File};

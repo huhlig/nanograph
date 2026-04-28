@@ -14,15 +14,13 @@
 // limitations under the License.
 //
 
-use nanograph_core::object::{
-    Permission, PermissionGrant, ResourceScope, SecurityPrincipal, SystemUserRecord, UserId,
-};
+use nanograph_core::object::{Permission, PermissionGrant, ResourceScope, SecurityPrincipal, SubjectId, SystemUserRecord, UserId};
 use nanograph_core::types::Timestamp;
 use std::collections::HashMap;
 
 pub fn create_test_principal() -> SecurityPrincipal {
     let user_record = SystemUserRecord {
-        user_id: UserId::new(1),
+        user_id: UserId::new(SubjectId::new(1)),
         username: "admin".to_string(),
         version: 1,
         created_at: Timestamp::now(),

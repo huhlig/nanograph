@@ -33,53 +33,41 @@ pub use self::role::{
 };
 pub use self::user::{
     SystemUserCreate, SystemUserMetadata, SystemUserRecord, SystemUserUpdate, TenantUserCreate,
-    TenantUserMetadata, TenantUserRecord, TenantUserUpdate,
+    TenantUserMetadata, TenantUserRecord, TenantUserUpdate, UserId,
 };
-use crate::object::ObjectId;
 use serde::{Deserialize, Serialize};
 
-/// User identifier (database)
-///
-/// Represents a user with access to data.
-/// Uses a 32-bit identifier for compactness and to avoid overflow.
+/// Security Subject ID (Used by User, Role, and Group)
 #[derive(
     Copy, Clone, Debug, Default, Ord, PartialOrd, Eq, PartialEq, Hash, Serialize, Deserialize,
 )]
-pub struct UserId(pub ObjectId);
+pub struct SubjectId(u32);
 
-impl UserId {
+impl SubjectId {
     /// Create a new cluster identifier.
     pub fn new(id: u32) -> Self {
         Self(id)
     }
 
     /// Return the cluster identifier as a u32.
-    pub fn as_u64(&self) -> u32 {
+    pub fn as_u32(&self) -> u32 {
         self.0
     }
 }
 
-impl From<u32> for UserId {
+impl From<u32> for SubjectId {
     fn from(id: u32) -> Self {
         Self(id)
     }
 }
 
-impl std::fmt::Display for UserId {
+impl std::fmt::Display for SubjectId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "User({:X})", self.0)
+        write!(f, "Subject({:X})", self.0)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_user_id() {
-        let id = UserId::new(0x12345678);
-        assert_eq!(id.as_u64(), 0x12345678);
-        assert_eq!(UserId::from(0x12345678), id);
-        assert_eq!(format!("{}", id), "User(12345678)");
-    }
 }

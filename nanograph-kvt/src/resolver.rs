@@ -22,11 +22,9 @@
 use crate::{KeyValueError, KeyValueResult};
 use nanograph_core::config::StorageConfig;
 use nanograph_core::object::{
-    DatabaseId, TablespaceRecord, IndexNumber, ShardNumber, TableId, TablespaceId,
-    TablespaceMetadata, TenantId,
+    DatabaseId, IndexId, ShardNumber, TableId, TablespaceId, TablespaceRecord, TenantId,
 };
-use nanograph_vfs::{DynamicFileSystem, FileSystemError, Path};
-use serde::{Deserialize, Serialize};
+use nanograph_vfs::{DynamicFileSystem, Path};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -123,12 +121,10 @@ impl StoragePathResolver {
 
     fn validate_path(&self, path: Path) -> KeyValueResult<Path> {
         if self.validate_paths && !self.vfs.exists(path.to_string().as_str())? {
-            Err(KeyValueError::IoError(FileSystemError::InvalidPath(
-                path.to_string(),
-            )))
-        } else {
-            Ok(path)
+            // Create the directory if it doesn't exist
+            self.vfs.create_directory_all(path.to_string().as_str())?;
         }
+        Ok(path)
     }
 }
 
@@ -425,7 +421,7 @@ impl StoragePathResolver {
 
 impl StoragePathResolver {
     /// Get shard base path
-    pub fn shard_base_path(
+    pub fn table_shard_base_path(
         &self,
         tablespace_id: TablespaceId,
         tenant_id: TenantId,
@@ -439,7 +435,7 @@ impl StoragePathResolver {
     }
 
     /// Get shard data path
-    pub fn shard_data_path(
+    pub fn table_shard_data_path(
         &self,
         tablespace_id: TablespaceId,
         tenant_id: TenantId,
@@ -447,7 +443,7 @@ impl StoragePathResolver {
         table_id: TableId,
         shard_number: ShardNumber,
     ) -> KeyValueResult<Path> {
-        let mut path = self.shard_base_path(
+        let mut path = self.table_shard_base_path(
             tablespace_id,
             tenant_id,
             database_id,
@@ -459,7 +455,7 @@ impl StoragePathResolver {
     }
 
     /// Get shard WAL path
-    pub fn shard_wal_path(
+    pub fn table_shard_wal_path(
         &self,
         tablespace_id: TablespaceId,
         tenant_id: TenantId,
@@ -467,7 +463,7 @@ impl StoragePathResolver {
         table_id: TableId,
         shard_number: ShardNumber,
     ) -> KeyValueResult<Path> {
-        let mut path = self.shard_base_path(
+        let mut path = self.table_shard_base_path(
             tablespace_id,
             tenant_id,
             database_id,
@@ -479,7 +475,7 @@ impl StoragePathResolver {
     }
 
     /// Get shard Raft path (for replicated shards)
-    pub fn shard_raft_logs_path(
+    pub fn table_shard_raft_logs_path(
         &self,
         tablespace_id: TablespaceId,
         tenant_id: TenantId,
@@ -487,7 +483,7 @@ impl StoragePathResolver {
         table_id: TableId,
         shard_number: ShardNumber,
     ) -> KeyValueResult<Path> {
-        let mut path = self.shard_base_path(
+        let mut path = self.table_shard_base_path(
             tablespace_id,
             tenant_id,
             database_id,
@@ -497,7 +493,7 @@ impl StoragePathResolver {
         path.push("logs");
         self.validate_path(path)
     }
-    pub fn shard_snapshots_path(
+    pub fn table_shard_snapshots_path(
         &self,
         tablespace_id: TablespaceId,
         tenant_id: TenantId,
@@ -505,7 +501,7 @@ impl StoragePathResolver {
         table_id: TableId,
         shard_number: ShardNumber,
     ) -> KeyValueResult<Path> {
-        let mut path = self.shard_base_path(
+        let mut path = self.table_shard_base_path(
             tablespace_id,
             tenant_id,
             database_id,
@@ -526,7 +522,7 @@ impl StoragePathResolver {
         shard_number: ShardNumber,
         level: u8,
     ) -> KeyValueResult<Path> {
-        let mut path = self.shard_data_path(
+        let mut path = self.table_shard_data_path(
             tablespace_id,
             tenant_id,
             database_id,
@@ -546,11 +542,167 @@ impl StoragePathResolver {
         tablespace_id: TablespaceId,
         tenant_id: TenantId,
         database_id: DatabaseId,
-        table_id: TableId,
-        index_number: IndexNumber,
+        index_id: IndexId,
     ) -> KeyValueResult<Path> {
-        let mut path = self.table_base_path(tablespace_id, tenant_id, database_id, table_id)?;
-        path.push(format!("index_{}", index_number.as_u32()));
+        let mut path = self.database_base_path(tablespace_id, tenant_id, database_id)?;
+        path.push(format!("index_{}", index_id.0));
+        self.validate_path(path)
+    }
+
+    /// Get database base path
+    pub fn index_metadata_path(
+        &self,
+        tablespace_id: TablespaceId,
+        tenant_id: TenantId,
+        database_id: DatabaseId,
+        index_id: IndexId,
+    ) -> KeyValueResult<Path> {
+        let mut path = self.index_base_path(tablespace_id, tenant_id, database_id, index_id)?;
+        path.push("metadata");
+        self.validate_path(path)
+    }
+
+    /// Get container data path
+    pub fn index_data_path(
+        &self,
+        tablespace_id: TablespaceId,
+        tenant_id: TenantId,
+        database_id: DatabaseId,
+        index_id: IndexId,
+    ) -> KeyValueResult<Path> {
+        let mut path = self.index_metadata_path(tablespace_id, tenant_id, database_id, index_id)?;
+        path.push("data");
+        self.validate_path(path)
+    }
+
+    /// Get container Raft path
+    pub fn index_wal_path(
+        &self,
+        tablespace_id: TablespaceId,
+        tenant_id: TenantId,
+        database_id: DatabaseId,
+        index_id: IndexId,
+    ) -> KeyValueResult<Path> {
+        let mut path = self.index_metadata_path(tablespace_id, tenant_id, database_id, index_id)?;
+        path.push("wal");
+        self.validate_path(path)
+    }
+    /// Get container Raft path
+    pub fn index_raft_logs_path(
+        &self,
+        tablespace_id: TablespaceId,
+        tenant_id: TenantId,
+        database_id: DatabaseId,
+        index_id: IndexId,
+    ) -> KeyValueResult<Path> {
+        let mut path = self.index_metadata_path(tablespace_id, tenant_id, database_id, index_id)?;
+        path.push("logs");
+        self.validate_path(path)
+    }
+    /// Get container Snapshots
+    pub fn index_snapshots_path(
+        &self,
+        tablespace_id: TablespaceId,
+        tenant_id: TenantId,
+        database_id: DatabaseId,
+        index_id: IndexId,
+    ) -> KeyValueResult<Path> {
+        let mut path = self.index_metadata_path(tablespace_id, tenant_id, database_id, index_id)?;
+        path.push("snapshots");
+        self.validate_path(path)
+    }
+}
+
+impl StoragePathResolver {
+    /// Get shard base path
+    pub fn index_shard_base_path(
+        &self,
+        tablespace_id: TablespaceId,
+        tenant_id: TenantId,
+        database_id: DatabaseId,
+        index_id: IndexId,
+        shard_number: ShardNumber,
+    ) -> KeyValueResult<Path> {
+        let mut path = self.index_base_path(tablespace_id, tenant_id, database_id, index_id)?;
+        path.push(format!("shard_{}", shard_number.as_u32()));
+        self.validate_path(path)
+    }
+
+    /// Get shard data path
+    pub fn index_shard_data_path(
+        &self,
+        tablespace_id: TablespaceId,
+        tenant_id: TenantId,
+        database_id: DatabaseId,
+        index_id: IndexId,
+        shard_number: ShardNumber,
+    ) -> KeyValueResult<Path> {
+        let mut path = self.index_shard_base_path(
+            tablespace_id,
+            tenant_id,
+            database_id,
+            index_id,
+            shard_number,
+        )?;
+        path.push("data");
+        self.validate_path(path)
+    }
+
+    /// Get shard WAL path
+    pub fn index_shard_wal_path(
+        &self,
+        tablespace_id: TablespaceId,
+        tenant_id: TenantId,
+        database_id: DatabaseId,
+        index_id: IndexId,
+        shard_number: ShardNumber,
+    ) -> KeyValueResult<Path> {
+        let mut path = self.index_shard_base_path(
+            tablespace_id,
+            tenant_id,
+            database_id,
+            index_id,
+            shard_number,
+        )?;
+        path.push("wal");
+        self.validate_path(path)
+    }
+
+    /// Get shard Raft path (for replicated shards)
+    pub fn index_shard_raft_logs_path(
+        &self,
+        tablespace_id: TablespaceId,
+        tenant_id: TenantId,
+        database_id: DatabaseId,
+        index_id: IndexId,
+        shard_number: ShardNumber,
+    ) -> KeyValueResult<Path> {
+        let mut path = self.index_shard_base_path(
+            tablespace_id,
+            tenant_id,
+            database_id,
+            index_id,
+            shard_number,
+        )?;
+        path.push("logs");
+        self.validate_path(path)
+    }
+    pub fn index_shard_snapshots_path(
+        &self,
+        tablespace_id: TablespaceId,
+        tenant_id: TenantId,
+        database_id: DatabaseId,
+        index_id: IndexId,
+        shard_number: ShardNumber,
+    ) -> KeyValueResult<Path> {
+        let mut path = self.index_shard_base_path(
+            tablespace_id,
+            tenant_id,
+            database_id,
+            index_id,
+            shard_number,
+        )?;
+        path.push("snapshots");
         self.validate_path(path)
     }
 }
@@ -588,13 +740,13 @@ impl TablespaceStorage {
 mod tests {
     use super::*;
     use nanograph_core::config::TablespaceConfig;
-    use nanograph_core::object::{TablespaceRecord, StorageTier};
+    use nanograph_core::object::{ObjectId, StorageTier, TableShardId, TablespaceRecord};
     use nanograph_vfs::MemoryFileSystem;
 
     fn setup_resolver() -> StoragePathResolver {
         let vfs = Arc::new(MemoryFileSystem::new());
-        let default_tablespace = TablespaceId(1);
-        let resolver = StoragePathResolver::new(
+        let _default_tablespace = TablespaceId(1);
+        let mut resolver = StoragePathResolver::new(
             vfs.clone(),
             StorageConfig {
                 system_path: "file:///data/system".to_string(),
@@ -621,6 +773,9 @@ mod tests {
                 ]),
             },
         );
+
+        // Disable path validation for tests since we're using MemoryFileSystem
+        resolver.validate_paths = false;
 
         resolver
             .register_tablespace(TablespaceRecord {
@@ -796,7 +951,7 @@ mod tests {
         let ts = TablespaceId(1);
         let tenant = TenantId(0x123);
         let db = DatabaseId(0x456);
-        let table = TableId(0x789);
+        let table = TableId(ObjectId::new(0x789));
 
         assert_eq!(
             resolver
@@ -848,40 +1003,40 @@ mod tests {
         let ts = TablespaceId(1);
         let tenant = TenantId(0x123);
         let db = DatabaseId(0x456);
-        let table = TableId(0x789);
+        let table = TableId(ObjectId::new(0x789));
         let shard = ShardNumber(1);
 
         assert_eq!(
             resolver
-                .shard_base_path(ts, tenant, db, table, shard)
+                .table_shard_base_path(ts, tenant, db, table, shard)
                 .unwrap()
                 .to_string(),
             "file:///data/ts1/containers/tenant_291/database_1110/table_1929/shard_1"
         );
         assert_eq!(
             resolver
-                .shard_data_path(ts, tenant, db, table, shard)
+                .table_shard_data_path(ts, tenant, db, table, shard)
                 .unwrap()
                 .to_string(),
             "file:///data/ts1/containers/tenant_291/database_1110/table_1929/shard_1/data"
         );
         assert_eq!(
             resolver
-                .shard_wal_path(ts, tenant, db, table, shard)
+                .table_shard_wal_path(ts, tenant, db, table, shard)
                 .unwrap()
                 .to_string(),
             "file:///data/ts1/containers/tenant_291/database_1110/table_1929/shard_1/wal"
         );
         assert_eq!(
             resolver
-                .shard_raft_logs_path(ts, tenant, db, table, shard)
+                .table_shard_raft_logs_path(ts, tenant, db, table, shard)
                 .unwrap()
                 .to_string(),
             "file:///data/ts1/containers/tenant_291/database_1110/table_1929/shard_1/logs"
         );
         assert_eq!(
             resolver
-                .shard_snapshots_path(ts, tenant, db, table, shard)
+                .table_shard_snapshots_path(ts, tenant, db, table, shard)
                 .unwrap()
                 .to_string(),
             "file:///data/ts1/containers/tenant_291/database_1110/table_1929/shard_1/snapshots"
@@ -901,15 +1056,15 @@ mod tests {
         let ts = TablespaceId(1);
         let tenant = TenantId(0x123);
         let db = DatabaseId(0x456);
-        let table = TableId(0x789);
-        let index = IndexNumber(2);
+        let index = IndexId(ObjectId::new(0x789));
+        let _shard_number = ShardNumber(2);
 
         assert_eq!(
             resolver
-                .index_base_path(ts, tenant, db, table, index)
+                .index_base_path(ts, tenant, db, index)
                 .unwrap()
                 .to_string(),
-            "file:///data/ts1/containers/tenant_291/database_1110/table_1929/index_2"
+            "file:///data/ts1/containers/tenant_291/database_1110/index_1929"
         );
     }
 
@@ -922,77 +1077,134 @@ mod tests {
         let tenant2 = TenantId(2);
         let db1 = DatabaseId(1);
         let db2 = DatabaseId(2);
-        let table1 = TableId(1);
-        let table2 = TableId(2);
-        let shard1 = ShardNumber(1);
-        let shard2 = ShardNumber(2);
-        let index1 = IndexNumber(1);
-        let index2 = IndexNumber(2);
+        let table1 = TableId(ObjectId::new(1));
+        let table2 = TableId(ObjectId::new(2));
+        let table_shard1 = ShardNumber(1);
+        let table_shard2 = ShardNumber(2);
+        let index1 = IndexId(ObjectId::new(1));
+        let index2 = IndexId(ObjectId::new(2));
+        let index_shard1 = ShardNumber(1);
+        let index_shard2 = ShardNumber(2);
 
-        println!("--- Path Type 1 ---");
-        println!("System 1: {}", resolver.system_base_path(ts1).unwrap());
-        println!(
-            "Tenant 1: {}",
-            resolver.tenant_base_path(ts1, tenant1).unwrap()
-        );
-        println!(
-            "Database 1: {}",
-            resolver.database_base_path(ts1, tenant1, db1).unwrap()
-        );
-        println!(
-            "Table 1: {}",
-            resolver.table_base_path(ts1, tenant1, db1, table1).unwrap()
-        );
-        println!(
-            "Shard 1: {}",
-            resolver
-                .shard_base_path(ts1, tenant1, db1, table1, shard1)
-                .unwrap()
-        );
-        println!(
-            "Index 1: {}",
-            resolver
-                .index_base_path(ts1, tenant1, db1, table1, index1)
-                .unwrap()
-        );
-        println!(
-            "LSM 1: {}",
-            resolver
-                .lsm_level_path(ts1, tenant1, db1, table1, shard1, 0)
-                .unwrap()
-        );
+        println!("\n=== SYSTEM PATHS (Set 1) ===");
+        println!("system_log_path: {}", resolver.system_log_path().unwrap());
+        println!("system_base_path: {}", resolver.system_base_path(ts1).unwrap());
+        println!("system_metadata_path: {}", resolver.system_metadata_path(ts1).unwrap());
+        println!("system_data_path: {}", resolver.system_data_path(ts1).unwrap());
+        println!("system_wal_path: {}", resolver.system_wal_path(ts1).unwrap());
+        println!("system_raft_logs_path: {}", resolver.system_raft_logs_path(ts1).unwrap());
+        println!("system_raft_snapshots_path: {}", resolver.system_raft_snapshots_path(ts1).unwrap());
 
-        println!("\n--- Path Type 2 ---");
-        println!("System 2: {}", resolver.system_base_path(ts2).unwrap());
-        println!(
-            "Tenant 2: {}",
-            resolver.tenant_base_path(ts2, tenant2).unwrap()
-        );
-        println!(
-            "Database 2: {}",
-            resolver.database_base_path(ts2, tenant2, db2).unwrap()
-        );
-        println!(
-            "Table 2: {}",
-            resolver.table_base_path(ts2, tenant2, db2, table2).unwrap()
-        );
-        println!(
-            "Shard 2: {}",
-            resolver
-                .shard_base_path(ts2, tenant2, db2, table2, shard2)
-                .unwrap()
-        );
-        println!(
-            "Index 2: {}",
-            resolver
-                .index_base_path(ts2, tenant2, db2, table2, index2)
-                .unwrap()
-        );
-        println!(
-            "LSM 2: {}",
-            resolver
-                .lsm_level_path(ts2, tenant2, db2, table2, shard2, 1)
-                .unwrap()
-        );
+        println!("\n=== SYSTEM PATHS (Set 2) ===");
+        println!("system_log_path: {}", resolver.system_log_path().unwrap());
+        println!("system_base_path: {}", resolver.system_base_path(ts2).unwrap());
+        println!("system_metadata_path: {}", resolver.system_metadata_path(ts2).unwrap());
+        println!("system_data_path: {}", resolver.system_data_path(ts2).unwrap());
+        println!("system_wal_path: {}", resolver.system_wal_path(ts2).unwrap());
+        println!("system_raft_logs_path: {}", resolver.system_raft_logs_path(ts2).unwrap());
+        println!("system_raft_snapshots_path: {}", resolver.system_raft_snapshots_path(ts2).unwrap());
+
+        println!("\n=== TENANT PATHS (Set 1) ===");
+        println!("tenant_base_path: {}", resolver.tenant_base_path(ts1, tenant1).unwrap());
+        println!("tenant_metadata_path: {}", resolver.tenant_metadata_path(ts1, tenant1).unwrap());
+        println!("tenant_data_path: {}", resolver.tenant_data_path(ts1, tenant1).unwrap());
+        println!("tenant_wal_path: {}", resolver.tenant_wal_path(ts1, tenant1).unwrap());
+        println!("tenant_raft_logs_path: {}", resolver.tenant_raft_logs_path(ts1, tenant1).unwrap());
+        println!("container_snapshots_path: {}", resolver.container_snapshots_path(ts1, tenant1).unwrap());
+
+        println!("\n=== TENANT PATHS (Set 2) ===");
+        println!("tenant_base_path: {}", resolver.tenant_base_path(ts2, tenant2).unwrap());
+        println!("tenant_metadata_path: {}", resolver.tenant_metadata_path(ts2, tenant2).unwrap());
+        println!("tenant_data_path: {}", resolver.tenant_data_path(ts2, tenant2).unwrap());
+        println!("tenant_wal_path: {}", resolver.tenant_wal_path(ts2, tenant2).unwrap());
+        println!("tenant_raft_logs_path: {}", resolver.tenant_raft_logs_path(ts2, tenant2).unwrap());
+        println!("container_snapshots_path: {}", resolver.container_snapshots_path(ts2, tenant2).unwrap());
+
+        println!("\n=== DATABASE PATHS (Set 1) ===");
+        println!("database_base_path: {}", resolver.database_base_path(ts1, tenant1, db1).unwrap());
+        println!("database_metadata_path: {}", resolver.database_metadata_path(ts1, tenant1, db1).unwrap());
+        println!("database_data_path: {}", resolver.database_data_path(ts1, tenant1, db1).unwrap());
+        println!("database_wal_path: {}", resolver.database_wal_path(ts1, tenant1, db1).unwrap());
+        println!("database_raft_logs_path: {}", resolver.database_raft_logs_path(ts1, tenant1, db1).unwrap());
+        println!("database_snapshots_path: {}", resolver.database_snapshots_path(ts1, tenant1, db1).unwrap());
+
+        println!("\n=== DATABASE PATHS (Set 2) ===");
+        println!("database_base_path: {}", resolver.database_base_path(ts2, tenant2, db2).unwrap());
+        println!("database_metadata_path: {}", resolver.database_metadata_path(ts2, tenant2, db2).unwrap());
+        println!("database_data_path: {}", resolver.database_data_path(ts2, tenant2, db2).unwrap());
+        println!("database_wal_path: {}", resolver.database_wal_path(ts2, tenant2, db2).unwrap());
+        println!("database_raft_logs_path: {}", resolver.database_raft_logs_path(ts2, tenant2, db2).unwrap());
+        println!("database_snapshots_path: {}", resolver.database_snapshots_path(ts2, tenant2, db2).unwrap());
+
+        println!("\n=== TABLE PATHS (Set 1) ===");
+        println!("table_base_path: {}", resolver.table_base_path(ts1, tenant1, db1, table1).unwrap());
+        println!("table_metadata_path: {}", resolver.table_metadata_path(ts1, tenant1, db1, table1).unwrap());
+        println!("table_data_path: {}", resolver.table_data_path(ts1, tenant1, db1, table1).unwrap());
+        println!("table_wal_path: {}", resolver.table_wal_path(ts1, tenant1, db1, table1).unwrap());
+        println!("table_raft_logs_path: {}", resolver.table_raft_logs_path(ts1, tenant1, db1, table1).unwrap());
+        println!("table_snapshots_path: {}", resolver.table_snapshots_path(ts1, tenant1, db1, table1).unwrap());
+
+        println!("\n=== TABLE PATHS (Set 2) ===");
+        println!("table_base_path: {}", resolver.table_base_path(ts2, tenant2, db2, table2).unwrap());
+        println!("table_metadata_path: {}", resolver.table_metadata_path(ts2, tenant2, db2, table2).unwrap());
+        println!("table_data_path: {}", resolver.table_data_path(ts2, tenant2, db2, table2).unwrap());
+        println!("table_wal_path: {}", resolver.table_wal_path(ts2, tenant2, db2, table2).unwrap());
+        println!("table_raft_logs_path: {}", resolver.table_raft_logs_path(ts2, tenant2, db2, table2).unwrap());
+        println!("table_snapshots_path: {}", resolver.table_snapshots_path(ts2, tenant2, db2, table2).unwrap());
+
+        println!("\n=== TABLE SHARD PATHS (Set 1) ===");
+        println!("table_shard_base_path: {}", resolver.table_shard_base_path(ts1, tenant1, db1, table1, table_shard1).unwrap());
+        println!("table_shard_data_path: {}", resolver.table_shard_data_path(ts1, tenant1, db1, table1, table_shard1).unwrap());
+        println!("table_shard_wal_path: {}", resolver.table_shard_wal_path(ts1, tenant1, db1, table1, table_shard1).unwrap());
+        println!("table_shard_raft_logs_path: {}", resolver.table_shard_raft_logs_path(ts1, tenant1, db1, table1, table_shard1).unwrap());
+        println!("table_shard_snapshots_path: {}", resolver.table_shard_snapshots_path(ts1, tenant1, db1, table1, table_shard1).unwrap());
+
+        println!("\n=== TABLE SHARD PATHS (Set 2) ===");
+        println!("table_shard_base_path: {}", resolver.table_shard_base_path(ts2, tenant2, db2, table2, table_shard2).unwrap());
+        println!("table_shard_data_path: {}", resolver.table_shard_data_path(ts2, tenant2, db2, table2, table_shard2).unwrap());
+        println!("table_shard_wal_path: {}", resolver.table_shard_wal_path(ts2, tenant2, db2, table2, table_shard2).unwrap());
+        println!("table_shard_raft_logs_path: {}", resolver.table_shard_raft_logs_path(ts2, tenant2, db2, table2, table_shard2).unwrap());
+        println!("table_shard_snapshots_path: {}", resolver.table_shard_snapshots_path(ts2, tenant2, db2, table2, table_shard2).unwrap());
+
+        println!("\n=== LSM LEVEL PATHS (Set 1) ===");
+        println!("lsm_level_path (L0): {}", resolver.lsm_level_path(ts1, tenant1, db1, table1, table_shard1, 0).unwrap());
+        println!("lsm_level_path (L1): {}", resolver.lsm_level_path(ts1, tenant1, db1, table1, table_shard1, 1).unwrap());
+
+        println!("\n=== LSM LEVEL PATHS (Set 2) ===");
+        println!("lsm_level_path (L0): {}", resolver.lsm_level_path(ts2, tenant2, db2, table2, table_shard2, 0).unwrap());
+        println!("lsm_level_path (L1): {}", resolver.lsm_level_path(ts2, tenant2, db2, table2, table_shard2, 1).unwrap());
+
+        println!("\n=== INDEX PATHS (Set 1) ===");
+        println!("index_base_path: {}", resolver.index_base_path(ts1, tenant1, db1, index1).unwrap());
+        println!("index_metadata_path: {}", resolver.index_metadata_path(ts1, tenant1, db1, index1).unwrap());
+        println!("index_data_path: {}", resolver.index_data_path(ts1, tenant1, db1, index1).unwrap());
+        println!("index_wal_path: {}", resolver.index_wal_path(ts1, tenant1, db1, index1).unwrap());
+        println!("index_raft_logs_path: {}", resolver.index_raft_logs_path(ts1, tenant1, db1, index1).unwrap());
+        println!("index_snapshots_path: {}", resolver.index_snapshots_path(ts1, tenant1, db1, index1).unwrap());
+
+        println!("\n=== INDEX PATHS (Set 2) ===");
+        println!("index_base_path: {}", resolver.index_base_path(ts2, tenant2, db2, index2).unwrap());
+        println!("index_metadata_path: {}", resolver.index_metadata_path(ts2, tenant2, db2, index2).unwrap());
+        println!("index_data_path: {}", resolver.index_data_path(ts2, tenant2, db2, index2).unwrap());
+        println!("index_wal_path: {}", resolver.index_wal_path(ts2, tenant2, db2, index2).unwrap());
+        println!("index_raft_logs_path: {}", resolver.index_raft_logs_path(ts2, tenant2, db2, index2).unwrap());
+        println!("index_snapshots_path: {}", resolver.index_snapshots_path(ts2, tenant2, db2, index2).unwrap());
+
+        println!("\n=== INDEX SHARD PATHS (Set 1) ===");
+        println!("index_shard_base_path: {}", resolver.index_shard_base_path(ts1, tenant1, db1, index1, index_shard1).unwrap());
+        println!("index_shard_data_path: {}", resolver.index_shard_data_path(ts1, tenant1, db1, index1, index_shard1).unwrap());
+        println!("index_shard_wal_path: {}", resolver.index_shard_wal_path(ts1, tenant1, db1, index1, index_shard1).unwrap());
+        println!("index_shard_raft_logs_path: {}", resolver.index_shard_raft_logs_path(ts1, tenant1, db1, index1, index_shard1).unwrap());
+        println!("index_shard_snapshots_path: {}", resolver.index_shard_snapshots_path(ts1, tenant1, db1, index1, index_shard1).unwrap());
+
+        println!("\n=== INDEX SHARD PATHS (Set 2) ===");
+        println!("index_shard_base_path: {}", resolver.index_shard_base_path(ts2, tenant2, db2, index2, index_shard2).unwrap());
+        println!("index_shard_data_path: {}", resolver.index_shard_data_path(ts2, tenant2, db2, index2, index_shard2).unwrap());
+        println!("index_shard_wal_path: {}", resolver.index_shard_wal_path(ts2, tenant2, db2, index2, index_shard2).unwrap());
+        println!("index_shard_raft_logs_path: {}", resolver.index_shard_raft_logs_path(ts2, tenant2, db2, index2, index_shard2).unwrap());
+        println!("index_shard_snapshots_path: {}", resolver.index_shard_snapshots_path(ts2, tenant2, db2, index2, index_shard2).unwrap());
+
+        println!("\n=== TEST COMPLETE ===");
+        println!("Total path types tested: 42 (all path methods covered)");
     }
 }

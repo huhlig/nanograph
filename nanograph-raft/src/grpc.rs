@@ -19,7 +19,7 @@
 use crate::error::ConsensusError;
 use crate::types::*;
 use nanograph_core::object::{
-    ClusterId, DatabaseId, NodeId, RegionId, ServerId, ShardId, ShardNumber, TableId, TenantId,
+    ClusterId, DatabaseId, NodeId, ObjectId, RegionId, ServerId, ShardId, ShardNumber, TenantId,
 };
 use openraft::vote::RaftLeaderId;
 
@@ -56,7 +56,7 @@ impl From<ShardId> for pb::ShardId {
         pb::ShardId {
             tenant_id: shard_id.tenant().as_u32(),
             database_id: shard_id.database().as_u32(),
-            table_id: shard_id.table().as_u32(),
+            object_id: shard_id.object().as_u32(),
             shard_number: shard_id.shard_number().as_u32(),
         }
     }
@@ -68,7 +68,7 @@ impl From<pb::ShardId> for ShardId {
         ShardId::from_parts(
             TenantId::new(pb.tenant_id),
             DatabaseId::new(pb.database_id),
-            TableId::new(pb.table_id),
+            ObjectId::new(pb.object_id),
             ShardNumber::new(pb.shard_number),
         )
     }
@@ -339,11 +339,13 @@ impl From<ConsensusAppendEntriesResponse> for pb::AppendEntriesResponse {
                 conflict: false,
                 last_log_id: None,
             },
-            ConsensusAppendEntriesResponse::PartialSuccess(last_log_id) => pb::AppendEntriesResponse {
-                rejected_by: None,
-                conflict: false,
-                last_log_id: last_log_id.map(|id| id.into()),
-            },
+            ConsensusAppendEntriesResponse::PartialSuccess(last_log_id) => {
+                pb::AppendEntriesResponse {
+                    rejected_by: None,
+                    conflict: false,
+                    last_log_id: last_log_id.map(|id| id.into()),
+                }
+            }
         }
     }
 }
@@ -369,24 +371,18 @@ impl TryFrom<pb::AppendEntriesResponse> for ConsensusAppendEntriesResponse {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::Operation;
     use nanograph_core::object::{
-        ClusterId, DatabaseId, NodeId, RegionId, ServerId, ShardId, ShardNumber, TableId, TenantId,
+        ClusterId, DatabaseId, NodeId, ObjectId, RegionId, ServerId, ShardId, ShardNumber, TenantId,
     };
     use openraft::vote::leader_id_std::CommittedLeaderId;
 
     #[test]
     fn test_node_id_conversion() {
-        let node_id = NodeId::from_parts(
-            ClusterId::new(1),
-            RegionId::new(2),
-            ServerId::new(3),
-        );
+        let node_id = NodeId::from_parts(ClusterId::new(1), RegionId::new(2), ServerId::new(3));
         let pb: pb::NodeId = node_id.into();
         assert_eq!(pb.cluster, 1);
         assert_eq!(pb.region, 2);
@@ -398,16 +394,12 @@ mod tests {
 
     #[test]
     fn test_shard_id_conversion() {
-        let shard_id = ShardId::from_parts(
-            TenantId::new(1),
-            DatabaseId::new(2),
-            TableId::new(3),
-            ShardNumber::new(4),
-        );
+        let shard_id =
+            ShardId::from_parts(TenantId::new(1), DatabaseId::new(2), ObjectId::new(3), ShardNumber::new(4));
         let pb: pb::ShardId = shard_id.into();
         assert_eq!(pb.tenant_id, 1);
         assert_eq!(pb.database_id, 2);
-        assert_eq!(pb.table_id, 3);
+        assert_eq!(pb.object_id, 3);
         assert_eq!(pb.shard_number, 4);
 
         let back: ShardId = pb.into();
@@ -491,10 +483,7 @@ mod tests {
             leader_id: CommittedLeaderId::new(9),
             index: 90,
         });
-        let req = ConsensusVoteRequest {
-            vote,
-            last_log_id,
-        };
+        let req = ConsensusVoteRequest { vote, last_log_id };
         let pb: pb::VoteRequest = req.clone().into();
         assert!(pb.vote.is_some());
         assert!(pb.last_log_id.is_some());
@@ -534,7 +523,9 @@ mod tests {
                 leader_id: CommittedLeaderId::new(10),
                 index: 100,
             },
-            payload: openraft::entry::EntryPayload::Normal(Operation::Delete { key: b"test".to_vec() }),
+            payload: openraft::entry::EntryPayload::Normal(Operation::Delete {
+                key: b"test".to_vec(),
+            }),
         };
         let pb: pb::LogEntry = entry.clone().into();
         assert_eq!(pb.term, 10);
@@ -544,7 +535,10 @@ mod tests {
         assert_eq!(back.log_id, entry.log_id);
         // payload should match too, assuming serde roundtrip works
         match (back.payload, entry.payload) {
-            (openraft::entry::EntryPayload::Normal(Operation::Delete { key: k1 }), openraft::entry::EntryPayload::Normal(Operation::Delete { key: k2 })) => assert_eq!(k1, k2),
+            (
+                openraft::entry::EntryPayload::Normal(Operation::Delete { key: k1 }),
+                openraft::entry::EntryPayload::Normal(Operation::Delete { key: k2 }),
+            ) => assert_eq!(k1, k2),
             _ => panic!("Payload mismatch"),
         }
     }
@@ -563,7 +557,9 @@ mod tests {
                     leader_id: CommittedLeaderId::new(10),
                     index: 91,
                 },
-                payload: openraft::entry::EntryPayload::Normal(Operation::Delete { key: b"test".to_vec() }),
+                payload: openraft::entry::EntryPayload::Normal(Operation::Delete {
+                    key: b"test".to_vec(),
+                }),
             }],
             leader_commit: Some(ConsensusLogId {
                 leader_id: CommittedLeaderId::new(10),

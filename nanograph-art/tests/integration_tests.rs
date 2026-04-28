@@ -20,7 +20,7 @@ mod test_utils;
 
 use futures::StreamExt;
 use nanograph_art::{AdaptiveRadixTree, ArtKeyValueStore};
-use nanograph_kvt::{IndexNumber, KeyRange, KeyValueShardStore, ShardId, TableId};
+use nanograph_kvt::{KeyRange, KeyValueShardStore, ShardId};
 use std::ops::Bound;
 use std::sync::Arc;
 use test_utils::*;
