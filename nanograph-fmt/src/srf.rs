@@ -13,9 +13,3 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-
-use crate::network::router::ConsensusGroupRouter;
-use nanograph_core::object::ShardId;
-use openraft_multi::GroupNetworkFactory;
-
-pub type ConsensusNetworkFactory = GroupNetworkFactory<ConsensusGroupRouter, ShardId>;
