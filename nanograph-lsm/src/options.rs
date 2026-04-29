@@ -39,6 +39,17 @@ pub struct LSMTreeOptions {
     pub block_size: usize,
     /// Durability level for write operations
     pub durability: Durability,
+    /// Value size threshold for blob separation (WiscKey-style)
+    /// Values larger than this threshold are stored in separate blob log files
+    /// Default: 4096 bytes (4KB)
+    pub value_separation_threshold: usize,
+    /// Enable value separation (WiscKey-style blob log)
+    /// When enabled, values larger than value_separation_threshold are stored separately
+    pub enable_value_separation: bool,
+    /// Blob log garbage collection threshold
+    /// Files with live data ratio below this threshold are candidates for GC
+    /// Default: 0.5 (50%)
+    pub blob_gc_threshold: f64,
 }
 
 impl Default for LSMTreeOptions {
@@ -53,6 +64,9 @@ impl Default for LSMTreeOptions {
             memtable_size: 64 * 1024 * 1024, // 64MB
             block_size: 4096,                // 4KB
             durability: Durability::Flush,   // Default to Flush for balance
+            value_separation_threshold: 4096, // 4KB - values larger than this go to blob log
+            enable_value_separation: true,   // Enable WiscKey-style value separation by default
+            blob_gc_threshold: 0.5,          // GC blob files with <50% live data
         }
     }
 }

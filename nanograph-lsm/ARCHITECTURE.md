@@ -229,6 +229,79 @@ LSMTreeOptions {
 }
 ```
 
+
+## WiscKey-Style Value Separation (In Progress)
+
+### Overview
+Large values (>4KB by default) are stored separately in blob log files, while SSTables store only references. This reduces write amplification for large values and improves compaction performance.
+
+### Blob Log Format
+
+Each blob log file contains a sequence of blob records:
+
+```
+[Record 1] [Record 2] ... [Record N]
+```
+
+#### Blob Record Format:
+```
+[Magic: 4] [Key Length: 4] [Value Length: 4] [Key] [Value] [CRC32: 4]
+```
+
+- **Magic**: 0x424C4F42 ("BLOB") - identifies start of record
+- **Key Length**: u32 little-endian - length of key in bytes
+- **Value Length**: u32 little-endian - length of value in bytes  
+- **Key**: Variable length key data
+- **Value**: Variable length value data
+- **CRC32**: u32 little-endian - CRC32C checksum of entire record (excluding CRC32 itself)
+
+### Value Location
+
+Values can be stored in two ways:
+
+1. **Inline**: Small values (<= threshold) stored directly in SSTable
+2. **Blob Reference**: Large values (> threshold) stored in blob log, SSTable contains `(file_id, offset, length)`
+
+### Garbage Collection
+
+Blob files are garbage collected when:
+- A compaction removes all references to blobs in a file
+- The file's live data ratio falls below threshold (default 50%)
+
+GC process:
+1. Identify blob files with low live ratio
+2. Read live blobs and write to new blob file
+3. Update SSTable references during compaction
+4. Delete old blob files after references are updated
+
+### Configuration
+
+```rust
+LSMTreeOptions {
+    value_separation_threshold: 4096,  // 4KB - values larger go to blob log
+    enable_value_separation: true,     // Enable WiscKey-style separation
+    blob_gc_threshold: 0.5,            // GC files with <50% live data
+}
+```
+
+### Implementation Status
+
+**Completed:**
+- Blob log file format with CRC32 checksums
+- BlobLog manager for writing/reading blobs
+- Value separation configuration options
+- Entry struct with ValueLocation enum (Inline vs Blob)
+- Blob reference tracking and GC candidate detection
+
+**In Progress (see issue nanograph-11z):**
+- Integration with SSTable encoding/decoding
+- Blob resolution at read time in engine
+- Memtable flush with value separation
+- Blob garbage collection implementation
+- Recovery and consistency checks
+- Metrics for blob storage
+- Comprehensive tests
+
 ## Future Enhancements
 
 1. **Universal Compaction**: Alternative to leveled for write-heavy workloads

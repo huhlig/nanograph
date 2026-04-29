@@ -14,29 +14,105 @@
 // limitations under the License.
 //
 
+use crate::bloblog::BlobRef;
 use std::collections::BTreeMap;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering as AtomicOrdering};
 
-/// Entry in the memtable with MVCC support
+/// Value storage location - either inline or in blob log
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ValueLocation {
+    /// Value stored inline in the entry
+    Inline(Vec<u8>),
+    /// Value stored in blob log (reference only)
+    Blob(BlobRef),
+}
+
+impl ValueLocation {
+    /// Get the size of the value (for size tracking)
+    pub fn size(&self) -> usize {
+        match self {
+            ValueLocation::Inline(data) => data.len(),
+            ValueLocation::Blob(_) => BlobRef::serialized_size(),
+        }
+    }
+
+    /// Check if this is a blob reference
+    pub fn is_blob(&self) -> bool {
+        matches!(self, ValueLocation::Blob(_))
+    }
+
+    /// Get blob reference if this is a blob
+    pub fn as_blob(&self) -> Option<&BlobRef> {
+        match self {
+            ValueLocation::Blob(blob_ref) => Some(blob_ref),
+            _ => None,
+        }
+    }
+
+    /// Get inline value if this is inline
+    pub fn as_inline(&self) -> Option<&[u8]> {
+        match self {
+            ValueLocation::Inline(data) => Some(data),
+            _ => None,
+        }
+    }
+
+    /// Get the inline value as Vec<u8>, cloning if necessary
+    /// Returns None if this is a blob reference
+    pub fn to_vec(&self) -> Option<Vec<u8>> {
+        match self {
+            ValueLocation::Inline(data) => Some(data.clone()),
+            ValueLocation::Blob(_) => None,
+        }
+    }
+
+    /// Get the length of the inline value
+    /// For blob references, returns the serialized size of the reference
+    pub fn len(&self) -> usize {
+        self.size()
+    }
+
+    /// Check if empty (only for inline values)
+    pub fn is_empty(&self) -> bool {
+        match self {
+            ValueLocation::Inline(data) => data.is_empty(),
+            ValueLocation::Blob(_) => false,
+        }
+    }
+}
+
+/// Entry in the memtable with MVCC support and blob reference support
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
     pub key: Vec<u8>,
-    pub value: Option<Vec<u8>>, // None represents a deletion
+    pub value: Option<ValueLocation>, // None represents a deletion
     pub sequence: u64,
     pub commit_ts: Option<i64>, // None = uncommitted, Some = committed at this timestamp
 }
 
 impl Entry {
+    /// Create a new entry with inline value
     pub fn new(key: Vec<u8>, value: Option<Vec<u8>>, sequence: u64) -> Self {
         Self {
             key,
-            value,
+            value: value.map(ValueLocation::Inline),
             sequence,
             commit_ts: None, // Initially uncommitted
         }
     }
 
+    /// Create a new entry with blob reference
+    pub fn new_with_blob(key: Vec<u8>, blob_ref: BlobRef, sequence: u64) -> Self {
+        Self {
+            key,
+            value: Some(ValueLocation::Blob(blob_ref)),
+            sequence,
+            commit_ts: None,
+        }
+    }
+
+    /// Create an entry with inline value and commit timestamp
     pub fn with_commit_ts(
         key: Vec<u8>,
         value: Option<Vec<u8>>,
@@ -45,7 +121,22 @@ impl Entry {
     ) -> Self {
         Self {
             key,
-            value,
+            value: value.map(ValueLocation::Inline),
+            sequence,
+            commit_ts: Some(commit_ts),
+        }
+    }
+
+    /// Create an entry with blob reference and commit timestamp
+    pub fn with_blob_and_commit_ts(
+        key: Vec<u8>,
+        blob_ref: BlobRef,
+        sequence: u64,
+        commit_ts: i64,
+    ) -> Self {
+        Self {
+            key,
+            value: Some(ValueLocation::Blob(blob_ref)),
             sequence,
             commit_ts: Some(commit_ts),
         }
@@ -59,8 +150,36 @@ impl Entry {
         }
     }
 
+    /// Get the size of this entry for memory tracking
     pub fn size(&self) -> usize {
-        self.key.len() + self.value.as_ref().map_or(0, |v| v.len()) + 16 // +16 for sequence and commit_ts
+        self.key.len() + self.value.as_ref().map_or(0, |v| v.size()) + 16 // +16 for sequence and commit_ts
+    }
+
+    /// Check if this entry has a blob reference
+    pub fn has_blob(&self) -> bool {
+        self.value.as_ref().map_or(false, |v| v.is_blob())
+    }
+
+    /// Get the blob reference if this entry has one
+    pub fn blob_ref(&self) -> Option<&BlobRef> {
+        self.value.as_ref().and_then(|v| v.as_blob())
+    }
+
+    /// Get the inline value if this entry has one
+    pub fn inline_value(&self) -> Option<&[u8]> {
+        self.value.as_ref().and_then(|v| v.as_inline())
+    }
+
+    /// Get the value as Vec<u8> for backward compatibility
+    /// Returns None if this is a deletion or a blob reference
+    /// For blob references, the caller must resolve the blob separately
+    pub fn value_as_vec(&self) -> Option<Vec<u8>> {
+        self.value.as_ref().and_then(|v| v.to_vec())
+    }
+
+    /// Check if this entry is a deletion (tombstone)
+    pub fn is_deletion(&self) -> bool {
+        self.value.is_none()
     }
 }
 

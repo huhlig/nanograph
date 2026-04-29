@@ -163,6 +163,7 @@
 //! # }
 //! ```
 
+mod bloblog;
 mod cache;
 mod compaction;
 mod config;
@@ -177,6 +178,7 @@ mod sstable;
 mod transaction;
 mod wal_record;
 
+pub use self::bloblog::{BlobFileMetadata, BlobLog, BlobRecord, BlobRef};
 pub use self::cache::{BlockCache, BlockKey, CacheStats};
 pub use self::compaction::{CompactionStrategy, CompactionTask};
 pub use self::config::LSMStorageConfig;
@@ -184,7 +186,7 @@ pub use self::engine::{EngineStats, LSMTreeEngine, LevelStats};
 pub use self::error::{ErrorSeverity, LSMError, LSMResult};
 pub use self::iterator::LSMIterator;
 pub use self::kvstore::LSMKeyValueStore;
-pub use self::memtable::{Entry, MemTable};
+pub use self::memtable::{Entry, MemTable, ValueLocation};
 pub use self::metrics::{BloomFilterResult, LSMMetrics, MetricsSnapshot};
 pub use self::options::LSMTreeOptions;
 pub use self::sstable::{DataBlock, SSTable, SSTableMetadata};
