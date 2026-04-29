@@ -113,6 +113,36 @@ Write → WAL → MemTable → [Threshold?] → Immutable MemTable → Backgroun
 - **Version Control**: MVCC-style versioning for consistent snapshots
 - **Manifest File**: Tracks current SSTable set, atomic updates
 
+### 8. **Transaction Management & GC Watermark**
+
+#### MVCC Snapshot Isolation
+- Each transaction gets a snapshot timestamp at begin time
+- Transactions see a consistent view of data as of their snapshot
+- Write operations are buffered and applied atomically at commit
+
+#### GC Watermark Tracking
+The transaction manager tracks the **minimum active snapshot sequence number** (GC watermark), which is the oldest snapshot timestamp among all active transactions. This enables safe garbage collection during compaction:
+
+- **Purpose**: Data with timestamps older than the watermark can be safely removed during compaction, as no active transaction can see it
+- **Tracking**: Active transactions are registered with their snapshot timestamps in a HashMap
+- **Calculation**: The watermark is the minimum value across all active snapshot timestamps
+- **Cleanup**: Transactions are automatically removed from tracking on commit or rollback
+- **Metrics**: Exposed via `LSMMetrics` as:
+  - `active_transactions`: Number of currently active transactions
+  - `min_active_snapshot_seq`: The GC watermark (i64::MAX when no transactions are active)
+
+#### Usage in Compaction
+During compaction, the GC watermark determines which old versions can be discarded:
+```rust
+let watermark = tx_manager.min_active_snapshot_seq();
+if let Some(min_seq) = watermark {
+    // Can safely discard versions older than min_seq
+    // No active transaction can see them
+}
+```
+
+This prevents premature deletion of data that might still be visible to long-running read transactions, while allowing aggressive cleanup of truly obsolete versions.
+
 ### 8. **Additional Features**
 
 #### Bloom Filter:

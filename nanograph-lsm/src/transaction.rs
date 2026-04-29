@@ -298,6 +298,8 @@ impl Transaction for LSMTransaction {
 pub struct TransactionManager {
     next_tx_id: Arc<Mutex<u64>>,
     store: Arc<LSMKeyValueStore>,
+    /// Track active transactions and their snapshot timestamps for GC watermark
+    active_snapshots: Arc<Mutex<HashMap<TransactionId, i64>>>,
 }
 
 impl TransactionManager {
@@ -305,6 +307,7 @@ impl TransactionManager {
         Self {
             next_tx_id: Arc::new(Mutex::new(1)),
             store,
+            active_snapshots: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -326,17 +329,124 @@ impl TransactionManager {
 
         // Use real wall-clock time for snapshot isolation
         let snapshot_ts = Timestamp::now();
+        let snapshot_ts_millis = snapshot_ts.as_millis();
 
-        Arc::new(LSMTransaction::new(
+        // Register this transaction's snapshot timestamp
+        {
+            let mut snapshots = self.active_snapshots.lock().unwrap();
+            snapshots.insert(tx_id, snapshot_ts_millis);
+        }
+
+        let tx = Arc::new(LSMTransaction::new(
             tx_id,
             snapshot_ts,
             Arc::clone(&self.store),
-        ))
+        ));
+
+        // Store reference to transaction manager for cleanup on commit/rollback
+        let tx_mgr = Arc::new(self.clone());
+        let tx_with_cleanup = Arc::new(TransactionWithCleanup {
+            inner: tx,
+            tx_mgr,
+        });
+
+        tx_with_cleanup as Arc<dyn Transaction>
     }
 
     /// Get current timestamp
     pub fn current_timestamp(&self) -> Timestamp {
         Timestamp::now()
+    }
+
+    /// Get the minimum active snapshot timestamp (GC watermark)
+    ///
+    /// This is the oldest snapshot timestamp among all active transactions.
+    /// Data with timestamps older than this can be safely garbage collected
+    /// during compaction, as no active transaction can see it.
+    ///
+    /// Returns None if there are no active transactions.
+    pub fn min_active_snapshot_seq(&self) -> Option<i64> {
+        let snapshots = self.active_snapshots.lock().unwrap();
+        snapshots.values().min().copied()
+    }
+
+    /// Get the count of active transactions
+    pub fn active_transaction_count(&self) -> usize {
+        let snapshots = self.active_snapshots.lock().unwrap();
+        snapshots.len()
+    }
+
+    /// Remove a transaction from active tracking (called on commit/rollback)
+    fn remove_transaction(&self, tx_id: TransactionId) {
+        let mut snapshots = self.active_snapshots.lock().unwrap();
+        snapshots.remove(&tx_id);
+    }
+}
+
+impl Clone for TransactionManager {
+    fn clone(&self) -> Self {
+        Self {
+            next_tx_id: Arc::clone(&self.next_tx_id),
+            store: Arc::clone(&self.store),
+            active_snapshots: Arc::clone(&self.active_snapshots),
+        }
+    }
+}
+
+/// Wrapper that ensures transaction cleanup on commit/rollback
+struct TransactionWithCleanup {
+    inner: Arc<LSMTransaction>,
+    tx_mgr: Arc<TransactionManager>,
+}
+
+#[async_trait]
+impl Transaction for TransactionWithCleanup {
+    fn id(&self) -> TransactionId {
+        self.inner.id()
+    }
+
+    fn snapshot_ts(&self) -> Timestamp {
+        self.inner.snapshot_ts()
+    }
+
+    async fn get(&self, table: ShardId, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
+        self.inner.get(table, key).await
+    }
+
+    async fn put(&self, table: ShardId, key: &[u8], value: &[u8]) -> KeyValueResult<()> {
+        self.inner.put(table, key, value).await
+    }
+
+    async fn delete(&self, table: ShardId, key: &[u8]) -> KeyValueResult<bool> {
+        self.inner.delete(table, key).await
+    }
+
+    async fn scan(
+        &self,
+        table: ShardId,
+        range: KeyRange,
+    ) -> KeyValueResult<Box<dyn KeyValueIterator + Send>> {
+        self.inner.scan(table, range).await
+    }
+
+    async fn commit(self: Arc<Self>) -> KeyValueResult<()> {
+        let tx_id = self.id();
+        let result = Arc::clone(&self.inner).commit().await;
+        
+        // Clean up transaction tracking regardless of commit result
+        self.tx_mgr.remove_transaction(tx_id);
+        
+        result
+    }
+
+    async fn rollback(self: Arc<Self>) -> KeyValueResult<()> {
+        let tx_id = self.id();
+        let result = Arc::clone(&self.inner).rollback().await;
+        
+        // Clean up transaction tracking regardless of rollback result
+        self.tx_mgr.remove_transaction(tx_id);
+        
+        result
     }
 }
 
@@ -678,5 +788,196 @@ mod tests {
 
         let result = tx_clone.get(shard_id, b"key1").await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_gc_watermark_no_transactions() {
+        let store = Arc::new(LSMKeyValueStore::new());
+        store.init_tx_manager();
+        let tx_mgr = store.get_tx_manager();
+
+        // With no active transactions, watermark should be None
+        assert_eq!(tx_mgr.min_active_snapshot_seq(), None);
+        assert_eq!(tx_mgr.active_transaction_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_gc_watermark_single_transaction() {
+        let store = Arc::new(LSMKeyValueStore::new());
+        store.init_tx_manager();
+        let tx_mgr = store.get_tx_manager();
+
+        let shard_id = ShardId::new(0);
+        let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
+        let data_path = nanograph_vfs::Path::from("/data");
+        let wal_path = nanograph_vfs::Path::from("/wal");
+        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+
+        // Begin a transaction
+        let tx = tx_mgr.begin();
+        let snapshot_ts = tx.snapshot_ts().as_millis();
+
+        // Watermark should be the transaction's snapshot timestamp
+        assert_eq!(tx_mgr.min_active_snapshot_seq(), Some(snapshot_ts));
+        assert_eq!(tx_mgr.active_transaction_count(), 1);
+
+        // Commit transaction
+        tx.commit().await.unwrap();
+
+        // After commit, watermark should be None again
+        assert_eq!(tx_mgr.min_active_snapshot_seq(), None);
+        assert_eq!(tx_mgr.active_transaction_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_gc_watermark_multiple_transactions() {
+        let store = Arc::new(LSMKeyValueStore::new());
+        store.init_tx_manager();
+        let tx_mgr = store.get_tx_manager();
+
+        let shard_id = ShardId::new(0);
+        let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
+        let data_path = nanograph_vfs::Path::from("/data");
+        let wal_path = nanograph_vfs::Path::from("/wal");
+        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+
+        // Begin first transaction
+        let tx1 = tx_mgr.begin();
+        let ts1 = tx1.snapshot_ts().as_millis();
+
+        // Small delay to ensure different timestamps
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        // Begin second transaction
+        let tx2 = tx_mgr.begin();
+        let ts2 = tx2.snapshot_ts().as_millis();
+
+        // Small delay
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        // Begin third transaction
+        let tx3 = tx_mgr.begin();
+        let ts3 = tx3.snapshot_ts().as_millis();
+
+        // Watermark should be the oldest (first) transaction's timestamp
+        assert_eq!(tx_mgr.min_active_snapshot_seq(), Some(ts1));
+        assert_eq!(tx_mgr.active_transaction_count(), 3);
+
+        // Commit first transaction
+        tx1.commit().await.unwrap();
+
+        // Watermark should now be the second transaction's timestamp
+        assert_eq!(tx_mgr.min_active_snapshot_seq(), Some(ts2));
+        assert_eq!(tx_mgr.active_transaction_count(), 2);
+
+        // Commit third transaction (out of order)
+        tx3.commit().await.unwrap();
+
+        // Watermark should still be the second transaction's timestamp
+        assert_eq!(tx_mgr.min_active_snapshot_seq(), Some(ts2));
+        assert_eq!(tx_mgr.active_transaction_count(), 1);
+
+        // Commit second transaction
+        tx2.commit().await.unwrap();
+
+        // All transactions committed, watermark should be None
+        assert_eq!(tx_mgr.min_active_snapshot_seq(), None);
+        assert_eq!(tx_mgr.active_transaction_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_gc_watermark_with_rollback() {
+        let store = Arc::new(LSMKeyValueStore::new());
+        store.init_tx_manager();
+        let tx_mgr = store.get_tx_manager();
+
+        let shard_id = ShardId::new(0);
+        let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
+        let data_path = nanograph_vfs::Path::from("/data");
+        let wal_path = nanograph_vfs::Path::from("/wal");
+        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+
+        // Begin two transactions
+        let tx1 = tx_mgr.begin();
+        let ts1 = tx1.snapshot_ts().as_millis();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        let tx2 = tx_mgr.begin();
+        let _ts2 = tx2.snapshot_ts().as_millis();
+
+        // Watermark should be first transaction's timestamp
+        assert_eq!(tx_mgr.min_active_snapshot_seq(), Some(ts1));
+        assert_eq!(tx_mgr.active_transaction_count(), 2);
+
+        // Rollback first transaction
+        tx1.rollback().await.unwrap();
+
+        // Watermark should now be second transaction's timestamp
+        assert_eq!(tx_mgr.active_transaction_count(), 1);
+
+        // Commit second transaction
+        tx2.commit().await.unwrap();
+
+        // All transactions done, watermark should be None
+        assert_eq!(tx_mgr.min_active_snapshot_seq(), None);
+        assert_eq!(tx_mgr.active_transaction_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_gc_watermark_concurrent_transactions() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let store = Arc::new(LSMKeyValueStore::new());
+        store.init_tx_manager();
+        let tx_mgr = store.get_tx_manager();
+        let tx_mgr = Arc::new(tx_mgr);
+
+        let shard_id = ShardId::new(0);
+        let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
+        let data_path = nanograph_vfs::Path::from("/data");
+        let wal_path = nanograph_vfs::Path::from("/wal");
+        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+
+        let commit_count = Arc::new(AtomicUsize::new(0));
+
+        // Spawn multiple concurrent transactions
+        let mut handles = vec![];
+        for i in 0..10 {
+            let tx_mgr_clone = Arc::clone(&tx_mgr);
+            let commit_count_clone = Arc::clone(&commit_count);
+            let handle = tokio::spawn(async move {
+                let tx = tx_mgr_clone.begin();
+                
+                // Do some work
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                
+                // Commit
+                if tx.commit().await.is_ok() {
+                    commit_count_clone.fetch_add(1, Ordering::SeqCst);
+                }
+            });
+            handles.push(handle);
+            
+            // Small delay between starting transactions
+            tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        }
+
+        // While transactions are running, watermark should exist
+        tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+        assert!(tx_mgr.min_active_snapshot_seq().is_some());
+        assert!(tx_mgr.active_transaction_count() > 0);
+
+        // Wait for all transactions to complete
+        for handle in handles {
+            handle.await.expect("Thread should not panic");
+        }
+
+        // All transactions should have committed
+        assert_eq!(commit_count.load(Ordering::SeqCst), 10);
+
+        // After all transactions complete, watermark should be None
+        assert_eq!(tx_mgr.min_active_snapshot_seq(), None);
+        assert_eq!(tx_mgr.active_transaction_count(), 0);
     }
 }

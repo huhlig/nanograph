@@ -15,7 +15,7 @@
 //
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Get current timestamp in seconds since UNIX epoch
@@ -85,6 +85,10 @@ struct LSMMetricsInner {
 
     // Read amplification tracking
     total_sstable_reads_for_gets: AtomicU64,
+
+    // Transaction metrics
+    active_transactions: AtomicUsize,
+    min_active_snapshot_seq: AtomicI64,
 }
 
 impl LSMMetrics {
@@ -122,6 +126,8 @@ impl LSMMetrics {
                 last_flush_time: AtomicU64::new(0),
                 last_compaction_time: AtomicU64::new(0),
                 total_sstable_reads_for_gets: AtomicU64::new(0),
+                active_transactions: AtomicUsize::new(0),
+                min_active_snapshot_seq: AtomicI64::new(i64::MAX),
             }),
         }
     }
@@ -415,6 +421,36 @@ impl LSMMetrics {
         }
     }
 
+    // Transaction metrics
+    
+    /// Set the number of active transactions
+    pub fn set_active_transactions(&self, count: usize) {
+        self.inner.active_transactions.store(count, Ordering::Relaxed);
+    }
+
+    /// Get the number of active transactions
+    pub fn active_transactions(&self) -> usize {
+        self.inner.active_transactions.load(Ordering::Relaxed)
+    }
+
+    /// Set the minimum active snapshot sequence number (GC watermark)
+    ///
+    /// This represents the oldest snapshot timestamp among all active transactions.
+    /// Data with timestamps older than this can be safely garbage collected during compaction.
+    ///
+    /// Use i64::MAX when there are no active transactions.
+    pub fn set_min_active_snapshot_seq(&self, seq: i64) {
+        self.inner.min_active_snapshot_seq.store(seq, Ordering::Relaxed);
+    }
+
+    /// Get the minimum active snapshot sequence number (GC watermark)
+    ///
+    /// Returns i64::MAX if there are no active transactions, indicating all data
+    /// can potentially be garbage collected (subject to other retention policies).
+    pub fn min_active_snapshot_seq(&self) -> i64 {
+        self.inner.min_active_snapshot_seq.load(Ordering::Relaxed)
+    }
+
     /// Get a snapshot of all metrics
     pub fn snapshot(&self) -> MetricsSnapshot {
         MetricsSnapshot {
@@ -439,6 +475,8 @@ impl LSMMetrics {
             last_flush_time: self.last_flush_time(),
             last_compaction_time: self.last_compaction_time(),
             uptime_seconds: self.uptime_seconds(),
+            active_transactions: self.active_transactions(),
+            min_active_snapshot_seq: self.min_active_snapshot_seq(),
         }
     }
 }
@@ -481,6 +519,8 @@ pub struct MetricsSnapshot {
     pub last_flush_time: u64,
     pub last_compaction_time: u64,
     pub uptime_seconds: u64,
+    pub active_transactions: usize,
+    pub min_active_snapshot_seq: i64,
 }
 
 impl MetricsSnapshot {
@@ -493,6 +533,14 @@ impl MetricsSnapshot {
         println!("  Total Reads: {}", self.total_reads);
         println!("  Avg Write Latency: {:?}", self.avg_write_latency);
         println!("  Avg Read Latency: {:?}", self.avg_read_latency);
+        println!();
+        println!("Transactions:");
+        println!("  Active Transactions: {}", self.active_transactions);
+        if self.min_active_snapshot_seq == i64::MAX {
+            println!("  GC Watermark: None (no active transactions)");
+        } else {
+            println!("  GC Watermark (min snapshot seq): {}", self.min_active_snapshot_seq);
+        }
         println!();
         println!("Hit Rates:");
         println!("  MemTable: {:.2}%", self.memtable_hit_rate * 100.0);
@@ -563,6 +611,14 @@ pub mod consts {
 
     /// Bloom filter false positive rate (gauge)
     pub const BLOOM_FP_RATE: &str = "nanograph.storage.lsm.bloom_false_positive_rate";
+
+    /// Number of active transactions (gauge)
+    pub const ACTIVE_TRANSACTIONS: &str = "nanograph.storage.lsm.active_transactions";
+
+    /// Minimum active snapshot sequence number - GC watermark (gauge)
+    /// Data with timestamps older than this can be safely garbage collected during compaction.
+    /// Value is i64::MAX when there are no active transactions.
+    pub const MIN_ACTIVE_SNAPSHOT_SEQ: &str = "nanograph.storage.lsm.min_active_snapshot_seq";
 }
 
 #[cfg(test)]
