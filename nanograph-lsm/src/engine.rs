@@ -14,14 +14,15 @@
 // limitations under the License.
 //
 
+use crate::bloblog::BlobLog;
 use crate::compaction::{CompactionExecutor, CompactionStrategy};
-use crate::memtable::MemTable;
+use crate::memtable::{MemTable, ValueLocation};
 use crate::metrics::LSMMetrics;
 use crate::options::LSMTreeOptions;
 use crate::sstable::{SSTable, SSTableMetadata};
 use crate::wal_record::{
     WalRecordKind, decode_checkpoint, decode_commit, decode_delete, decode_delete_committed,
-    decode_flush_complete, decode_put, decode_put_committed, encode_checkpoint, encode_commit,
+    decode_flush_complete, decode_put, decode_put_committed, encode_checkpoint,
     encode_delete, encode_delete_committed, encode_flush_complete, encode_put,
     encode_put_committed,
 };
@@ -113,6 +114,9 @@ pub struct LSMTreeEngine {
     // Last flushed LSN (for WAL truncation)
     flushed_lsn: Arc<RwLock<Option<LogSequenceNumber>>>,
 
+    // Blob log for large value separation
+    blob_log: Arc<BlobLog>,
+
     // Active memtable
     pub memtable: Arc<RwLock<MemTable>>,
 
@@ -171,6 +175,7 @@ impl LSMTreeEngine {
             wal: wal.clone(),
             wal_writer: Arc::new(Mutex::new(wal_writer)),
             flushed_lsn: Arc::new(RwLock::new(None)),
+            blob_log: Arc::new(BlobLog::new(0.5)), // 50% GC threshold
             memtable: Arc::new(RwLock::new(MemTable::new())),
             immutable_memtable: Arc::new(RwLock::new(None)),
             levels: Arc::new(RwLock::new(levels)),
@@ -555,6 +560,27 @@ impl LSMTreeEngine {
         Ok(())
     }
 
+    /// Resolve a ValueLocation to actual bytes
+    /// For inline values, returns the bytes directly
+    /// For blob references, reads from the blob log
+    fn resolve_value(&self, value_loc: &ValueLocation) -> KeyValueResult<Vec<u8>> {
+        match value_loc {
+            ValueLocation::Inline(data) => Ok(data.clone()),
+            ValueLocation::Blob(blob_ref) => {
+                let blob_path = format!("{}/blobs/{:016x}.blob", self.base_path, blob_ref.file_id);
+                let mut file = self.fs.open_file(&blob_path)
+                    .map_err(|e| nanograph_kvt::KeyValueError::StorageCorruption(
+                        format!("Failed to open blob file: {}", e)
+                    ))?;
+                
+                self.blob_log.read_blob(&mut file, blob_ref)
+                    .map_err(|e| nanograph_kvt::KeyValueError::StorageCorruption(
+                        format!("Failed to read blob: {}", e)
+                    ))
+            }
+        }
+    }
+
     /// Get a value by key
     #[instrument(skip(self, key), fields(key_len = key.len()))]
     pub fn get(&self, key: &[u8]) -> KeyValueResult<Option<Vec<u8>>> {
@@ -574,7 +600,10 @@ impl LSMTreeEngine {
                 let bytes = entry.value.as_ref().map_or(0, |v| v.len());
                 self.metrics.record_read(bytes, duration);
                 debug!("Found in active memtable in {:?}", duration);
-                return Ok(entry.value);
+                return match entry.value {
+                    Some(ref value_loc) => Ok(Some(self.resolve_value(value_loc)?)),
+                    None => Ok(None),
+                };
             }
         }
 
@@ -588,7 +617,10 @@ impl LSMTreeEngine {
                     let bytes = entry.value.as_ref().map_or(0, |v| v.len());
                     self.metrics.record_read(bytes, duration);
                     debug!("Found in immutable memtable in {:?}", duration);
-                    return Ok(entry.value);
+                    return match entry.value {
+                        Some(ref value_loc) => Ok(Some(self.resolve_value(value_loc)?)),
+                        None => Ok(None),
+                    };
                 }
             }
         }
@@ -612,7 +644,10 @@ impl LSMTreeEngine {
                             "Found in L0 SSTable after checking {} tables in {:?}",
                             sstables_checked, duration
                         );
-                        return Ok(entry.value);
+                        return match entry.value {
+                            Some(ref value_loc) => Ok(Some(self.resolve_value(value_loc)?)),
+                            None => Ok(None),
+                        };
                     }
                 }
             }
@@ -646,7 +681,10 @@ impl LSMTreeEngine {
                             "Found in L{} SSTable after checking {} tables in {:?}",
                             level.level_number, sstables_checked, duration
                         );
-                        return Ok(entry.value);
+                        return match entry.value {
+                            Some(ref value_loc) => Ok(Some(self.resolve_value(value_loc)?)),
+                            None => Ok(None),
+                        };
                     }
                 }
             }
@@ -672,7 +710,10 @@ impl LSMTreeEngine {
         {
             let memtable = self.memtable.read().unwrap();
             if let Some(entry) = memtable.get_at_snapshot(key, snapshot_ts) {
-                return Ok(entry.value);
+                return match entry.value {
+                    Some(ref value_loc) => Ok(Some(self.resolve_value(value_loc)?)),
+                    None => Ok(None),
+                };
             }
         }
 
@@ -681,7 +722,10 @@ impl LSMTreeEngine {
             let immutable = self.immutable_memtable.read().unwrap();
             if let Some(ref memtable) = *immutable {
                 if let Some(entry) = memtable.get_at_snapshot(key, snapshot_ts) {
-                    return Ok(entry.value);
+                    return match entry.value {
+                        Some(ref value_loc) => Ok(Some(self.resolve_value(value_loc)?)),
+                        None => Ok(None),
+                    };
                 }
             }
         }
@@ -699,7 +743,10 @@ impl LSMTreeEngine {
                 let path = self.sstable_path(sstable_meta.file_number);
                 if let Ok(mut file) = self.fs.open_file(&path) {
                     if let Ok(Some(entry)) = SSTable::get(&mut file, key, self.options.integrity) {
-                        return Ok(entry.value);
+                        return match entry.value {
+                            Some(ref value_loc) => Ok(Some(self.resolve_value(value_loc)?)),
+                            None => Ok(None),
+                        };
                     }
                 }
             }
@@ -722,7 +769,10 @@ impl LSMTreeEngine {
                 let path = self.sstable_path(sstable_meta.file_number);
                 if let Ok(mut file) = self.fs.open_file(&path) {
                     if let Ok(Some(entry)) = SSTable::get(&mut file, key, self.options.integrity) {
-                        return Ok(entry.value);
+                        return match entry.value {
+                            Some(ref value_loc) => Ok(Some(self.resolve_value(value_loc)?)),
+                            None => Ok(None),
+                        };
                     }
                 }
             }

@@ -429,13 +429,13 @@ mod tests {
         // Test put and get
         let seq1 = memtable.put(b"key1".to_vec(), b"value1".to_vec());
         let entry = memtable.get(b"key1").unwrap();
-        assert_eq!(entry.value.as_ref().unwrap(), b"value1");
+        assert_eq!(entry.value.as_ref().unwrap().as_inline().unwrap(), b"value1");
         assert_eq!(entry.sequence, seq1);
 
         // Test update
         let seq2 = memtable.put(b"key1".to_vec(), b"value2".to_vec());
         let entry = memtable.get(b"key1").unwrap();
-        assert_eq!(entry.value.as_ref().unwrap(), b"value2");
+        assert_eq!(entry.value.as_ref().unwrap().as_inline().unwrap(), b"value2");
         assert_eq!(entry.sequence, seq2);
         assert!(seq2 > seq1);
 

@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-use crate::memtable::Entry;
+use crate::memtable::{Entry, ValueLocation};
 use nanograph_kvt::{KeyValueIterator, KeyValueResult};
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
@@ -78,9 +78,19 @@ impl LSMIterator {
     /// Create a new iterator from a list of entries
     pub fn new(entries: Vec<Entry>, reverse: bool) -> Self {
         // Filter out tombstones and convert to key-value pairs
+        // For now, only handle inline values - blob references need to be resolved by caller
         let mut kv_pairs: Vec<(Vec<u8>, Vec<u8>)> = entries
             .into_iter()
-            .filter_map(|e| e.value.map(|v| (e.key, v)))
+            .filter_map(|e| {
+                e.value.and_then(|v| match v {
+                    ValueLocation::Inline(data) => Some((e.key, data)),
+                    ValueLocation::Blob(_) => {
+                        // TODO: Blob references should be resolved before creating iterator
+                        // For now, skip blob entries
+                        None
+                    }
+                })
+            })
             .collect();
 
         // Sort by key
@@ -120,10 +130,16 @@ impl LSMIterator {
         for (idx, (priority, entries, pos)) in iterators.iter().enumerate() {
             if *pos < entries.len() {
                 let entry = &entries[*pos];
+                // Only handle inline values for now
+                let value = entry.value.as_ref().and_then(|v| match v {
+                    ValueLocation::Inline(data) => Some(data.clone()),
+                    ValueLocation::Blob(_) => None, // TODO: resolve blobs
+                });
+                
                 heap.push((
                     IteratorEntry {
                         key: entry.key.clone(),
-                        value: entry.value.clone(),
+                        value,
                         sequence: entry.sequence,
                         source_priority: *priority,
                     },
@@ -145,10 +161,15 @@ impl LSMIterator {
                     *pos += 1;
                     if *pos < entries.len() {
                         let entry = &entries[*pos];
+                        let value = entry.value.as_ref().and_then(|v| match v {
+                            ValueLocation::Inline(data) => Some(data.clone()),
+                            ValueLocation::Blob(_) => None,
+                        });
+                        
                         heap.push((
                             IteratorEntry {
                                 key: entry.key.clone(),
-                                value: entry.value.clone(),
+                                value,
                                 sequence: entry.sequence,
                                 source_priority: *priority,
                             },
@@ -171,10 +192,15 @@ impl LSMIterator {
             *pos += 1;
             if *pos < entries.len() {
                 let entry = &entries[*pos];
+                let value = entry.value.as_ref().and_then(|v| match v {
+                    ValueLocation::Inline(data) => Some(data.clone()),
+                    ValueLocation::Blob(_) => None,
+                });
+                
                 heap.push((
                     IteratorEntry {
                         key: entry.key.clone(),
-                        value: entry.value.clone(),
+                        value,
                         sequence: entry.sequence,
                         source_priority: *priority,
                     },

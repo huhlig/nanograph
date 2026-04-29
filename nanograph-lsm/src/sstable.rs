@@ -14,7 +14,8 @@
 // limitations under the License.
 //
 
-use crate::memtable::Entry;
+use crate::bloblog::BlobRef;
+use crate::memtable::{Entry, ValueLocation};
 use nanograph_util::{CompressionAlgorithm, IntegrityAlgorithm, IntegrityHash};
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -155,9 +156,20 @@ impl DataBlock {
             buf.extend_from_slice(&entry.key[shared_len..]);
 
             // Write value (or tombstone marker)
-            if let Some(ref value) = entry.value {
-                buf.write_all(&[1])?; // Value present
-                buf.write_all(value)?;
+            if let Some(ref value_loc) = entry.value {
+                match value_loc {
+                    ValueLocation::Inline(data) => {
+                        buf.write_all(&[1])?; // Inline value present
+                        buf.write_all(data)?;
+                    }
+                    ValueLocation::Blob(blob_ref) => {
+                        buf.write_all(&[2])?; // Blob reference
+                        // Serialize blob reference: file_id (8), offset (8), length (4)
+                        buf.write_all(&blob_ref.file_id.to_le_bytes())?;
+                        buf.write_all(&blob_ref.offset.to_le_bytes())?;
+                        buf.write_all(&blob_ref.length.to_le_bytes())?;
+                    }
+                }
             } else {
                 buf.write_all(&[0])?; // Tombstone
             }
@@ -278,19 +290,48 @@ impl DataBlock {
             key.extend_from_slice(&decompressed[cursor..cursor + unshared_len as usize]);
             cursor += unshared_len as usize;
 
-            // Read value or tombstone
-            let has_value = decompressed[cursor];
+            // Read value, blob reference, or tombstone
+            let value_type = decompressed[cursor];
             cursor += 1;
 
-            let value = if has_value == 1 {
-                let v = decompressed[cursor..cursor + value_len as usize].to_vec();
-                cursor += value_len as usize;
-                Some(v)
-            } else {
-                None
+            let value = match value_type {
+                1 => {
+                    // Inline value
+                    let v = decompressed[cursor..cursor + value_len as usize].to_vec();
+                    cursor += value_len as usize;
+                    Some(ValueLocation::Inline(v))
+                }
+                2 => {
+                    // Blob reference
+                    if cursor + 20 > decompressed.len() {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "Insufficient data for blob reference",
+                        ));
+                    }
+                    let file_id = u64::from_le_bytes(decompressed[cursor..cursor + 8].try_into().unwrap());
+                    cursor += 8;
+                    let offset = u64::from_le_bytes(decompressed[cursor..cursor + 8].try_into().unwrap());
+                    cursor += 8;
+                    let length = u32::from_le_bytes(decompressed[cursor..cursor + 4].try_into().unwrap());
+                    cursor += 4;
+                    Some(ValueLocation::Blob(BlobRef::new(file_id, offset, length)))
+                }
+                0 => None, // Tombstone
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("Invalid value type: {}", value_type),
+                    ));
+                }
             };
 
-            entries.push(Entry::new(key.clone(), value, sequence));
+            entries.push(Entry {
+                key: key.clone(),
+                value,
+                sequence,
+                commit_ts: None,
+            });
             prev_key = key;
         }
 
@@ -946,12 +987,14 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(entry.key, b"key2");
-        assert_eq!(entry.value.as_ref().unwrap(), b"value2");
+        assert_eq!(entry.value.as_ref().unwrap().as_inline().unwrap(), b"value2");
 
         // Test non-existent key
         buffer.set_position(0);
         let entry = SSTable::get(&mut buffer, b"key4", IntegrityAlgorithm::None).unwrap();
         assert!(entry.is_none());
+    }
+
     #[test]
     fn test_block_crc32_verification() {
         // Test that blocks with valid CRC32 checksums are accepted
@@ -963,7 +1006,7 @@ mod tests {
         
         assert_eq!(decoded.entries.len(), 1);
         assert_eq!(decoded.entries[0].key, b"test_key");
-        assert_eq!(decoded.entries[0].value.as_ref().unwrap(), b"test_value");
+        assert_eq!(decoded.entries[0].value.as_ref().unwrap().as_inline().unwrap(), b"test_value");
     }
 
     #[test]
@@ -1042,6 +1085,5 @@ mod tests {
         let result = BloomFilter::decode(&encoded);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("CRC32 mismatch"));
-    }
     }
 }
