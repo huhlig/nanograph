@@ -9,6 +9,7 @@ members = [
     "nanograph-idx",
     "nanograph-kvm",
     "nanograph-kvt",
+    "nanograph-lmdb",
     "nanograph-lsm",
     "nanograph-raft",
     "nanograph-util",
@@ -38,6 +39,7 @@ nanograph-auth = { path = "nanograph-auth" }
 nanograph-btree = { path = "nanograph-btree" }
 nanograph-core = { path = "nanograph-core" }
 nanograph-kvt = { path = "nanograph-kvt" }
+nanograph-lmdb = { path = "nanograph-lmdb" }
 nanograph-lsm = { path = "nanograph-lsm" }
 nanograph-raft = { path = "nanograph-raft" }
 nanograph-util = { path = "nanograph-util" }
