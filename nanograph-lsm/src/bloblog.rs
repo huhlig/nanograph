@@ -120,7 +120,7 @@ impl BlobFileMetadata {
 
     /// Check if this file is a candidate for garbage collection
     pub fn needs_gc(&self, threshold: f64) -> bool {
-        self.live_ratio() < threshold && self.blob_count > 0
+        self.live_ratio() <= threshold && self.blob_count > 0
     }
 }
 

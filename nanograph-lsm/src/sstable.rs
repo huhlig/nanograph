@@ -220,16 +220,24 @@ impl DataBlock {
 
         // Verify CRC32 checksum
         let calculated_checksum = IntegrityAlgorithm::Crc32c.hash(block_data);
-        if let nanograph_util::IntegrityHash::Hash32(calculated_crc) = calculated_checksum {
-            if calculated_crc != stored_crc {
+        let calculated_crc = match calculated_checksum {
+            nanograph_util::IntegrityHash::Hash32(crc) => crc,
+            nanograph_util::IntegrityHash::None => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!(
-                        "Block CRC32 mismatch: expected 0x{:08x}, got 0x{:08x}",
-                        stored_crc, calculated_crc
-                    ),
+                    "CRC32 algorithm returned None",
                 ));
             }
+        };
+        
+        if calculated_crc != stored_crc {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Block CRC32 mismatch: expected 0x{:08x}, got 0x{:08x}",
+                    stored_crc, calculated_crc
+                ),
+            ));
         }
 
         let compression_byte = block_data[0];
@@ -392,16 +400,24 @@ impl IndexBlock {
 
         // Verify CRC32 checksum
         let calculated_checksum = IntegrityAlgorithm::Crc32c.hash(index_data);
-        if let nanograph_util::IntegrityHash::Hash32(calculated_crc) = calculated_checksum {
-            if calculated_crc != stored_crc {
+        let calculated_crc = match calculated_checksum {
+            nanograph_util::IntegrityHash::Hash32(crc) => crc,
+            nanograph_util::IntegrityHash::None => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!(
-                        "Index block CRC32 mismatch: expected 0x{:08x}, got 0x{:08x}",
-                        stored_crc, calculated_crc
-                    ),
+                    "CRC32 algorithm returned None",
                 ));
             }
+        };
+        
+        if calculated_crc != stored_crc {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Index block CRC32 mismatch: expected 0x{:08x}, got 0x{:08x}",
+                    stored_crc, calculated_crc
+                ),
+            ));
         }
 
         let mut entries = Vec::new();
@@ -515,16 +531,24 @@ impl BloomFilter {
 
         // Verify CRC32 checksum
         let calculated_checksum = IntegrityAlgorithm::Crc32c.hash(bloom_data);
-        if let nanograph_util::IntegrityHash::Hash32(calculated_crc) = calculated_checksum {
-            if calculated_crc != stored_crc {
+        let calculated_crc = match calculated_checksum {
+            nanograph_util::IntegrityHash::Hash32(crc) => crc,
+            nanograph_util::IntegrityHash::None => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!(
-                        "Bloom filter CRC32 mismatch: expected 0x{:08x}, got 0x{:08x}",
-                        stored_crc, calculated_crc
-                    ),
+                    "CRC32 algorithm returned None",
                 ));
             }
+        };
+        
+        if calculated_crc != stored_crc {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Bloom filter CRC32 mismatch: expected 0x{:08x}, got 0x{:08x}",
+                    stored_crc, calculated_crc
+                ),
+            ));
         }
 
         let num_hash_functions = bloom_data[0] as usize;
@@ -1049,8 +1073,9 @@ mod tests {
         
         let mut encoded = index.encode().unwrap();
         
-        // Corrupt a byte (but not the CRC32 at the end)
-        if encoded.len() > 10 {
+        // Corrupt a byte in the data portion (not the CRC32 at the end)
+        // The last 4 bytes are CRC32, so corrupt something before that
+        if encoded.len() > 4 {
             encoded[3] ^= 0xFF;
         }
         
