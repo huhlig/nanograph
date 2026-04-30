@@ -34,8 +34,31 @@ tracing.workspace = true
 tracing-timing.workspace = true
 
 
+[features]
+# Feature to enable test utilities for external crates
+test-utils = ["dep:futures", "dep:tokio"]
+# Feature to enable benchmark utilities for external crates
+bench-utils = ["dep:criterion", "dep:futures", "dep:tokio"]
+
+[dependencies.futures]
+workspace = true
+optional = true
+
+[dependencies.tokio]
+workspace = true
+features = ["full"]
+optional = true
+
+[dependencies.criterion]
+workspace = true
+optional = true
+
 [dev-dependencies]
 criterion.workspace = true
 futures.workspace = true
 tokio = { workspace = true, features = ["full"] }
+tempfile.workspace = true
+# Storage engine implementations for comparative benchmarks
+nanograph-lmdb = { path = "../nanograph-lmdb" }
+nanograph-lsm = { path = "../nanograph-lsm" }
 

@@ -633,4 +633,10 @@ mod tests {
 
         assert_eq!(store.get(shard, b"key1").await.unwrap(), None);
     }
+
+    #[tokio::test]
+    async fn test_common_test_suite() {
+        let store = MemoryKeyValueShardStore::new();
+        crate::test_suite::run_kvstore_test_suite(&store).await;
+    }
 }

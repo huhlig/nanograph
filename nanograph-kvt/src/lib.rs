@@ -163,6 +163,9 @@ mod kvstore;
 mod memory;
 pub mod metrics;
 mod resolver;
+// Make test_suite available for both internal tests and external test usage
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_suite;
 mod transaction;
 
 // Re-export all public types

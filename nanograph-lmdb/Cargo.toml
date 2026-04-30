@@ -41,6 +41,7 @@ tracing.workspace = true
 tracing-timing.workspace = true
 
 [dev-dependencies]
+nanograph-kvt = { workspace = true, features = ["test-utils"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["full", "test-util"] }
 futures.workspace = true
