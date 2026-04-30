@@ -335,7 +335,7 @@ mod tests {
         header.encode(&mut buffer);
 
         // Update header checksum from encoded buffer
-        header.checksum = BigEndian::read_u32(&buffer[57..61]);
+        header.checksum = BigEndian::read_u32(&buffer[WriteAheadLogSegmentHeader::RANGE_CHECKSUM]);
 
         let decoded = WriteAheadLogSegmentHeader::decode(&buffer).unwrap();
         assert_eq!(decoded.version, header.version);
