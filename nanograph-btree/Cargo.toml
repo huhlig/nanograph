@@ -15,7 +15,7 @@ repository.workspace = true
 
 [dependencies]
 # Internal Dependencies
-nanograph-kvt.workspace = true
+nanograph-kvt = { workspace = true, features = ["test-utils"] }
 nanograph-vfs.workspace = true
 nanograph-wal.workspace = true
 nanograph-util.workspace = true
