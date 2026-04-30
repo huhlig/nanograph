@@ -14,10 +14,10 @@
 // limitations under the License.
 //
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use nanograph_lmdb::LMDBKeyValueStore;
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use nanograph_kvt::{KeyRange, KeyValueShardStore, ShardId};
-use nanograph_vfs::{Path, MemoryFileSystem};
+use nanograph_lmdb::LMDBKeyValueStore;
+use nanograph_vfs::{MemoryFileSystem, Path};
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -30,7 +30,9 @@ fn setup_store() -> (LMDBKeyValueStore, ShardId, TempDir) {
     let data_path = Path::from(temp_dir.path().join("shard1").to_str().unwrap());
     let wal_path = Path::from(temp_dir.path().join("wal1").to_str().unwrap());
 
-    store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+    store
+        .create_shard(shard_id, vfs, data_path, wal_path)
+        .unwrap();
 
     (store, shard_id, temp_dir)
 }

@@ -61,7 +61,10 @@ pub trait ConsensusGroup: Send + Sync {
     /// Check if this node is the leader
     fn is_leader(&self) -> impl std::future::Future<Output = bool> + Send;
     /// Propose a command to the group
-    fn propose(&self, data: Vec<u8>) -> impl std::future::Future<Output = Result<(), String>> + Send;
+    fn propose(
+        &self,
+        data: Vec<u8>,
+    ) -> impl std::future::Future<Output = Result<(), String>> + Send;
 }
 
 /// Commands that can be replicated through Raft
@@ -164,8 +167,8 @@ impl<I: IndexStore, C: ConsensusGroup> DistributedIndex<I, C> {
     /// The command will be replicated to all nodes before being applied.
     async fn propose_command(&self, command: IndexCommand) -> IndexResult<()> {
         // Serialize command
-        let payload = bincode::serialize(&command)
-            .map_err(|e| IndexError::Serialization(e.to_string()))?;
+        let payload =
+            bincode::serialize(&command).map_err(|e| IndexError::Serialization(e.to_string()))?;
 
         // Propose to consensus group
         self.consensus_group
@@ -221,12 +224,10 @@ impl<I: IndexStore, C: ConsensusGroup> DistributedIndex<I, C> {
                     Err(e) => Ok(IndexCommandResponse::Error(e.to_string())),
                 }
             }
-            IndexCommand::Delete { primary_key } => {
-                match index.delete(&primary_key).await {
-                    Ok(()) => Ok(IndexCommandResponse::Ok),
-                    Err(e) => Ok(IndexCommandResponse::Error(e.to_string())),
-                }
-            }
+            IndexCommand::Delete { primary_key } => match index.delete(&primary_key).await {
+                Ok(()) => Ok(IndexCommandResponse::Ok),
+                Err(e) => Ok(IndexCommandResponse::Error(e.to_string())),
+            },
             IndexCommand::Flush => match index.flush().await {
                 Ok(()) => Ok(IndexCommandResponse::Ok),
                 Err(e) => Ok(IndexCommandResponse::Error(e.to_string())),
@@ -240,7 +241,9 @@ impl<I: IndexStore, C: ConsensusGroup> DistributedIndex<I, C> {
 }
 
 #[async_trait]
-impl<I: IndexStore + Send + Sync + 'static, C: ConsensusGroup + 'static> IndexStore for DistributedIndex<I, C> {
+impl<I: IndexStore + Send + Sync + 'static, C: ConsensusGroup + 'static> IndexStore
+    for DistributedIndex<I, C>
+{
     fn metadata(&self) -> &IndexRecord {
         // This is a limitation of the sync trait method
         // In production, we'd need to refactor this to be async

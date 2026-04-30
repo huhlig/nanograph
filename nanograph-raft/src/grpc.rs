@@ -394,8 +394,12 @@ mod tests {
 
     #[test]
     fn test_shard_id_conversion() {
-        let shard_id =
-            ShardId::from_parts(TenantId::new(1), DatabaseId::new(2), ObjectId::new(3), ShardNumber::new(4));
+        let shard_id = ShardId::from_parts(
+            TenantId::new(1),
+            DatabaseId::new(2),
+            ObjectId::new(3),
+            ShardNumber::new(4),
+        );
         let pb: pb::ShardId = shard_id.into();
         assert_eq!(pb.tenant_id, 1);
         assert_eq!(pb.database_id, 2);

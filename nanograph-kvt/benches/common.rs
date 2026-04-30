@@ -20,7 +20,7 @@
 //! different KeyValueShardStore implementations to ensure consistent and
 //! comparable performance measurements.
 
-use criterion::{black_box, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box};
 use futures::StreamExt;
 use nanograph_kvt::{KeyRange, KeyValueShardStore, ShardId};
 use std::ops::Bound;
@@ -84,10 +84,7 @@ pub fn bench_single_get<S: KeyValueShardStore>(
                 .iter(|| async {
                     let count = counter.fetch_add(1, Ordering::Relaxed);
                     let key = format!("key{:016}", count % 1000);
-                    store
-                        .get(shard, black_box(key.as_bytes()))
-                        .await
-                        .unwrap();
+                    store.get(shard, black_box(key.as_bytes())).await.unwrap();
                 });
         });
     }
@@ -123,10 +120,7 @@ pub fn bench_batch_put<S: KeyValueShardStore>(
                             .iter()
                             .map(|(k, v)| (k.as_slice(), v.as_slice()))
                             .collect();
-                        store
-                            .batch_put(shard, black_box(&pairs_ref))
-                            .await
-                            .unwrap();
+                        store.batch_put(shard, black_box(&pairs_ref)).await.unwrap();
                     });
             },
         );
@@ -167,10 +161,7 @@ pub fn bench_batch_get<S: KeyValueShardStore>(
                             .map(|i| format!("key{:016}", i).into_bytes())
                             .collect();
                         let keys_ref: Vec<&[u8]> = keys.iter().map(|k| k.as_slice()).collect();
-                        store
-                            .batch_get(shard, black_box(&keys_ref))
-                            .await
-                            .unwrap();
+                        store.batch_get(shard, black_box(&keys_ref)).await.unwrap();
                     });
             },
         );
@@ -349,10 +340,7 @@ pub fn bench_mixed_90_10<S: KeyValueShardStore>(
                         .await
                         .unwrap();
                 } else {
-                    store
-                        .get(shard, black_box(key.as_bytes()))
-                        .await
-                        .unwrap();
+                    store.get(shard, black_box(key.as_bytes())).await.unwrap();
                 }
             });
     });
@@ -394,10 +382,7 @@ pub fn bench_mixed_50_50<S: KeyValueShardStore>(
                         .await
                         .unwrap();
                 } else {
-                    store
-                        .get(shard, black_box(key.as_bytes()))
-                        .await
-                        .unwrap();
+                    store.get(shard, black_box(key.as_bytes())).await.unwrap();
                 }
             });
     });
@@ -451,12 +436,7 @@ pub fn bench_mixed_workloads<S: KeyValueShardStore>(
 }
 
 /// Run all benchmarks for a KeyValueShardStore implementation
-pub fn bench_all<S: KeyValueShardStore>(
-    c: &mut Criterion,
-    name: &str,
-    store: &S,
-    shard: ShardId,
-) {
+pub fn bench_all<S: KeyValueShardStore>(c: &mut Criterion, name: &str, store: &S, shard: ShardId) {
     bench_single_operations(c, name, store, shard);
     bench_batch_operations(c, name, store, shard);
     bench_scan_operations(c, name, store, shard);

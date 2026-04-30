@@ -67,21 +67,18 @@ mod serialization;
 pub use self::distributed::{ConsensusGroup, DistributedIndex, IndexCommand, IndexCommandResponse};
 pub use self::error::{IndexError, IndexResult};
 pub use self::index::{
+    IndexEntry, IndexQuery, IndexStats, IndexStore,
     ordered::{OrderedIndex, UniqueIndex},
     text::{
         BooleanQuery, ScoredEntry, ScoringAlgorithm, Term, TermStats, TextHighlight,
         TextSearchIndex, TokenizerConfig,
     },
-    IndexEntry,
-    IndexQuery,
-    IndexStats,
-    IndexStore,
 };
 pub use self::persistence::{CacheStats, PersistenceConfig, PersistentIndexStore};
 pub use self::serialization::{
-    batch_deserialize_entries, batch_serialize_entries, deserialize_entry, deserialize_metadata,
-    estimate_entry_size, serialize_entry, serialize_metadata, SerializedIndexEntry,
-    CURRENT_VERSION,
+    CURRENT_VERSION, SerializedIndexEntry, batch_deserialize_entries, batch_serialize_entries,
+    deserialize_entry, deserialize_metadata, estimate_entry_size, serialize_entry,
+    serialize_metadata,
 };
 
 // Re-export index implementations

@@ -16,7 +16,11 @@
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use nanograph_art::ArtKeyValueStore;
-use nanograph_core::object::{ClusterCreate, ContainerId, DatabaseCreate, NodeId, Permission, PermissionGrant, ResourceScope, SecurityPrincipal, StorageEngineType, SubjectId, SystemUserRecord, TableCreate, TableRecord, TablespaceCreate, TenantCreate, UserId};
+use nanograph_core::object::{
+    ClusterCreate, ContainerId, DatabaseCreate, NodeId, Permission, PermissionGrant, ResourceScope,
+    SecurityPrincipal, StorageEngineType, SubjectId, SystemUserRecord, TableCreate, TableRecord,
+    TablespaceCreate, TenantCreate, UserId,
+};
 use nanograph_core::types::Timestamp;
 use nanograph_kvm::{KeyValueDatabaseConfig, KeyValueDatabaseManager};
 use std::collections::HashMap;

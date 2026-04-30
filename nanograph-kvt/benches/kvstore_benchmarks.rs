@@ -21,7 +21,7 @@
 
 mod common;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use nanograph_kvt::{MemoryKeyValueShardStore, ShardId};
 use std::sync::Arc;
 

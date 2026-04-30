@@ -16,7 +16,7 @@
 
 //! Performance benchmarks for consensus operations
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use nanograph_core::object::NodeId;
 use nanograph_raft::{ConsensusManager, NodeInfo, ReplicationConfig};
 use std::sync::Arc;
@@ -34,13 +34,13 @@ fn bench_manager_creation(c: &mut Criterion) {
 
 fn bench_peer_operations(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    
+
     c.bench_function("add_peer", |b| {
         b.to_async(&rt).iter(|| async {
             let node_id = NodeId::new(1);
             let config = ReplicationConfig::default();
             let manager = ConsensusManager::new(node_id, config);
-            
+
             let peer_id = NodeId::new(2);
             let peer_info = NodeInfo {
                 node: peer_id,
@@ -51,7 +51,7 @@ fn bench_peer_operations(c: &mut Criterion) {
                 zone: None,
                 rack: None,
             };
-            
+
             manager.add_peer(peer_id, peer_info).await;
             black_box(manager)
         });
@@ -63,7 +63,7 @@ fn bench_peer_operations(c: &mut Criterion) {
                 let node_id = NodeId::new(1);
                 let config = ReplicationConfig::default();
                 let manager = ConsensusManager::new(node_id, config);
-                
+
                 let peer_id = NodeId::new(2);
                 let peer_info = NodeInfo {
                     node: peer_id,
@@ -74,16 +74,14 @@ fn bench_peer_operations(c: &mut Criterion) {
                     zone: None,
                     rack: None,
                 };
-                
+
                 rt.block_on(async {
                     manager.add_peer(peer_id, peer_info).await;
                 });
-                
+
                 (manager, peer_id)
             },
-            |(manager, peer_id)| async move {
-                black_box(manager.get_peer(peer_id).await)
-            },
+            |(manager, peer_id)| async move { black_box(manager.get_peer(peer_id).await) },
             criterion::BatchSize::SmallInput,
         );
     });
@@ -94,7 +92,7 @@ fn bench_peer_operations(c: &mut Criterion) {
                 let node_id = NodeId::new(1);
                 let config = ReplicationConfig::default();
                 let manager = ConsensusManager::new(node_id, config);
-                
+
                 rt.block_on(async {
                     for i in 2..=10 {
                         let peer_id = NodeId::new(i);
@@ -110,12 +108,10 @@ fn bench_peer_operations(c: &mut Criterion) {
                         manager.add_peer(peer_id, peer_info).await;
                     }
                 });
-                
+
                 manager
             },
-            |manager| async move {
-                black_box(manager.peer_nodes().await)
-            },
+            |manager| async move { black_box(manager.peer_nodes().await) },
             criterion::BatchSize::SmallInput,
         );
     });
@@ -123,9 +119,9 @@ fn bench_peer_operations(c: &mut Criterion) {
 
 fn bench_shard_routing(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    
+
     let mut group = c.benchmark_group("shard_routing");
-    
+
     for shard_count in [1, 4, 8, 16, 32].iter() {
         group.throughput(Throughput::Elements(1));
         group.bench_with_input(
@@ -151,15 +147,15 @@ fn bench_shard_routing(c: &mut Criterion) {
             },
         );
     }
-    
+
     group.finish();
 }
 
 fn bench_concurrent_operations(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    
+
     let mut group = c.benchmark_group("concurrent_operations");
-    
+
     for concurrency in [1, 10, 50, 100].iter() {
         group.throughput(Throughput::Elements(*concurrency as u64));
         group.bench_with_input(
@@ -181,11 +177,11 @@ fn bench_concurrent_operations(c: &mut Criterion) {
                                 mgr.get_table_shard_for_key(key.as_bytes()).await
                             }));
                         }
-                        
+
                         for handle in handles {
                             handle.await.unwrap();
                         }
-                        
+
                         black_box(manager)
                     },
                     criterion::BatchSize::SmallInput,
@@ -193,13 +189,13 @@ fn bench_concurrent_operations(c: &mut Criterion) {
             },
         );
     }
-    
+
     group.finish();
 }
 
 fn bench_server_lifecycle(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    
+
     c.bench_function("server_start_stop", |b| {
         let mut port = 60000;
         b.to_async(&rt).iter_batched(
@@ -224,10 +220,10 @@ fn bench_server_lifecycle(c: &mut Criterion) {
 
 fn bench_key_distribution(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    
+
     let mut group = c.benchmark_group("key_distribution");
     group.throughput(Throughput::Elements(1000));
-    
+
     group.bench_function("hash_1000_keys", |b| {
         b.to_async(&rt).iter_batched(
             || {
@@ -249,15 +245,15 @@ fn bench_key_distribution(c: &mut Criterion) {
             criterion::BatchSize::SmallInput,
         );
     });
-    
+
     group.finish();
 }
 
 fn bench_peer_lookup_scaling(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    
+
     let mut group = c.benchmark_group("peer_lookup_scaling");
-    
+
     for peer_count in [10, 50, 100, 500].iter() {
         group.throughput(Throughput::Elements(1));
         group.bench_with_input(
@@ -269,7 +265,7 @@ fn bench_peer_lookup_scaling(c: &mut Criterion) {
                         let node_id = NodeId::new(1);
                         let config = ReplicationConfig::default();
                         let manager = ConsensusManager::new(node_id, config);
-                        
+
                         rt.block_on(async {
                             for i in 2..=(peer_count + 1) {
                                 let peer_id = NodeId::new(i);
@@ -285,7 +281,7 @@ fn bench_peer_lookup_scaling(c: &mut Criterion) {
                                 manager.add_peer(peer_id, peer_info).await;
                             }
                         });
-                        
+
                         manager
                     },
                     |manager| async move {
@@ -298,7 +294,7 @@ fn bench_peer_lookup_scaling(c: &mut Criterion) {
             },
         );
     }
-    
+
     group.finish();
 }
 
@@ -314,5 +310,3 @@ criterion_group!(
 );
 
 criterion_main!(benches);
-
-

@@ -182,7 +182,7 @@ impl IndexStore for BTreeIndex {
             // Check if any entry exists with this indexed value
             let query = IndexQuery::exact(entry.indexed_value.clone()).with_limit(1);
             let existing = self.query(query).await?;
-            
+
             // If an entry exists with a different primary key, it's a violation
             if let Some(existing_entry) = existing.first() {
                 if existing_entry.primary_key != entry.primary_key {
@@ -258,9 +258,7 @@ impl IndexStore for BTreeIndex {
         let query = IndexQuery::all();
         let entries = self.query(query).await?;
 
-        Ok(entries
-            .into_iter()
-            .find(|e| e.primary_key == primary_key))
+        Ok(entries.into_iter().find(|e| e.primary_key == primary_key))
     }
 
     async fn exists(&self, indexed_value: &[u8]) -> IndexResult<bool> {
@@ -372,11 +370,7 @@ impl OrderedIndex for BTreeIndex {
         self.query(query).await
     }
 
-    async fn count_range(
-        &self,
-        start: Bound<Vec<u8>>,
-        end: Bound<Vec<u8>>,
-    ) -> IndexResult<u64> {
+    async fn count_range(&self, start: Bound<Vec<u8>>, end: Bound<Vec<u8>>) -> IndexResult<u64> {
         let query = IndexQuery {
             start,
             end,
@@ -390,10 +384,7 @@ impl OrderedIndex for BTreeIndex {
 
 #[async_trait]
 impl UniqueIndex for BTreeIndex {
-    async fn lookup_unique(
-        &self,
-        indexed_value: &[u8],
-    ) -> IndexResult<Option<Vec<u8>>> {
+    async fn lookup_unique(&self, indexed_value: &[u8]) -> IndexResult<Option<Vec<u8>>> {
         let query = IndexQuery::exact(indexed_value.to_vec()).with_limit(1);
         let entries = self.query(query).await?;
         Ok(entries.first().map(|e| e.primary_key.clone()))
@@ -414,7 +405,9 @@ impl UniqueIndex for BTreeIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nanograph_core::object::{DatabaseId, IndexId, IndexSharding, IndexStatus, ObjectId, ShardId, ShardNumber, TenantId};
+    use nanograph_core::object::{
+        DatabaseId, IndexId, IndexSharding, IndexStatus, ObjectId, ShardId, ShardNumber, TenantId,
+    };
     use nanograph_core::types::Timestamp;
     use std::collections::HashMap;
 
@@ -466,7 +459,9 @@ mod tests {
         let store = Arc::new(nanograph_kvt::MemoryKeyValueShardStore::new());
         let config = create_test_config();
 
-        let mut index = BTreeIndex::new(metadata, store, None, config).await.unwrap();
+        let mut index = BTreeIndex::new(metadata, store, None, config)
+            .await
+            .unwrap();
 
         let entry = IndexEntry {
             indexed_value: b"value1".to_vec(),
@@ -484,7 +479,9 @@ mod tests {
         let store = Arc::new(nanograph_kvt::MemoryKeyValueShardStore::new());
         let config = create_test_config();
 
-        let mut index = BTreeIndex::new(metadata, store, None, config).await.unwrap();
+        let mut index = BTreeIndex::new(metadata, store, None, config)
+            .await
+            .unwrap();
 
         // Insert test data
         for i in 0..10 {
@@ -516,7 +513,9 @@ mod tests {
         let store = Arc::new(nanograph_kvt::MemoryKeyValueShardStore::new());
         let config = create_test_config();
 
-        let mut index = BTreeIndex::new(metadata, store, None, config).await.unwrap();
+        let mut index = BTreeIndex::new(metadata, store, None, config)
+            .await
+            .unwrap();
 
         // Insert test data with common prefix
         for i in 0..5 {
@@ -541,7 +540,9 @@ mod tests {
         let store = Arc::new(nanograph_kvt::MemoryKeyValueShardStore::new());
         let config = create_test_config();
 
-        let mut index = BTreeIndex::new(metadata, store, None, config).await.unwrap();
+        let mut index = BTreeIndex::new(metadata, store, None, config)
+            .await
+            .unwrap();
 
         // Insert first entry
         let entry1 = IndexEntry {
@@ -559,7 +560,10 @@ mod tests {
         };
         let result = index.insert(entry2).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), IndexError::UniqueViolation(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            IndexError::UniqueViolation(_)
+        ));
     }
 }
 

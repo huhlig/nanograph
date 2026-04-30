@@ -17,7 +17,9 @@
 use crate::config::{LMDBConfig, LMDBStorageConfig};
 use crate::error::{LMDBError, LMDBResult};
 use async_trait::async_trait;
-use lmdb::{Cursor, Database, DatabaseFlags, Environment, EnvironmentFlags, Transaction, WriteFlags};
+use lmdb::{
+    Cursor, Database, DatabaseFlags, Environment, EnvironmentFlags, Transaction, WriteFlags,
+};
 use nanograph_kvt::metrics::{ShardStats, StatValue};
 use nanograph_kvt::{
     KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId,
@@ -283,12 +285,12 @@ impl KeyValueShardStore for LMDBKeyValueStore {
         let mut cursor = txn.open_ro_cursor(db).map_err(LMDBError::from)?;
 
         let mut entries = Vec::new();
-        
+
         for result in cursor.iter_start() {
             let (key, value) = result.map_err(LMDBError::from)?;
             let key: &[u8] = key;
             let value: &[u8] = value;
-            
+
             // Check if key is in range
             let in_range = match (&range.start, &range.end) {
                 (std::ops::Bound::Included(start), std::ops::Bound::Included(end)) => {
@@ -320,7 +322,7 @@ impl KeyValueShardStore for LMDBKeyValueStore {
 
             if in_range {
                 entries.push((key.to_vec(), value.to_vec()));
-                
+
                 // Apply limit if specified
                 if let Some(limit) = range.limit {
                     if entries.len() >= limit {
@@ -376,15 +378,17 @@ impl KeyValueShardStore for LMDBKeyValueStore {
         shard_stats
             .engine_stats
             .insert("page_size", StatValue::from_u64(page_size));
-        shard_stats
-            .engine_stats
-            .insert("branch_pages", StatValue::from_u64(stat.branch_pages() as u64));
+        shard_stats.engine_stats.insert(
+            "branch_pages",
+            StatValue::from_u64(stat.branch_pages() as u64),
+        );
         shard_stats
             .engine_stats
             .insert("leaf_pages", StatValue::from_u64(stat.leaf_pages() as u64));
-        shard_stats
-            .engine_stats
-            .insert("overflow_pages", StatValue::from_u64(stat.overflow_pages() as u64));
+        shard_stats.engine_stats.insert(
+            "overflow_pages",
+            StatValue::from_u64(stat.overflow_pages() as u64),
+        );
         shard_stats
             .engine_stats
             .insert("depth", StatValue::from_u64(stat.depth() as u64));

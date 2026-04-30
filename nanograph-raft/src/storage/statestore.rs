@@ -512,7 +512,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        shard_storage.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        shard_storage
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         let fs = Arc::new(MemoryFileSystem::new());
         fs.create_directory_all("/snapshots").unwrap();

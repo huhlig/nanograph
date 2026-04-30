@@ -17,7 +17,9 @@
 use crate::error::ConsensusResult;
 use crate::network::adapter::ConsensusNetworkAdapter;
 use crate::storage::{ConsensusLogStore, ConsensusStateStore};
-use crate::types::{ConsensusTypeConfig, Operation, OperationResponse, ReadConsistency, ReplicationConfig};
+use crate::types::{
+    ConsensusTypeConfig, Operation, OperationResponse, ReadConsistency, ReplicationConfig,
+};
 use nanograph_core::object::{NodeId, ShardId};
 use openraft::Raft;
 use std::sync::Arc;
@@ -67,7 +69,7 @@ impl TableShardRaftGroup {
         let network = ConsensusNetworkAdapter::new(shard_id);
 
         let state_store_clone = state_store.clone();
-        
+
         let raft = Raft::new(
             local_node_id,
             Arc::new(config),

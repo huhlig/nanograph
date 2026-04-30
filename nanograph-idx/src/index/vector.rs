@@ -16,10 +16,10 @@
 
 //! Vector similarity index traits
 
+mod annoy;
 mod flat;
 mod hnsw;
 mod ivf;
-mod annoy;
 mod vamana;
 
 use crate::error::IndexResult;

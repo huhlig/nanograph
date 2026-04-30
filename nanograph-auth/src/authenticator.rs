@@ -14,8 +14,8 @@
 // limitations under the License.
 //
 
-use nanograph_core::object::SecurityPrincipal;
 use crate::credentials::Credentials;
+use nanograph_core::object::SecurityPrincipal;
 
 pub trait Authenticator {
     fn authenticate(credentials: Credentials) -> SecurityPrincipal;

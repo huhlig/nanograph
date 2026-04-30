@@ -28,7 +28,9 @@ fn create_test_shard(store: &LSMKeyValueStore, shard_id: ShardId) {
     let vfs = Arc::new(MemoryFileSystem::new());
     let data_path = Path::from("/data");
     let wal_path = Path::from("/wal");
-    store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+    store
+        .create_shard(shard_id, vfs, data_path, wal_path)
+        .unwrap();
 }
 
 // ============================================================================

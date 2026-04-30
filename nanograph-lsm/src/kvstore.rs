@@ -435,7 +435,7 @@ impl KeyValueShardStore for LSMKeyValueStore {
     ) -> KeyValueResult<()> {
         // LSM is an in-memory store for now, so we ignore the tablespace paths
         // In a real implementation, you would use these paths for SSTable storage
-        
+
         // Create LSMTreeEngine for this shard
         let engine = self.create_engine_for_table(shard_id)?;
 
@@ -506,7 +506,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         assert!(store.shard_exists(shard_id).await.unwrap());
 
@@ -527,7 +529,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Put some data
         store.put(shard_id, b"key1", b"value1").await.unwrap();

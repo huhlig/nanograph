@@ -312,7 +312,7 @@ pub struct IndexCreate {
     /// Index metadata (informative)
     pub metadata: HashMap<String, String>,
     /// Index Sharding configuration
-    pub sharding: IndexSharding
+    pub sharding: IndexSharding,
 }
 
 impl IndexCreate {

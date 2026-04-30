@@ -83,7 +83,9 @@ mod tests {
             let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
             let data_path = nanograph_vfs::Path::from("/data");
             let wal_path = nanograph_vfs::Path::from("/wal");
-            memstore.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+            memstore
+                .create_shard(shard_id, vfs, data_path, wal_path)
+                .unwrap();
             // Create basic directories for the resolver to be happy if it validates paths
             filesystem
                 .create_directory_all("/data/system/system/metadata/snapshots")

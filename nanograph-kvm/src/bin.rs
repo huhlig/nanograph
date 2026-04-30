@@ -15,19 +15,21 @@
 //
 
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, put},
-    Json, Router,
 };
 use clap::Parser;
-use nanograph_core::object::{ContainerId, DatabaseId, SecurityPrincipal, ObjectId, TenantId, TableId};
+use nanograph_core::object::{
+    ContainerId, DatabaseId, ObjectId, SecurityPrincipal, TableId, TenantId,
+};
 use nanograph_kvm::{KeyValueDatabaseConfig, KeyValueDatabaseManager};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
-use tracing::{info, Level};
+use tracing::{Level, info};
 
 /// REST API Server for Nanograph Key-Value Database
 #[derive(Parser, Debug)]
@@ -133,7 +135,11 @@ async fn put_value(
         .put(&state.principal, &container_id, &table_id, key, value)
         .await
     {
-        Ok(_) => (StatusCode::CREATED, Json(serde_json::json!({"status": "created"}))).into_response(),
+        Ok(_) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"status": "created"})),
+        )
+            .into_response(),
         Err(e) => ApiError::KeyValueError(e.to_string()).into_response(),
     }
 }
@@ -147,7 +153,7 @@ async fn get_value(
     let tenant_id = TenantId::from(tenant_id);
     let database_id = DatabaseId::from(database_id);
     let container_id = ContainerId::from_parts(tenant_id, database_id);
-    let table_id =TableId::new(ObjectId::from(table_id));
+    let table_id = TableId::new(ObjectId::from(table_id));
 
     match state
         .manager
@@ -162,7 +168,8 @@ async fn get_value(
                     key: key.clone(),
                     value,
                 }),
-            ).into_response()
+            )
+                .into_response()
         }
         Err(e) => ApiError::KeyValueError(e.to_string()).into_response(),
     }
@@ -190,7 +197,8 @@ async fn delete_value(
                 key: key.clone(),
                 deleted,
             }),
-        ).into_response(),
+        )
+            .into_response(),
         Err(e) => ApiError::KeyValueError(e.to_string()).into_response(),
     }
 }
@@ -222,9 +230,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create a default security principal (in production, this should be authenticated)
     // For this simple demo server, we create a minimal principal with system-level access
-    use nanograph_core::object::{UserId, SystemUserRecord};
+    use nanograph_core::object::{SystemUserRecord, UserId};
     use nanograph_core::types::Timestamp;
-    
+
     let system_user = SystemUserRecord {
         user_id: UserId::from(0),
         username: "system".to_string(),
@@ -239,7 +247,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         options: Default::default(),
         metadata: Default::default(),
     };
-    
+
     let principal = SecurityPrincipal::from_system_user(&system_user, &[], &[]);
 
     let state = AppState {
@@ -250,10 +258,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build the router
     let app = Router::new()
         .route("/health", get(health_check))
-        .route(
-            "/api/v1/:tenant_id/:database_id/:table_id",
-            put(put_value),
-        )
+        .route("/api/v1/:tenant_id/:database_id/:table_id", put(put_value))
         .route(
             "/api/v1/:tenant_id/:database_id/:table_id/:key",
             get(get_value),
@@ -268,7 +273,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start the server
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    
+
     info!("Server listening on http://{}", addr);
     info!("Health check: http://{}/health", addr);
     info!("API endpoints:");
@@ -280,5 +285,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-
-

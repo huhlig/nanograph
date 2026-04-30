@@ -15,15 +15,21 @@
 //
 
 use crate::network::adapter::ConsensusNetworkAdapter as ConsensusNetworkFactory;
-use crate::types::{ConsensusTypeConfig, NodeInfo, ConsensusRPCError as RPCError, ConsensusStreamingError as StreamingError};
+use crate::types::{
+    ConsensusRPCError as RPCError, ConsensusStreamingError as StreamingError, ConsensusTypeConfig,
+    NodeInfo,
+};
 use async_trait::async_trait;
 use nanograph_core::object::{NodeId, ShardId};
 use openraft::error::{InstallSnapshotError, RaftError, ReplicationClosed, Unreachable};
 use openraft::network::{Backoff, RPCOption};
-use openraft::raft::{AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse, SnapshotResponse, TransferLeaderRequest, VoteRequest, VoteResponse};
+use openraft::raft::{
+    AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
+    SnapshotResponse, TransferLeaderRequest, VoteRequest, VoteResponse,
+};
+use openraft::{OptionalSend, Snapshot, Vote};
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use openraft::{OptionalSend, Snapshot, Vote};
 use tokio::sync::Mutex;
 
 type NodeTx = tokio::sync::mpsc::Sender<NodeMessage>;
@@ -128,7 +134,7 @@ impl ConsensusGroupRouter {
         let resp_str = resp_rx
             .await
             .map_err(|e| Unreachable::new(&RouterError(e.to_string())))?;
-        
+
         tracing::debug!(
             "resp from: node={}, group={}, path={}, resp={}",
             to_node,
@@ -149,10 +155,36 @@ impl ConsensusGroupRouter {
 }
 
 pub trait GroupRouter<C: openraft::RaftTypeConfig, G> {
-    fn append_entries(&self, target: NodeId, group_id: G, rpc: AppendEntriesRequest<C>, option: RPCOption) -> impl std::future::Future<Output = Result<AppendEntriesResponse<C>, RPCError>> + Send;
-    fn vote(&self, target: NodeId, group_id: G, rpc: VoteRequest<C>, option: RPCOption) -> impl std::future::Future<Output = Result<VoteResponse<C>, RPCError>> + Send;
-    fn full_snapshot(&self, target: NodeId, group_id: G, vote: Vote<C>, snapshot: Snapshot<C>, cancel: impl std::future::Future<Output = ReplicationClosed> + OptionalSend + 'static, option: RPCOption) -> impl std::future::Future<Output = Result<SnapshotResponse<C>, StreamingError>> + Send;
-    fn transfer_leader(&self, target: NodeId, group_id: G, req: TransferLeaderRequest<C>, option: RPCOption) -> impl std::future::Future<Output = Result<(), RPCError>> + Send;
+    fn append_entries(
+        &self,
+        target: NodeId,
+        group_id: G,
+        rpc: AppendEntriesRequest<C>,
+        option: RPCOption,
+    ) -> impl std::future::Future<Output = Result<AppendEntriesResponse<C>, RPCError>> + Send;
+    fn vote(
+        &self,
+        target: NodeId,
+        group_id: G,
+        rpc: VoteRequest<C>,
+        option: RPCOption,
+    ) -> impl std::future::Future<Output = Result<VoteResponse<C>, RPCError>> + Send;
+    fn full_snapshot(
+        &self,
+        target: NodeId,
+        group_id: G,
+        vote: Vote<C>,
+        snapshot: Snapshot<C>,
+        cancel: impl std::future::Future<Output = ReplicationClosed> + OptionalSend + 'static,
+        option: RPCOption,
+    ) -> impl std::future::Future<Output = Result<SnapshotResponse<C>, StreamingError>> + Send;
+    fn transfer_leader(
+        &self,
+        target: NodeId,
+        group_id: G,
+        req: TransferLeaderRequest<C>,
+        option: RPCOption,
+    ) -> impl std::future::Future<Output = Result<(), RPCError>> + Send;
     fn backoff(&self) -> Backoff;
 }
 
@@ -196,8 +228,12 @@ impl GroupRouter<ConsensusTypeConfig, ShardId> for ConsensusGroupRouter {
         let mut file = snapshot.snapshot;
         file.read_to_end(&mut data)
             .map_err(|e| StreamingError::Unreachable(Unreachable::new(&e)))?;
-        
-        self.send::<(Vote<ConsensusTypeConfig>, openraft::SnapshotMeta<ConsensusTypeConfig>, Vec<u8>), SnapshotResponse<ConsensusTypeConfig>>(
+
+        self.send::<(
+            Vote<ConsensusTypeConfig>,
+            openraft::SnapshotMeta<ConsensusTypeConfig>,
+            Vec<u8>,
+        ), SnapshotResponse<ConsensusTypeConfig>>(
             target,
             &group_id,
             "/raft/snapshot",

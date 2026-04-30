@@ -189,5 +189,3 @@ pub struct TermStats {
     /// Average positions per document
     pub avg_positions: f64,
 }
-
-

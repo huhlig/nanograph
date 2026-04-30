@@ -27,7 +27,10 @@ async fn test_manager_initialization() {
     let manager = ConsensusManager::new(node_id, config.clone());
 
     assert_eq!(manager.node_id(), node_id);
-    assert_eq!(manager.config().replication_factor, config.replication_factor);
+    assert_eq!(
+        manager.config().replication_factor,
+        config.replication_factor
+    );
     assert!(!manager.is_server_running().await);
     assert_eq!(manager.peer_nodes().await.len(), 0);
 }
@@ -59,7 +62,7 @@ async fn test_shard_count_management() {
     // Verify routing uses the shard count
     let key1 = b"test_key_1";
     let key2 = b"test_key_2";
-    
+
     let shard1 = manager.get_table_shard_for_key(key1).await;
     let shard2 = manager.get_table_shard_for_key(key2).await;
 
@@ -196,7 +199,7 @@ async fn test_system_metadata_access() {
 #[tokio::test]
 async fn test_multiple_managers_independent() {
     let config = ReplicationConfig::default();
-    
+
     let manager1 = ConsensusManager::new(NodeId::new(1), config.clone());
     let manager2 = ConsensusManager::new(NodeId::new(2), config);
 
@@ -234,7 +237,8 @@ async fn test_shard_routing_distribution() {
     }
 
     // Should have distributed across shards (not perfectly, but reasonably)
-    assert!(shard_counts.len() > 1, "Keys should distribute across multiple shards");
+    assert!(
+        shard_counts.len() > 1,
+        "Keys should distribute across multiple shards"
+    );
 }
-
-

@@ -15,7 +15,7 @@ repository.workspace = true
 
 [dependencies]
 # Internal Dependencies
-nanograph-kvt = { workspace = true, features = ["test-utils"] }
+nanograph-kvt.workspace = true
 nanograph-vfs.workspace = true
 nanograph-wal.workspace = true
 nanograph-util.workspace = true
@@ -42,6 +42,7 @@ tracing.workspace = true
 tracing-timing.workspace = true
 
 [dev-dependencies]
+nanograph-kvt = { workspace = true, features = ["test-utils"] }
 tempfile = "3.8"
 tokio = { workspace = true, features = ["full", "test-util"] }
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }

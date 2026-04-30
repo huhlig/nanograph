@@ -19,11 +19,11 @@
 use nanograph_core::object::{IndexId, IndexRecord, IndexStatus, IndexType, ObjectId, ShardId};
 use nanograph_core::types::Timestamp;
 use nanograph_idx::{
-    fulltext::FullTextIndex, ConsensusGroup, DistributedIndex, IndexCommand, IndexCommandResponse, IndexEntry,
-    IndexStore, PersistenceConfig, ScoringAlgorithm, TokenizerConfig,
+    ConsensusGroup, DistributedIndex, IndexCommand, IndexCommandResponse, IndexEntry, IndexStore,
+    PersistenceConfig, ScoringAlgorithm, TokenizerConfig, fulltext::FullTextIndex,
 };
-use nanograph_kvt::{KeyValueError, KeyValueIterator, KeyValueShardStore};
 use nanograph_kvt::metrics::ShardStats;
+use nanograph_kvt::{KeyValueError, KeyValueIterator, KeyValueShardStore};
 use nanograph_vfs::{DynamicFileSystem, Path};
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -60,7 +60,10 @@ impl ConsensusGroup for MockConsensusGroup {
         async move { *is_leader.read().await }
     }
 
-    fn propose(&self, data: Vec<u8>) -> impl std::future::Future<Output = Result<(), String>> + Send {
+    fn propose(
+        &self,
+        data: Vec<u8>,
+    ) -> impl std::future::Future<Output = Result<(), String>> + Send {
         let commands = self.commands.clone();
         async move {
             let command: IndexCommand = bincode::deserialize(&data)
@@ -132,16 +135,8 @@ impl KeyValueShardStore for MockKeyValueStore {
         Ok(self.data.read().await.get(key).cloned())
     }
 
-    async fn put(
-        &self,
-        _shard_id: ShardId,
-        key: &[u8],
-        value: &[u8],
-    ) -> Result<(), KeyValueError> {
-        self.data
-            .write()
-            .await
-            .insert(key.to_vec(), value.to_vec());
+    async fn put(&self, _shard_id: ShardId, key: &[u8], value: &[u8]) -> Result<(), KeyValueError> {
+        self.data.write().await.insert(key.to_vec(), value.to_vec());
         Ok(())
     }
 
@@ -176,11 +171,7 @@ impl KeyValueShardStore for MockKeyValueStore {
         Ok(())
     }
 
-    async fn batch_delete(
-        &self,
-        shard: ShardId,
-        keys: &[&[u8]],
-    ) -> Result<usize, KeyValueError> {
+    async fn batch_delete(&self, shard: ShardId, keys: &[&[u8]]) -> Result<usize, KeyValueError> {
         let mut count = 0;
         for key in keys {
             if self.delete(shard, key).await? {

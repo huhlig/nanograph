@@ -14,9 +14,9 @@
 // limitations under the License.
 //
 
-use nanograph_lmdb::LMDBKeyValueStore;
 use nanograph_kvt::{KeyValueShardStore, ShardId};
-use nanograph_vfs::{Path, MemoryFileSystem};
+use nanograph_lmdb::LMDBKeyValueStore;
+use nanograph_vfs::{MemoryFileSystem, Path};
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -30,7 +30,9 @@ async fn test_basic_put_get() {
     let data_path = Path::from(temp_dir.path().join("shard1").to_str().unwrap());
     let wal_path = Path::from(temp_dir.path().join("wal1").to_str().unwrap());
 
-    store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+    store
+        .create_shard(shard_id, vfs, data_path, wal_path)
+        .unwrap();
 
     // Put a value
     store.put(shard_id, b"key1", b"value1").await.unwrap();
@@ -54,7 +56,9 @@ async fn test_delete() {
     let data_path = Path::from(temp_dir.path().join("shard2").to_str().unwrap());
     let wal_path = Path::from(temp_dir.path().join("wal2").to_str().unwrap());
 
-    store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+    store
+        .create_shard(shard_id, vfs, data_path, wal_path)
+        .unwrap();
 
     // Put and delete
     store.put(shard_id, b"key1", b"value1").await.unwrap();
@@ -80,7 +84,9 @@ async fn test_exists() {
     let data_path = Path::from(temp_dir.path().join("shard3").to_str().unwrap());
     let wal_path = Path::from(temp_dir.path().join("wal3").to_str().unwrap());
 
-    store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+    store
+        .create_shard(shard_id, vfs, data_path, wal_path)
+        .unwrap();
 
     store.put(shard_id, b"key1", b"value1").await.unwrap();
 
@@ -98,7 +104,9 @@ async fn test_batch_operations() {
     let data_path = Path::from(temp_dir.path().join("shard4").to_str().unwrap());
     let wal_path = Path::from(temp_dir.path().join("wal4").to_str().unwrap());
 
-    store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+    store
+        .create_shard(shard_id, vfs, data_path, wal_path)
+        .unwrap();
 
     // Batch put
     let pairs = vec![
@@ -138,7 +146,9 @@ async fn test_key_count() {
     let data_path = Path::from(temp_dir.path().join("shard5").to_str().unwrap());
     let wal_path = Path::from(temp_dir.path().join("wal5").to_str().unwrap());
 
-    store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+    store
+        .create_shard(shard_id, vfs, data_path, wal_path)
+        .unwrap();
 
     // Initially empty
     assert_eq!(store.key_count(shard_id).await.unwrap(), 0);
@@ -165,7 +175,9 @@ async fn test_clear() {
     let data_path = Path::from(temp_dir.path().join("shard6").to_str().unwrap());
     let wal_path = Path::from(temp_dir.path().join("wal6").to_str().unwrap());
 
-    store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+    store
+        .create_shard(shard_id, vfs, data_path, wal_path)
+        .unwrap();
 
     // Add some data
     store.put(shard_id, b"key1", b"value1").await.unwrap();
@@ -191,7 +203,9 @@ async fn test_shard_management() {
     let wal_path = Path::from(temp_dir.path().join("wal7").to_str().unwrap());
 
     // Create shard
-    store.create_shard(shard_id, vfs.clone(), data_path.clone(), wal_path.clone()).unwrap();
+    store
+        .create_shard(shard_id, vfs.clone(), data_path.clone(), wal_path.clone())
+        .unwrap();
     assert!(store.shard_exists(shard_id).await.unwrap());
 
     // List shards
@@ -213,7 +227,9 @@ async fn test_shard_stats() {
     let data_path = Path::from(temp_dir.path().join("shard8").to_str().unwrap());
     let wal_path = Path::from(temp_dir.path().join("wal8").to_str().unwrap());
 
-    store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+    store
+        .create_shard(shard_id, vfs, data_path, wal_path)
+        .unwrap();
 
     // Add some data
     store.put(shard_id, b"key1", b"value1").await.unwrap();

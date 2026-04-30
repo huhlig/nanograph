@@ -229,7 +229,7 @@ impl DataBlock {
                 ));
             }
         };
-        
+
         if calculated_crc != stored_crc {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -317,11 +317,14 @@ impl DataBlock {
                             "Insufficient data for blob reference",
                         ));
                     }
-                    let file_id = u64::from_le_bytes(decompressed[cursor..cursor + 8].try_into().unwrap());
+                    let file_id =
+                        u64::from_le_bytes(decompressed[cursor..cursor + 8].try_into().unwrap());
                     cursor += 8;
-                    let offset = u64::from_le_bytes(decompressed[cursor..cursor + 8].try_into().unwrap());
+                    let offset =
+                        u64::from_le_bytes(decompressed[cursor..cursor + 8].try_into().unwrap());
                     cursor += 8;
-                    let length = u32::from_le_bytes(decompressed[cursor..cursor + 4].try_into().unwrap());
+                    let length =
+                        u32::from_le_bytes(decompressed[cursor..cursor + 4].try_into().unwrap());
                     cursor += 4;
                     Some(ValueLocation::Blob(BlobRef::new(file_id, offset, length)))
                 }
@@ -409,7 +412,7 @@ impl IndexBlock {
                 ));
             }
         };
-        
+
         if calculated_crc != stored_crc {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -540,7 +543,7 @@ impl BloomFilter {
                 ));
             }
         };
-        
+
         if calculated_crc != stored_crc {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -1011,7 +1014,10 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(entry.key, b"key2");
-        assert_eq!(entry.value.as_ref().unwrap().as_inline().unwrap(), b"value2");
+        assert_eq!(
+            entry.value.as_ref().unwrap().as_inline().unwrap(),
+            b"value2"
+        );
 
         // Test non-existent key
         buffer.set_position(0);
@@ -1023,14 +1029,26 @@ mod tests {
     fn test_block_crc32_verification() {
         // Test that blocks with valid CRC32 checksums are accepted
         let mut block = DataBlock::new();
-        block.add_entry(Entry::new(b"test_key".to_vec(), Some(b"test_value".to_vec()), 1));
-        
+        block.add_entry(Entry::new(
+            b"test_key".to_vec(),
+            Some(b"test_value".to_vec()),
+            1,
+        ));
+
         let encoded = block.encode(CompressionAlgorithm::None).unwrap();
         let decoded = DataBlock::decode(&encoded).unwrap();
-        
+
         assert_eq!(decoded.entries.len(), 1);
         assert_eq!(decoded.entries[0].key, b"test_key");
-        assert_eq!(decoded.entries[0].value.as_ref().unwrap().as_inline().unwrap(), b"test_value");
+        assert_eq!(
+            decoded.entries[0]
+                .value
+                .as_ref()
+                .unwrap()
+                .as_inline()
+                .unwrap(),
+            b"test_value"
+        );
     }
 
     #[test]
@@ -1038,14 +1056,14 @@ mod tests {
         // Create a valid block
         let mut block = DataBlock::new();
         block.add_entry(Entry::new(b"key".to_vec(), Some(b"value".to_vec()), 1));
-        
+
         let mut encoded = block.encode(CompressionAlgorithm::None).unwrap();
-        
+
         // Corrupt a byte in the middle of the block (but not the CRC32 at the end)
         if encoded.len() > 10 {
             encoded[5] ^= 0xFF; // Flip all bits in one byte
         }
-        
+
         // Decoding should fail due to CRC32 mismatch
         let result = DataBlock::decode(&encoded);
         assert!(result.is_err());
@@ -1055,12 +1073,24 @@ mod tests {
     #[test]
     fn test_index_block_crc32_verification() {
         let mut index = IndexBlock::new();
-        index.add_entry(b"key1".to_vec(), BlockHandle { offset: 0, size: 100 });
-        index.add_entry(b"key2".to_vec(), BlockHandle { offset: 100, size: 150 });
-        
+        index.add_entry(
+            b"key1".to_vec(),
+            BlockHandle {
+                offset: 0,
+                size: 100,
+            },
+        );
+        index.add_entry(
+            b"key2".to_vec(),
+            BlockHandle {
+                offset: 100,
+                size: 150,
+            },
+        );
+
         let encoded = index.encode().unwrap();
         let decoded = IndexBlock::decode(&encoded).unwrap();
-        
+
         assert_eq!(decoded.entries.len(), 2);
         assert_eq!(decoded.entries[0].0, b"key1");
         assert_eq!(decoded.entries[1].0, b"key2");
@@ -1069,16 +1099,22 @@ mod tests {
     #[test]
     fn test_corrupted_index_block_detection() {
         let mut index = IndexBlock::new();
-        index.add_entry(b"key".to_vec(), BlockHandle { offset: 0, size: 100 });
-        
+        index.add_entry(
+            b"key".to_vec(),
+            BlockHandle {
+                offset: 0,
+                size: 100,
+            },
+        );
+
         let mut encoded = index.encode().unwrap();
-        
+
         // Corrupt a byte in the data portion (not the CRC32 at the end)
         // The last 4 bytes are CRC32, so corrupt something before that
         if encoded.len() > 4 {
             encoded[3] ^= 0xFF;
         }
-        
+
         let result = IndexBlock::decode(&encoded);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("CRC32 mismatch"));
@@ -1088,10 +1124,10 @@ mod tests {
     fn test_bloom_filter_crc32_verification() {
         let mut bloom = BloomFilter::new(10, 10);
         bloom.add(b"test_key");
-        
+
         let encoded = bloom.encode();
         let decoded = BloomFilter::decode(&encoded).unwrap();
-        
+
         assert!(decoded.may_contain(b"test_key"));
     }
 
@@ -1099,14 +1135,14 @@ mod tests {
     fn test_corrupted_bloom_filter_detection() {
         let mut bloom = BloomFilter::new(10, 10);
         bloom.add(b"key");
-        
+
         let mut encoded = bloom.encode();
-        
+
         // Corrupt a byte (but not the CRC32 at the end)
         if encoded.len() > 10 {
             encoded[2] ^= 0xFF;
         }
-        
+
         let result = BloomFilter::decode(&encoded);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("CRC32 mismatch"));

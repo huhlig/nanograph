@@ -16,7 +16,10 @@
 
 //! Comprehensive integration tests for ordered indexes (B-Tree and Hash)
 
-use nanograph_core::object::{DatabaseId, IndexId, IndexRecord, IndexSharding, IndexStatus, IndexType, ObjectId, ShardId, ShardNumber, TenantId};
+use nanograph_core::object::{
+    DatabaseId, IndexId, IndexRecord, IndexSharding, IndexStatus, IndexType, ObjectId, ShardId,
+    ShardNumber, TenantId,
+};
 use nanograph_core::types::Timestamp;
 use nanograph_idx::btree::BTreeIndex;
 use nanograph_idx::hash::HashIndex;
@@ -81,12 +84,14 @@ fn create_persistence_config(index_id: u32) -> PersistenceConfig {
 
 // Helper to create shard in store
 fn create_test_shard(store: &MemoryKeyValueShardStore, shard_id: ShardId) {
-    store.create_shard(
-        shard_id,
-        Arc::new(nanograph_vfs::MemoryFileSystem::new()),
-        nanograph_vfs::Path::from("/data"),
-        nanograph_vfs::Path::from("/wal"),
-    ).unwrap();
+    store
+        .create_shard(
+            shard_id,
+            Arc::new(nanograph_vfs::MemoryFileSystem::new()),
+            nanograph_vfs::Path::from("/data"),
+            nanograph_vfs::Path::from("/wal"),
+        )
+        .unwrap();
 }
 
 // B-Tree Index Tests
@@ -98,7 +103,9 @@ async fn test_btree_basic_operations() {
     let config = create_persistence_config(1);
     create_test_shard(&store, config.shard_id);
 
-    let mut index = BTreeIndex::new(metadata, store, None, config).await.unwrap();
+    let mut index = BTreeIndex::new(metadata, store, None, config)
+        .await
+        .unwrap();
 
     // Insert entries
     for i in 0..10 {
@@ -126,7 +133,9 @@ async fn test_btree_range_queries() {
     let config = create_persistence_config(1);
     create_test_shard(&store, config.shard_id);
 
-    let mut index = BTreeIndex::new(metadata, store, None, config).await.unwrap();
+    let mut index = BTreeIndex::new(metadata, store, None, config)
+        .await
+        .unwrap();
 
     // Insert test data
     for i in 0..20 {
@@ -172,7 +181,9 @@ async fn test_btree_prefix_scan() {
     let config = create_persistence_config(1);
     create_test_shard(&store, config.shard_id);
 
-    let mut index = BTreeIndex::new(metadata, store, None, config).await.unwrap();
+    let mut index = BTreeIndex::new(metadata, store, None, config)
+        .await
+        .unwrap();
 
     // Insert entries with common prefix
     for i in 0..5 {
@@ -208,7 +219,9 @@ async fn test_btree_min_max_keys() {
     let config = create_persistence_config(1);
     create_test_shard(&store, config.shard_id);
 
-    let mut index = BTreeIndex::new(metadata, store, None, config).await.unwrap();
+    let mut index = BTreeIndex::new(metadata, store, None, config)
+        .await
+        .unwrap();
 
     // Insert entries
     for i in [5, 2, 8, 1, 9, 3] {
@@ -235,7 +248,9 @@ async fn test_btree_count_range() {
     let config = create_persistence_config(1);
     create_test_shard(&store, config.shard_id);
 
-    let mut index = BTreeIndex::new(metadata, store, None, config).await.unwrap();
+    let mut index = BTreeIndex::new(metadata, store, None, config)
+        .await
+        .unwrap();
 
     // Insert entries
     for i in 0..100 {
@@ -268,7 +283,9 @@ async fn test_btree_unique_constraint() {
     let config = create_persistence_config(1);
     create_test_shard(&store, config.shard_id);
 
-    let mut index = BTreeIndex::new(metadata, store, None, config).await.unwrap();
+    let mut index = BTreeIndex::new(metadata, store, None, config)
+        .await
+        .unwrap();
 
     // Insert first entry
     let entry1 = IndexEntry {
@@ -425,7 +442,9 @@ async fn test_btree_persistence_and_recovery() {
 
     // Create new index instance (simulating recovery)
     {
-        let index = BTreeIndex::new(metadata, store, None, config).await.unwrap();
+        let index = BTreeIndex::new(metadata, store, None, config)
+            .await
+            .unwrap();
 
         // Data should still be accessible
         assert!(index.exists(b"value005").await.unwrap());

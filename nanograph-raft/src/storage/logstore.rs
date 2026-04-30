@@ -20,7 +20,7 @@ use nanograph_wal::{Durability, LogSequenceNumber, WriteAheadLogManager};
 use openraft::entry::RaftEntry;
 use openraft::storage::{IOFlushed, RaftLogStorage};
 use openraft::type_config::alias::{LogIdOf, VoteOf};
-use openraft::{Entry, LogState, RaftLogReader, OptionalSend};
+use openraft::{Entry, LogState, OptionalSend, RaftLogReader};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::Debug;
@@ -86,7 +86,7 @@ impl RaftLogStorage<ConsensusTypeConfig> for ConsensusLogStore {
         // This matches the order in purge() to prevent deadlocks
         let index = self.inner.index.read().await;
         let last_purged_log_id = self.inner.last_purged_log_id.read().await.clone();
-        
+
         let last_log_id = if let Some((_index, (_lsn, payload))) = index.last_key_value() {
             let record: ConsensusLogRecord = nanograph_util::deserialize(payload)?;
             if let ConsensusLogRecord::Entry(e) = record {
@@ -116,10 +116,11 @@ impl RaftLogStorage<ConsensusTypeConfig> for ConsensusLogStore {
     ) -> Result<(), std::io::Error> {
         let record = ConsensusLogRecord::Vote(vote.clone());
         let payload = nanograph_util::serialize(&record)?;
-        
+
         // Write to WAL first, without holding across await
         {
-            let mut writer = self.inner
+            let mut writer = self
+                .inner
                 .log_store
                 .writer()
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
@@ -133,7 +134,7 @@ impl RaftLogStorage<ConsensusTypeConfig> for ConsensusLogStore {
                 )
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         } // Writer dropped here, releasing any internal locks
-        
+
         // Now update in-memory state
         *self.inner.vote.write().await = Some(vote.clone());
         Ok(())
@@ -149,7 +150,8 @@ impl RaftLogStorage<ConsensusTypeConfig> for ConsensusLogStore {
             let record = ConsensusLogRecord::Committed(log_id.clone());
             let payload = nanograph_util::serialize(&record)?;
             {
-                let mut writer = self.inner
+                let mut writer = self
+                    .inner
                     .log_store
                     .writer()
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
@@ -164,7 +166,7 @@ impl RaftLogStorage<ConsensusTypeConfig> for ConsensusLogStore {
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
             } // Writer dropped here, releasing any internal locks
         }
-        
+
         // Now update in-memory state
         *self.inner.committed.write().await = committed;
         Ok(())
@@ -195,15 +197,16 @@ impl RaftLogStorage<ConsensusTypeConfig> for ConsensusLogStore {
             let payload = nanograph_util::serialize(&record)?;
             entries_data.push((log_id, payload));
         }
-        
+
         // Write to WAL first, collecting LSNs
         let mut lsns = Vec::new();
         {
-            let mut writer = self.inner
+            let mut writer = self
+                .inner
                 .log_store
                 .writer()
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-            
+
             for (_log_id, payload) in &entries_data {
                 let lsn = writer
                     .append(
@@ -220,14 +223,14 @@ impl RaftLogStorage<ConsensusTypeConfig> for ConsensusLogStore {
                 .sync()
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         } // Writer dropped here before acquiring index lock
-        
+
         // Now update index after writer is dropped, caching payloads
         let mut index = self.inner.index.write().await;
         for ((log_id, payload), lsn) in entries_data.iter().zip(lsns.iter()) {
             index.insert(log_id.index, (*lsn, payload.clone()));
         }
         drop(index); // Explicitly drop index lock
-        
+
         callback.io_completed(Ok(()));
         Ok(())
     }
@@ -254,7 +257,7 @@ impl RaftLogStorage<ConsensusTypeConfig> for ConsensusLogStore {
         // First, get the LSN to truncate before by reading the index
         let lsn_to_truncate = {
             let mut index = self.inner.index.write().await;
-            
+
             let mut split_at = index.split_off(&(log_id.index + 1));
             std::mem::swap(&mut *index, &mut split_at);
             // split_at now contains entries <= log_id.index
@@ -262,16 +265,17 @@ impl RaftLogStorage<ConsensusTypeConfig> for ConsensusLogStore {
             // Get the LSN of the first remaining entry
             index.first_key_value().map(|(_idx, (lsn, _payload))| *lsn)
         }; // index lock released here
-        
+
         // Update last_purged_log_id after releasing index lock
         {
             let mut last_purged_log_id = self.inner.last_purged_log_id.write().await;
             *last_purged_log_id = Some(log_id.clone());
         } // last_purged_log_id lock released here
-        
+
         // Truncate WAL if we have an LSN
         if let Some(lsn) = lsn_to_truncate {
-            self.inner.log_store
+            self.inner
+                .log_store
                 .truncate_before(lsn)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         }
@@ -290,9 +294,12 @@ impl RaftLogReader<ConsensusTypeConfig> for ConsensusLogStore {
         // Get cached payloads while holding the lock
         let payloads: Vec<Vec<u8>> = {
             let index = self.inner.index.read().await;
-            index.range(range).map(|(_, (_lsn, payload))| payload.clone()).collect()
+            index
+                .range(range)
+                .map(|(_, (_lsn, payload))| payload.clone())
+                .collect()
         };
-        
+
         let mut entries = Vec::new();
         for payload in payloads {
             let record: ConsensusLogRecord = nanograph_util::deserialize(&payload)?;
@@ -307,11 +314,11 @@ impl RaftLogReader<ConsensusTypeConfig> for ConsensusLogStore {
     async fn read_vote(&mut self) -> Result<Option<VoteOf<ConsensusTypeConfig>>, std::io::Error> {
         let vote = self.inner.vote.read().await.clone();
         // If no vote has been saved, return a default vote with term 0
-        Ok(Some(vote.unwrap_or_else(|| openraft::Vote::new(0, NodeId::new(0)))))
+        Ok(Some(
+            vote.unwrap_or_else(|| openraft::Vote::new(0, NodeId::new(0))),
+        ))
     }
 }
 
 // Keep the old ConsensusLogReader type alias for backwards compatibility
 // Type alias removed - was unused
-
-

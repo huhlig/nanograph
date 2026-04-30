@@ -15,9 +15,9 @@
 //
 
 use futures::StreamExt;
-use nanograph_lmdb::LMDBKeyValueStore;
 use nanograph_kvt::{KeyRange, KeyValueShardStore, ShardId};
-use nanograph_vfs::{Path, MemoryFileSystem};
+use nanograph_lmdb::LMDBKeyValueStore;
+use nanograph_vfs::{MemoryFileSystem, Path};
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -31,12 +31,23 @@ async fn test_range_scan() {
     let data_path = Path::from(temp_dir.path().join("shard1").to_str().unwrap());
     let wal_path = Path::from(temp_dir.path().join("wal1").to_str().unwrap());
 
-    store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+    store
+        .create_shard(shard_id, vfs, data_path, wal_path)
+        .unwrap();
 
     // Insert sorted data
-    store.put(shard_id, b"product:001", b"Widget A").await.unwrap();
-    store.put(shard_id, b"product:002", b"Widget B").await.unwrap();
-    store.put(shard_id, b"product:003", b"Widget C").await.unwrap();
+    store
+        .put(shard_id, b"product:001", b"Widget A")
+        .await
+        .unwrap();
+    store
+        .put(shard_id, b"product:002", b"Widget B")
+        .await
+        .unwrap();
+    store
+        .put(shard_id, b"product:003", b"Widget C")
+        .await
+        .unwrap();
     store.put(shard_id, b"user:001", b"Alice").await.unwrap();
     store.put(shard_id, b"user:002", b"Bob").await.unwrap();
 
@@ -63,13 +74,18 @@ async fn test_range_scan_with_limit() {
     let data_path = Path::from(temp_dir.path().join("shard2").to_str().unwrap());
     let wal_path = Path::from(temp_dir.path().join("wal2").to_str().unwrap());
 
-    store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+    store
+        .create_shard(shard_id, vfs, data_path, wal_path)
+        .unwrap();
 
     // Insert data
     for i in 0..10 {
         let key = format!("key{:03}", i);
         let value = format!("value{}", i);
-        store.put(shard_id, key.as_bytes(), value.as_bytes()).await.unwrap();
+        store
+            .put(shard_id, key.as_bytes(), value.as_bytes())
+            .await
+            .unwrap();
     }
 
     // Scan with limit
@@ -92,15 +108,26 @@ async fn test_multiple_shards() {
     for i in 1..=3 {
         let shard_id = ShardId::new(i);
         let vfs = Arc::new(MemoryFileSystem::new());
-        let data_path = Path::from(temp_dir.path().join(format!("shard{}", i)).to_str().unwrap());
+        let data_path = Path::from(
+            temp_dir
+                .path()
+                .join(format!("shard{}", i))
+                .to_str()
+                .unwrap(),
+        );
         let wal_path = Path::from(temp_dir.path().join(format!("wal{}", i)).to_str().unwrap());
 
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Put data in each shard
         let key = format!("key{}", i);
         let value = format!("value{}", i);
-        store.put(shard_id, key.as_bytes(), value.as_bytes()).await.unwrap();
+        store
+            .put(shard_id, key.as_bytes(), value.as_bytes())
+            .await
+            .unwrap();
     }
 
     // Verify each shard has its own data
@@ -127,11 +154,16 @@ async fn test_large_values() {
     let data_path = Path::from(temp_dir.path().join("shard1").to_str().unwrap());
     let wal_path = Path::from(temp_dir.path().join("wal1").to_str().unwrap());
 
-    store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+    store
+        .create_shard(shard_id, vfs, data_path, wal_path)
+        .unwrap();
 
     // Create a large value (1MB)
     let large_value = vec![0u8; 1024 * 1024];
-    store.put(shard_id, b"large_key", &large_value).await.unwrap();
+    store
+        .put(shard_id, b"large_key", &large_value)
+        .await
+        .unwrap();
 
     // Retrieve and verify
     let retrieved = store.get(shard_id, b"large_key").await.unwrap();
@@ -152,9 +184,14 @@ async fn test_persistence() {
         let data_path = Path::from(data_path_str.as_str());
         let wal_path = Path::from(wal_path_str.as_str());
 
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
-        store.put(shard_id, b"persistent_key", b"persistent_value").await.unwrap();
-        
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
+        store
+            .put(shard_id, b"persistent_key", b"persistent_value")
+            .await
+            .unwrap();
+
         // Flush to ensure data is written
         store.flush().await.unwrap();
     }
@@ -166,8 +203,10 @@ async fn test_persistence() {
         let data_path = Path::from(data_path_str.as_str());
         let wal_path = Path::from(wal_path_str.as_str());
 
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
-        
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
+
         let value = store.get(shard_id, b"persistent_key").await.unwrap();
         assert_eq!(value, Some(b"persistent_value".to_vec()));
     }
@@ -183,13 +222,18 @@ async fn test_concurrent_reads() {
     let data_path = Path::from(temp_dir.path().join("shard1").to_str().unwrap());
     let wal_path = Path::from(temp_dir.path().join("wal1").to_str().unwrap());
 
-    store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+    store
+        .create_shard(shard_id, vfs, data_path, wal_path)
+        .unwrap();
 
     // Insert test data
     for i in 0..100 {
         let key = format!("key{:03}", i);
         let value = format!("value{}", i);
-        store.put(shard_id, key.as_bytes(), value.as_bytes()).await.unwrap();
+        store
+            .put(shard_id, key.as_bytes(), value.as_bytes())
+            .await
+            .unwrap();
     }
 
     // Spawn multiple concurrent readers
@@ -222,7 +266,9 @@ async fn test_update_existing_key() {
     let data_path = Path::from(temp_dir.path().join("shard1").to_str().unwrap());
     let wal_path = Path::from(temp_dir.path().join("wal1").to_str().unwrap());
 
-    store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+    store
+        .create_shard(shard_id, vfs, data_path, wal_path)
+        .unwrap();
 
     // Insert initial value
     store.put(shard_id, b"key1", b"value1").await.unwrap();

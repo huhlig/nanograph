@@ -61,12 +61,12 @@ impl Default for LSMTreeOptions {
             compression: CompressionAlgorithm::None,
             encryption: EncryptionAlgorithm::None,
             encryption_key: None,
-            memtable_size: 64 * 1024 * 1024, // 64MB
-            block_size: 4096,                // 4KB
-            durability: Durability::Flush,   // Default to Flush for balance
+            memtable_size: 64 * 1024 * 1024,  // 64MB
+            block_size: 4096,                 // 4KB
+            durability: Durability::Flush,    // Default to Flush for balance
             value_separation_threshold: 4096, // 4KB - values larger than this go to blob log
-            enable_value_separation: true,   // Enable WiscKey-style value separation by default
-            blob_gc_threshold: 0.5,          // GC blob files with <50% live data
+            enable_value_separation: true,    // Enable WiscKey-style value separation by default
+            blob_gc_threshold: 0.5,           // GC blob files with <50% live data
         }
     }
 }

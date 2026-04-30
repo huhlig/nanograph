@@ -345,10 +345,7 @@ impl TransactionManager {
 
         // Store reference to transaction manager for cleanup on commit/rollback
         let tx_mgr = Arc::new(self.clone());
-        let tx_with_cleanup = Arc::new(TransactionWithCleanup {
-            inner: tx,
-            tx_mgr,
-        });
+        let tx_with_cleanup = Arc::new(TransactionWithCleanup { inner: tx, tx_mgr });
 
         tx_with_cleanup as Arc<dyn Transaction>
     }
@@ -432,20 +429,20 @@ impl Transaction for TransactionWithCleanup {
     async fn commit(self: Arc<Self>) -> KeyValueResult<()> {
         let tx_id = self.id();
         let result = Arc::clone(&self.inner).commit().await;
-        
+
         // Clean up transaction tracking regardless of commit result
         self.tx_mgr.remove_transaction(tx_id);
-        
+
         result
     }
 
     async fn rollback(self: Arc<Self>) -> KeyValueResult<()> {
         let tx_id = self.id();
         let result = Arc::clone(&self.inner).rollback().await;
-        
+
         // Clean up transaction tracking regardless of rollback result
         self.tx_mgr.remove_transaction(tx_id);
-        
+
         result
     }
 }
@@ -464,7 +461,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Begin transaction
         let tx = tx_mgr.begin();
@@ -494,7 +493,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Begin transaction
         let tx = tx_mgr.begin();
@@ -520,7 +521,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Write initial value
         store.put(shard_id, b"key1", b"value1").await.unwrap();
@@ -559,7 +562,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Write initial value
         store.put(shard_id, b"key1", b"value1").await.unwrap();
@@ -593,7 +598,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Begin transaction
         let tx = tx_mgr.begin();
@@ -634,7 +641,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Insert initial data
         store.put(shard_id, b"key1", b"initial").await.unwrap();
@@ -698,7 +707,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Begin transaction
         let tx = tx_mgr.begin();
@@ -740,7 +751,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Begin transaction
         let tx = tx_mgr.begin();
@@ -770,7 +783,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Begin transaction
         let tx = tx_mgr.begin();
@@ -811,7 +826,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Begin a transaction
         let tx = tx_mgr.begin();
@@ -839,7 +856,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Begin first transaction
         let tx1 = tx_mgr.begin();
@@ -895,7 +914,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Begin two transactions
         let tx1 = tx_mgr.begin();
@@ -937,7 +958,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         let commit_count = Arc::new(AtomicUsize::new(0));
 
@@ -948,17 +971,17 @@ mod tests {
             let commit_count_clone = Arc::clone(&commit_count);
             let handle = tokio::spawn(async move {
                 let tx = tx_mgr_clone.begin();
-                
+
                 // Do some work
                 tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-                
+
                 // Commit
                 if tx.commit().await.is_ok() {
                     commit_count_clone.fetch_add(1, Ordering::SeqCst);
                 }
             });
             handles.push(handle);
-            
+
             // Small delay between starting transactions
             tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
         }

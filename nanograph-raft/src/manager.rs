@@ -25,14 +25,14 @@ use crate::network::server::RaftService;
 use crate::storage::{ConsensusLogStore, ConsensusStateStore};
 use crate::types::{NodeInfo, Operation, ReadConsistency, ReplicationConfig};
 use nanograph_core::object::{ContainerId, NodeId, ShardId};
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::{RwLock, Mutex};
+use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error, info, warn};
 
 /// Router for distributed operations
 ///
@@ -79,13 +79,13 @@ struct ServerState {
     /// When present, indicates the server is running. The handle can be
     /// awaited to detect server completion or errors.
     server_handle: Option<JoinHandle<ConsensusResult<()>>>,
-    
+
     /// Shutdown signal sender
     ///
     /// Used to gracefully signal the server to shut down. Sending on this
     /// channel triggers the server's shutdown sequence.
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
-    
+
     /// Server bind address
     ///
     /// The socket address the server is bound to, if running.
@@ -153,10 +153,7 @@ impl ConsensusManager {
     /// # Returns
     /// * `Ok(())` if the server started successfully
     /// * `Err(ConsensusError)` if the server failed to start
-    pub async fn start_server(
-        self: Arc<Self>,
-        bind_addr: SocketAddr,
-    ) -> ConsensusResult<()> {
+    pub async fn start_server(self: Arc<Self>, bind_addr: SocketAddr) -> ConsensusResult<()> {
         let mut state = self.server_state.lock().await;
 
         // Check if server is already running

@@ -23,12 +23,12 @@
 
 mod common;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
+use nanograph_art::ArtKeyValueStore;
+use nanograph_btree::{BPlusTreeConfig, BTreeKeyValueStore};
 use nanograph_kvt::{KeyValueShardStore, MemoryKeyValueShardStore, ShardId};
 use nanograph_lmdb::LMDBKeyValueStore;
 use nanograph_lsm::LSMKeyValueStore;
-use nanograph_btree::{BTreeKeyValueStore, BPlusTreeConfig};
-use nanograph_art::ArtKeyValueStore;
 use nanograph_vfs::{MemoryFileSystem, Path};
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -58,7 +58,7 @@ fn setup_lmdb() -> (LMDBKeyValueStore, ShardId, TempDir) {
 fn setup_lsm() -> (Arc<LSMKeyValueStore>, ShardId, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let store = Arc::new(LSMKeyValueStore::new());
-    
+
     // Initialize transaction manager
     store.init_tx_manager();
 

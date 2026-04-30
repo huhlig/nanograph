@@ -242,7 +242,9 @@ pub async fn run_kvstore_test_suite<S: KeyValueShardStore>(store: &S) {
 
         // Transaction rollback
         let txn2 = store.begin_transaction().await.unwrap();
-        txn2.put(shard, b"txn_key3", b"rollback_test").await.unwrap();
+        txn2.put(shard, b"txn_key3", b"rollback_test")
+            .await
+            .unwrap();
         Arc::clone(&txn2).rollback().await.unwrap();
         assert_eq!(store.get(shard, b"txn_key3").await.unwrap(), None);
 
@@ -260,11 +262,32 @@ pub async fn run_kvstore_test_suite<S: KeyValueShardStore>(store: &S) {
         let shard3 = create_test_shard(12);
 
         let vfs = Arc::new(MemoryFileSystem::new());
-        
+
         // Create multiple shards
-        store.create_shard(shard1, vfs.clone(), Path::from("/shard10_data"), Path::from("/shard10_wal")).unwrap();
-        store.create_shard(shard2, vfs.clone(), Path::from("/shard11_data"), Path::from("/shard11_wal")).unwrap();
-        store.create_shard(shard3, vfs.clone(), Path::from("/shard12_data"), Path::from("/shard12_wal")).unwrap();
+        store
+            .create_shard(
+                shard1,
+                vfs.clone(),
+                Path::from("/shard10_data"),
+                Path::from("/shard10_wal"),
+            )
+            .unwrap();
+        store
+            .create_shard(
+                shard2,
+                vfs.clone(),
+                Path::from("/shard11_data"),
+                Path::from("/shard11_wal"),
+            )
+            .unwrap();
+        store
+            .create_shard(
+                shard3,
+                vfs.clone(),
+                Path::from("/shard12_data"),
+                Path::from("/shard12_wal"),
+            )
+            .unwrap();
 
         // List shards
         let shards = store.list_shards().await.unwrap();
@@ -304,7 +327,14 @@ pub async fn run_kvstore_test_suite<S: KeyValueShardStore>(store: &S) {
     {
         let shard = create_test_shard(20);
         let vfs = Arc::new(MemoryFileSystem::new());
-        store.create_shard(shard, vfs, Path::from("/shard20_data"), Path::from("/shard20_wal")).unwrap();
+        store
+            .create_shard(
+                shard,
+                vfs,
+                Path::from("/shard20_data"),
+                Path::from("/shard20_wal"),
+            )
+            .unwrap();
 
         // Key count
         assert_eq!(store.key_count(shard).await.unwrap(), 0);
@@ -312,7 +342,10 @@ pub async fn run_kvstore_test_suite<S: KeyValueShardStore>(store: &S) {
         for i in 0..10 {
             let key = format!("meta_key{}", i);
             let value = format!("meta_value{}", i);
-            store.put(shard, key.as_bytes(), value.as_bytes()).await.unwrap();
+            store
+                .put(shard, key.as_bytes(), value.as_bytes())
+                .await
+                .unwrap();
         }
 
         assert_eq!(store.key_count(shard).await.unwrap(), 10);
@@ -327,7 +360,14 @@ pub async fn run_kvstore_test_suite<S: KeyValueShardStore>(store: &S) {
     {
         let shard = create_test_shard(30);
         let vfs = Arc::new(MemoryFileSystem::new());
-        store.create_shard(shard, vfs, Path::from("/shard30_data"), Path::from("/shard30_wal")).unwrap();
+        store
+            .create_shard(
+                shard,
+                vfs,
+                Path::from("/shard30_data"),
+                Path::from("/shard30_wal"),
+            )
+            .unwrap();
 
         // Empty key
         store.put(shard, b"", b"empty_key_value").await.unwrap();
@@ -353,7 +393,10 @@ pub async fn run_kvstore_test_suite<S: KeyValueShardStore>(store: &S) {
         for i in 0..1000 {
             let key = format!("small_key_{:04}", i);
             let value = format!("small_value_{}", i);
-            store.put(shard, key.as_bytes(), value.as_bytes()).await.unwrap();
+            store
+                .put(shard, key.as_bytes(), value.as_bytes())
+                .await
+                .unwrap();
         }
         assert!(store.key_count(shard).await.unwrap() >= 1000);
     }
@@ -362,13 +405,23 @@ pub async fn run_kvstore_test_suite<S: KeyValueShardStore>(store: &S) {
     {
         let shard = create_test_shard(40);
         let vfs = Arc::new(MemoryFileSystem::new());
-        store.create_shard(shard, vfs, Path::from("/shard40_data"), Path::from("/shard40_wal")).unwrap();
+        store
+            .create_shard(
+                shard,
+                vfs,
+                Path::from("/shard40_data"),
+                Path::from("/shard40_wal"),
+            )
+            .unwrap();
 
         // Write some data
         for i in 0..100 {
             let key = format!("maint_key{}", i);
             let value = format!("maint_value{}", i);
-            store.put(shard, key.as_bytes(), value.as_bytes()).await.unwrap();
+            store
+                .put(shard, key.as_bytes(), value.as_bytes())
+                .await
+                .unwrap();
         }
 
         // Flush (should not error)
@@ -395,19 +448,29 @@ pub async fn run_kvstore_test_suite<S: KeyValueShardStore>(store: &S) {
     {
         let shard = create_test_shard(50);
         let vfs = Arc::new(MemoryFileSystem::new());
-        store.create_shard(shard, vfs, Path::from("/shard50_data"), Path::from("/shard50_wal")).unwrap();
+        store
+            .create_shard(
+                shard,
+                vfs,
+                Path::from("/shard50_data"),
+                Path::from("/shard50_wal"),
+            )
+            .unwrap();
 
         // Insert data
         for i in 0..20 {
             let key = format!("iter_key_{:02}", i);
             let value = format!("iter_value_{}", i);
-            store.put(shard, key.as_bytes(), value.as_bytes()).await.unwrap();
+            store
+                .put(shard, key.as_bytes(), value.as_bytes())
+                .await
+                .unwrap();
         }
 
         // Test iterator seek
         let range = KeyRange::all();
         let mut iter = store.scan(shard, range).await.unwrap();
-        
+
         // Seek to middle
         iter.seek(b"iter_key_10").unwrap();
         assert!(iter.valid());
@@ -427,13 +490,23 @@ pub async fn run_kvstore_test_suite<S: KeyValueShardStore>(store: &S) {
     {
         let shard = create_test_shard(60);
         let vfs = Arc::new(MemoryFileSystem::new());
-        store.create_shard(shard, vfs, Path::from("/shard60_data"), Path::from("/shard60_wal")).unwrap();
+        store
+            .create_shard(
+                shard,
+                vfs,
+                Path::from("/shard60_data"),
+                Path::from("/shard60_wal"),
+            )
+            .unwrap();
 
         // Write initial data
         for i in 0..50 {
             let key = format!("concurrent_key{}", i);
             let value = format!("concurrent_value{}", i);
-            store.put(shard, key.as_bytes(), value.as_bytes()).await.unwrap();
+            store
+                .put(shard, key.as_bytes(), value.as_bytes())
+                .await
+                .unwrap();
         }
 
         // Multiple concurrent reads should work

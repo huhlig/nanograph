@@ -291,7 +291,11 @@ impl BlobLog {
     }
 
     /// Read a blob value using a blob reference
-    pub fn read_blob<R: Read + Seek>(&self, reader: &mut R, blob_ref: &BlobRef) -> io::Result<Vec<u8>> {
+    pub fn read_blob<R: Read + Seek>(
+        &self,
+        reader: &mut R,
+        blob_ref: &BlobRef,
+    ) -> io::Result<Vec<u8>> {
         reader.seek(SeekFrom::Start(blob_ref.offset))?;
 
         let mut buf = vec![0u8; blob_ref.length as usize];
@@ -310,7 +314,9 @@ impl BlobLog {
         let mut metadata = self.file_metadata.write().unwrap();
         if let Some(file_meta) = metadata.get_mut(&blob_ref.file_id) {
             file_meta.live_blob_count = file_meta.live_blob_count.saturating_sub(1);
-            file_meta.live_data_size = file_meta.live_data_size.saturating_sub(blob_ref.length as u64);
+            file_meta.live_data_size = file_meta
+                .live_data_size
+                .saturating_sub(blob_ref.length as u64);
         }
     }
 

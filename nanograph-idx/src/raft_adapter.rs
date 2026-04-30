@@ -70,7 +70,10 @@ impl ConsensusGroup for RaftConsensusAdapter {
         async move { raft_group.is_leader().await }
     }
 
-    fn propose(&self, data: Vec<u8>) -> impl std::future::Future<Output = Result<(), String>> + Send {
+    fn propose(
+        &self,
+        data: Vec<u8>,
+    ) -> impl std::future::Future<Output = Result<(), String>> + Send {
         let raft_group = self.raft_group.clone();
         async move {
             // Convert the serialized index command into a Raft Operation

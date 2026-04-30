@@ -18,13 +18,12 @@
 
 use nanograph_art::ArtKeyValueStore;
 use nanograph_kvt::test_suite::run_kvstore_test_suite;
-use std::sync::Arc;
 
 #[tokio::test]
 async fn test_art_with_common_suite() {
-    let store = Arc::new(ArtKeyValueStore::new());
-    
-    run_kvstore_test_suite(&*store).await;
+    let store = ArtKeyValueStore::new();
+
+    run_kvstore_test_suite(&store).await;
 }
 
 // Made with Bob

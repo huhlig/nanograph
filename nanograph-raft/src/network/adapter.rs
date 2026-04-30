@@ -41,10 +41,10 @@ use tokio::sync::RwLock;
 pub struct ConsensusNetworkAdapter {
     /// Shared gRPC client for making RPC calls
     client: Arc<RaftRpcClient>,
-    
+
     /// Map of node IDs to their information
     nodes: Arc<RwLock<HashMap<NodeId, NodeInfo>>>,
-    
+
     /// The Raft group ID this adapter serves
     group_id: ShardId,
 }
@@ -109,10 +109,10 @@ impl RaftNetworkFactory<ConsensusTypeConfig> for ConsensusNetworkAdapter {
 pub struct ConsensusNodeNetwork {
     /// The target node ID for RPC calls
     target: NodeId,
-    
+
     /// The Raft group ID
     group_id: ShardId,
-    
+
     /// Shared gRPC client for making RPC calls
     client: Arc<RaftRpcClient>,
 }

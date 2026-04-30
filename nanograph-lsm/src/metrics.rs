@@ -422,10 +422,12 @@ impl LSMMetrics {
     }
 
     // Transaction metrics
-    
+
     /// Set the number of active transactions
     pub fn set_active_transactions(&self, count: usize) {
-        self.inner.active_transactions.store(count, Ordering::Relaxed);
+        self.inner
+            .active_transactions
+            .store(count, Ordering::Relaxed);
     }
 
     /// Get the number of active transactions
@@ -440,7 +442,9 @@ impl LSMMetrics {
     ///
     /// Use i64::MAX when there are no active transactions.
     pub fn set_min_active_snapshot_seq(&self, seq: i64) {
-        self.inner.min_active_snapshot_seq.store(seq, Ordering::Relaxed);
+        self.inner
+            .min_active_snapshot_seq
+            .store(seq, Ordering::Relaxed);
     }
 
     /// Get the minimum active snapshot sequence number (GC watermark)
@@ -539,7 +543,10 @@ impl MetricsSnapshot {
         if self.min_active_snapshot_seq == i64::MAX {
             println!("  GC Watermark: None (no active transactions)");
         } else {
-            println!("  GC Watermark (min snapshot seq): {}", self.min_active_snapshot_seq);
+            println!(
+                "  GC Watermark (min snapshot seq): {}",
+                self.min_active_snapshot_seq
+            );
         }
         println!();
         println!("Hit Rates:");

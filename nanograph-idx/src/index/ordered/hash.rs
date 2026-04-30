@@ -164,7 +164,7 @@ impl IndexStore for HashIndex {
         // Check for uniqueness violation - check if any entry exists with this indexed value
         let query = IndexQuery::exact(entry.indexed_value.clone()).with_limit(1);
         let existing = self.query(query).await?;
-        
+
         // If an entry exists with a different primary key, it's a violation
         if let Some(existing_entry) = existing.first() {
             if existing_entry.primary_key != entry.primary_key {
@@ -247,9 +247,7 @@ impl IndexStore for HashIndex {
         let query = IndexQuery::all();
         let entries = self.query(query).await?;
 
-        Ok(entries
-            .into_iter()
-            .find(|e| e.primary_key == primary_key))
+        Ok(entries.into_iter().find(|e| e.primary_key == primary_key))
     }
 
     async fn exists(&self, indexed_value: &[u8]) -> IndexResult<bool> {
@@ -272,10 +270,7 @@ impl IndexStore for HashIndex {
             .await?;
 
         let entry_count = results.len() as u64;
-        let total_size: usize = results
-            .iter()
-            .map(|(_key, value)| value.len())
-            .sum();
+        let total_size: usize = results.iter().map(|(_key, value)| value.len()).sum();
 
         let avg_entry_size = if entry_count > 0 {
             total_size as u64 / entry_count
@@ -306,10 +301,7 @@ impl IndexStore for HashIndex {
 
 #[async_trait]
 impl UniqueIndex for HashIndex {
-    async fn lookup_unique(
-        &self,
-        indexed_value: &[u8],
-    ) -> IndexResult<Option<Vec<u8>>> {
+    async fn lookup_unique(&self, indexed_value: &[u8]) -> IndexResult<Option<Vec<u8>>> {
         let query = IndexQuery::exact(indexed_value.to_vec()).with_limit(1);
         let entries = self.query(query).await?;
         Ok(entries.first().map(|e| e.primary_key.clone()))
@@ -330,7 +322,10 @@ impl UniqueIndex for HashIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nanograph_core::object::{DatabaseId, IndexId, IndexSharding, IndexStatus, IndexType, ObjectId, ShardId, ShardNumber, TenantId};
+    use nanograph_core::object::{
+        DatabaseId, IndexId, IndexSharding, IndexStatus, IndexType, ObjectId, ShardId, ShardNumber,
+        TenantId,
+    };
     use nanograph_core::types::Timestamp;
     use std::collections::HashMap as StdHashMap;
 
@@ -402,7 +397,10 @@ mod tests {
         // Second insert with same value should fail
         let result = index.insert(entry2).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), IndexError::UniqueViolation(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            IndexError::UniqueViolation(_)
+        ));
     }
 
     #[tokio::test]

@@ -28,14 +28,14 @@ use nanograph_wal::{
 fn test_wal_recovery_basic() {
     // Test that we can write records and recover them after reopening
     let fs = MemoryFileSystem::new();
-    let config = WriteAheadLogConfig::new(1)
-        .with_integrity(nanograph_util::IntegrityAlgorithm::None);
-    
+    let config =
+        WriteAheadLogConfig::new(1).with_integrity(nanograph_util::IntegrityAlgorithm::None);
+
     // Write some records
     {
         let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config.clone()).unwrap();
         let mut writer = wal.writer().unwrap();
-        
+
         for i in 0..5 {
             let payload = format!("record_{}", i);
             let record = WriteAheadLogRecord {
@@ -45,11 +45,11 @@ fn test_wal_recovery_basic() {
             writer.append(record, Durability::Sync).unwrap();
         }
     }
-    
+
     // Reopen and verify we can read all records
     let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config).unwrap();
     let mut reader = wal.reader_from(LogSequenceNumber::ZERO).unwrap();
-    
+
     let mut count = 0;
     while let Some(entry) = reader.next().unwrap() {
         assert_eq!(entry.kind, 1);
@@ -57,7 +57,7 @@ fn test_wal_recovery_basic() {
         assert_eq!(entry.payload, expected.as_bytes());
         count += 1;
     }
-    
+
     assert_eq!(count, 5, "Should have recovered all 5 records");
 }
 
@@ -65,46 +65,49 @@ fn test_wal_recovery_basic() {
 fn test_wal_recovery_empty() {
     // Test that recovery works on an empty WAL
     let fs = MemoryFileSystem::new();
-    let config = WriteAheadLogConfig::new(2)
-        .with_integrity(nanograph_util::IntegrityAlgorithm::None);
-    
+    let config =
+        WriteAheadLogConfig::new(2).with_integrity(nanograph_util::IntegrityAlgorithm::None);
+
     // Create WAL but don't write anything
     {
         let _wal = WriteAheadLogManager::new(fs.clone(), "/wal", config.clone()).unwrap();
     }
-    
+
     // Reopen and verify empty
     let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config).unwrap();
     let mut reader = wal.reader_from(LogSequenceNumber::ZERO).unwrap();
-    
-    assert!(reader.next().unwrap().is_none(), "Empty WAL should return None");
+
+    assert!(
+        reader.next().unwrap().is_none(),
+        "Empty WAL should return None"
+    );
 }
 
 #[test]
 fn test_wal_recovery_with_different_durability() {
     // Test recovery with different durability levels
     let fs = MemoryFileSystem::new();
-    let config = WriteAheadLogConfig::new(3)
-        .with_integrity(nanograph_util::IntegrityAlgorithm::None);
-    
+    let config =
+        WriteAheadLogConfig::new(3).with_integrity(nanograph_util::IntegrityAlgorithm::None);
+
     {
         let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config.clone()).unwrap();
         let mut writer = wal.writer().unwrap();
-        
+
         // Write with Memory durability
         let record1 = WriteAheadLogRecord {
             kind: 1,
             payload: b"memory",
         };
         writer.append(record1, Durability::Memory).unwrap();
-        
+
         // Write with Flush durability
         let record2 = WriteAheadLogRecord {
             kind: 2,
             payload: b"flush",
         };
         writer.append(record2, Durability::Flush).unwrap();
-        
+
         // Write with Sync durability
         let record3 = WriteAheadLogRecord {
             kind: 3,
@@ -112,23 +115,23 @@ fn test_wal_recovery_with_different_durability() {
         };
         writer.append(record3, Durability::Sync).unwrap();
     }
-    
+
     // Reopen and verify
     let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config).unwrap();
     let mut reader = wal.reader_from(LogSequenceNumber::ZERO).unwrap();
-    
+
     let entry1 = reader.next().unwrap().unwrap();
     assert_eq!(entry1.kind, 1);
     assert_eq!(entry1.payload, b"memory");
-    
+
     let entry2 = reader.next().unwrap().unwrap();
     assert_eq!(entry2.kind, 2);
     assert_eq!(entry2.payload, b"flush");
-    
+
     let entry3 = reader.next().unwrap().unwrap();
     assert_eq!(entry3.kind, 3);
     assert_eq!(entry3.payload, b"sync");
-    
+
     assert!(reader.next().unwrap().is_none());
 }
 
@@ -136,13 +139,13 @@ fn test_wal_recovery_with_different_durability() {
 fn test_wal_recovery_with_checksum_validation() {
     // Test that recovery validates checksums
     let fs = MemoryFileSystem::new();
-    let config = WriteAheadLogConfig::new(4)
-        .with_integrity(nanograph_util::IntegrityAlgorithm::Crc32c);
-    
+    let config =
+        WriteAheadLogConfig::new(4).with_integrity(nanograph_util::IntegrityAlgorithm::Crc32c);
+
     {
         let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config.clone()).unwrap();
         let mut writer = wal.writer().unwrap();
-        
+
         for i in 0..10 {
             let payload = format!("checksum_record_{}", i);
             let record = WriteAheadLogRecord {
@@ -152,11 +155,11 @@ fn test_wal_recovery_with_checksum_validation() {
             writer.append(record, Durability::Sync).unwrap();
         }
     }
-    
+
     // Reopen and verify all records with checksum validation
     let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config).unwrap();
     let mut reader = wal.reader_from(LogSequenceNumber::ZERO).unwrap();
-    
+
     let mut count = 0;
     while let Some(entry) = reader.next().unwrap() {
         assert_eq!(entry.kind, 1);
@@ -164,21 +167,24 @@ fn test_wal_recovery_with_checksum_validation() {
         assert_eq!(entry.payload, expected.as_bytes());
         count += 1;
     }
-    
-    assert_eq!(count, 10, "Should have recovered all 10 records with valid checksums");
+
+    assert_eq!(
+        count, 10,
+        "Should have recovered all 10 records with valid checksums"
+    );
 }
 
 #[test]
 fn test_wal_recovery_large_records() {
     // Test recovery with large records
     let fs = MemoryFileSystem::new();
-    let config = WriteAheadLogConfig::new(5)
-        .with_integrity(nanograph_util::IntegrityAlgorithm::None);
-    
+    let config =
+        WriteAheadLogConfig::new(5).with_integrity(nanograph_util::IntegrityAlgorithm::None);
+
     {
         let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config.clone()).unwrap();
         let mut writer = wal.writer().unwrap();
-        
+
         // Write a large record (10KB)
         let large_payload = vec![0xAB; 10 * 1024];
         let record = WriteAheadLogRecord {
@@ -186,7 +192,7 @@ fn test_wal_recovery_large_records() {
             payload: &large_payload,
         };
         writer.append(record, Durability::Sync).unwrap();
-        
+
         // Write a small record after
         let record2 = WriteAheadLogRecord {
             kind: 1,
@@ -194,20 +200,20 @@ fn test_wal_recovery_large_records() {
         };
         writer.append(record2, Durability::Sync).unwrap();
     }
-    
+
     // Reopen and verify
     let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config).unwrap();
     let mut reader = wal.reader_from(LogSequenceNumber::ZERO).unwrap();
-    
+
     let entry1 = reader.next().unwrap().unwrap();
     assert_eq!(entry1.kind, 99);
     assert_eq!(entry1.payload.len(), 10 * 1024);
     assert!(entry1.payload.iter().all(|&b| b == 0xAB));
-    
+
     let entry2 = reader.next().unwrap().unwrap();
     assert_eq!(entry2.kind, 1);
     assert_eq!(entry2.payload, b"small");
-    
+
     assert!(reader.next().unwrap().is_none());
 }
 
@@ -215,14 +221,14 @@ fn test_wal_recovery_large_records() {
 fn test_wal_recovery_from_specific_lsn() {
     // Test that we can start recovery from a specific LSN
     let fs = MemoryFileSystem::new();
-    let config = WriteAheadLogConfig::new(6)
-        .with_integrity(nanograph_util::IntegrityAlgorithm::None);
-    
+    let config =
+        WriteAheadLogConfig::new(6).with_integrity(nanograph_util::IntegrityAlgorithm::None);
+
     let target_lsn;
     {
         let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config.clone()).unwrap();
         let mut writer = wal.writer().unwrap();
-        
+
         // Write first 3 records
         for i in 0..3 {
             let payload = format!("record_{}", i);
@@ -232,7 +238,7 @@ fn test_wal_recovery_from_specific_lsn() {
             };
             writer.append(record, Durability::Sync).unwrap();
         }
-        
+
         // Save LSN of 4th record
         let payload = format!("record_3");
         let record = WriteAheadLogRecord {
@@ -240,7 +246,7 @@ fn test_wal_recovery_from_specific_lsn() {
             payload: payload.as_bytes(),
         };
         target_lsn = writer.append(record, Durability::Sync).unwrap();
-        
+
         // Write more records
         for i in 4..7 {
             let payload = format!("record_{}", i);
@@ -251,22 +257,22 @@ fn test_wal_recovery_from_specific_lsn() {
             writer.append(record, Durability::Sync).unwrap();
         }
     }
-    
+
     // Reopen and read from target LSN
     let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config).unwrap();
     let mut reader = wal.reader_from(target_lsn).unwrap();
-    
+
     // Should start from record_3
     let entry = reader.next().unwrap().unwrap();
     assert_eq!(entry.payload, b"record_3");
-    
+
     // Then record_4, 5, 6
     for i in 4..7 {
         let entry = reader.next().unwrap().unwrap();
         let expected = format!("record_{}", i);
         assert_eq!(entry.payload, expected.as_bytes());
     }
-    
+
     assert!(reader.next().unwrap().is_none());
 }
 
@@ -274,13 +280,13 @@ fn test_wal_recovery_from_specific_lsn() {
 fn test_wal_recovery_batch_writes() {
     // Test recovery of batch writes
     let fs = MemoryFileSystem::new();
-    let config = WriteAheadLogConfig::new(7)
-        .with_integrity(nanograph_util::IntegrityAlgorithm::None);
-    
+    let config =
+        WriteAheadLogConfig::new(7).with_integrity(nanograph_util::IntegrityAlgorithm::None);
+
     {
         let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config.clone()).unwrap();
         let mut writer = wal.writer().unwrap();
-        
+
         // Write records one by one (batch API has lifetime issues with test data)
         for i in 0..5 {
             let payload = format!("batch_record_{}", i);
@@ -291,18 +297,18 @@ fn test_wal_recovery_batch_writes() {
             writer.append(record, Durability::Sync).unwrap();
         }
     }
-    
+
     // Reopen and verify
     let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config).unwrap();
     let mut reader = wal.reader_from(LogSequenceNumber::ZERO).unwrap();
-    
+
     for i in 0..5 {
         let entry = reader.next().unwrap().unwrap();
         assert_eq!(entry.kind, 2);
         let expected = format!("batch_record_{}", i);
         assert_eq!(entry.payload, expected.as_bytes());
     }
-    
+
     assert!(reader.next().unwrap().is_none());
 }
 

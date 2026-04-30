@@ -14,6 +14,6 @@
 // limitations under the License.
 //
 
+use crate::{IndexEntry, IndexQuery, IndexResult, IndexStats};
 use async_trait::async_trait;
 use nanograph_core::object::{IndexId, IndexRecord};
-use crate::{IndexEntry, IndexQuery, IndexResult, IndexStats};

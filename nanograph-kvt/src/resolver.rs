@@ -1088,121 +1088,445 @@ mod tests {
 
         println!("\n=== SYSTEM PATHS (Set 1) ===");
         println!("system_log_path: {}", resolver.system_log_path().unwrap());
-        println!("system_base_path: {}", resolver.system_base_path(ts1).unwrap());
-        println!("system_metadata_path: {}", resolver.system_metadata_path(ts1).unwrap());
-        println!("system_data_path: {}", resolver.system_data_path(ts1).unwrap());
-        println!("system_wal_path: {}", resolver.system_wal_path(ts1).unwrap());
-        println!("system_raft_logs_path: {}", resolver.system_raft_logs_path(ts1).unwrap());
-        println!("system_raft_snapshots_path: {}", resolver.system_raft_snapshots_path(ts1).unwrap());
+        println!(
+            "system_base_path: {}",
+            resolver.system_base_path(ts1).unwrap()
+        );
+        println!(
+            "system_metadata_path: {}",
+            resolver.system_metadata_path(ts1).unwrap()
+        );
+        println!(
+            "system_data_path: {}",
+            resolver.system_data_path(ts1).unwrap()
+        );
+        println!(
+            "system_wal_path: {}",
+            resolver.system_wal_path(ts1).unwrap()
+        );
+        println!(
+            "system_raft_logs_path: {}",
+            resolver.system_raft_logs_path(ts1).unwrap()
+        );
+        println!(
+            "system_raft_snapshots_path: {}",
+            resolver.system_raft_snapshots_path(ts1).unwrap()
+        );
 
         println!("\n=== SYSTEM PATHS (Set 2) ===");
         println!("system_log_path: {}", resolver.system_log_path().unwrap());
-        println!("system_base_path: {}", resolver.system_base_path(ts2).unwrap());
-        println!("system_metadata_path: {}", resolver.system_metadata_path(ts2).unwrap());
-        println!("system_data_path: {}", resolver.system_data_path(ts2).unwrap());
-        println!("system_wal_path: {}", resolver.system_wal_path(ts2).unwrap());
-        println!("system_raft_logs_path: {}", resolver.system_raft_logs_path(ts2).unwrap());
-        println!("system_raft_snapshots_path: {}", resolver.system_raft_snapshots_path(ts2).unwrap());
+        println!(
+            "system_base_path: {}",
+            resolver.system_base_path(ts2).unwrap()
+        );
+        println!(
+            "system_metadata_path: {}",
+            resolver.system_metadata_path(ts2).unwrap()
+        );
+        println!(
+            "system_data_path: {}",
+            resolver.system_data_path(ts2).unwrap()
+        );
+        println!(
+            "system_wal_path: {}",
+            resolver.system_wal_path(ts2).unwrap()
+        );
+        println!(
+            "system_raft_logs_path: {}",
+            resolver.system_raft_logs_path(ts2).unwrap()
+        );
+        println!(
+            "system_raft_snapshots_path: {}",
+            resolver.system_raft_snapshots_path(ts2).unwrap()
+        );
 
         println!("\n=== TENANT PATHS (Set 1) ===");
-        println!("tenant_base_path: {}", resolver.tenant_base_path(ts1, tenant1).unwrap());
-        println!("tenant_metadata_path: {}", resolver.tenant_metadata_path(ts1, tenant1).unwrap());
-        println!("tenant_data_path: {}", resolver.tenant_data_path(ts1, tenant1).unwrap());
-        println!("tenant_wal_path: {}", resolver.tenant_wal_path(ts1, tenant1).unwrap());
-        println!("tenant_raft_logs_path: {}", resolver.tenant_raft_logs_path(ts1, tenant1).unwrap());
-        println!("container_snapshots_path: {}", resolver.container_snapshots_path(ts1, tenant1).unwrap());
+        println!(
+            "tenant_base_path: {}",
+            resolver.tenant_base_path(ts1, tenant1).unwrap()
+        );
+        println!(
+            "tenant_metadata_path: {}",
+            resolver.tenant_metadata_path(ts1, tenant1).unwrap()
+        );
+        println!(
+            "tenant_data_path: {}",
+            resolver.tenant_data_path(ts1, tenant1).unwrap()
+        );
+        println!(
+            "tenant_wal_path: {}",
+            resolver.tenant_wal_path(ts1, tenant1).unwrap()
+        );
+        println!(
+            "tenant_raft_logs_path: {}",
+            resolver.tenant_raft_logs_path(ts1, tenant1).unwrap()
+        );
+        println!(
+            "container_snapshots_path: {}",
+            resolver.container_snapshots_path(ts1, tenant1).unwrap()
+        );
 
         println!("\n=== TENANT PATHS (Set 2) ===");
-        println!("tenant_base_path: {}", resolver.tenant_base_path(ts2, tenant2).unwrap());
-        println!("tenant_metadata_path: {}", resolver.tenant_metadata_path(ts2, tenant2).unwrap());
-        println!("tenant_data_path: {}", resolver.tenant_data_path(ts2, tenant2).unwrap());
-        println!("tenant_wal_path: {}", resolver.tenant_wal_path(ts2, tenant2).unwrap());
-        println!("tenant_raft_logs_path: {}", resolver.tenant_raft_logs_path(ts2, tenant2).unwrap());
-        println!("container_snapshots_path: {}", resolver.container_snapshots_path(ts2, tenant2).unwrap());
+        println!(
+            "tenant_base_path: {}",
+            resolver.tenant_base_path(ts2, tenant2).unwrap()
+        );
+        println!(
+            "tenant_metadata_path: {}",
+            resolver.tenant_metadata_path(ts2, tenant2).unwrap()
+        );
+        println!(
+            "tenant_data_path: {}",
+            resolver.tenant_data_path(ts2, tenant2).unwrap()
+        );
+        println!(
+            "tenant_wal_path: {}",
+            resolver.tenant_wal_path(ts2, tenant2).unwrap()
+        );
+        println!(
+            "tenant_raft_logs_path: {}",
+            resolver.tenant_raft_logs_path(ts2, tenant2).unwrap()
+        );
+        println!(
+            "container_snapshots_path: {}",
+            resolver.container_snapshots_path(ts2, tenant2).unwrap()
+        );
 
         println!("\n=== DATABASE PATHS (Set 1) ===");
-        println!("database_base_path: {}", resolver.database_base_path(ts1, tenant1, db1).unwrap());
-        println!("database_metadata_path: {}", resolver.database_metadata_path(ts1, tenant1, db1).unwrap());
-        println!("database_data_path: {}", resolver.database_data_path(ts1, tenant1, db1).unwrap());
-        println!("database_wal_path: {}", resolver.database_wal_path(ts1, tenant1, db1).unwrap());
-        println!("database_raft_logs_path: {}", resolver.database_raft_logs_path(ts1, tenant1, db1).unwrap());
-        println!("database_snapshots_path: {}", resolver.database_snapshots_path(ts1, tenant1, db1).unwrap());
+        println!(
+            "database_base_path: {}",
+            resolver.database_base_path(ts1, tenant1, db1).unwrap()
+        );
+        println!(
+            "database_metadata_path: {}",
+            resolver.database_metadata_path(ts1, tenant1, db1).unwrap()
+        );
+        println!(
+            "database_data_path: {}",
+            resolver.database_data_path(ts1, tenant1, db1).unwrap()
+        );
+        println!(
+            "database_wal_path: {}",
+            resolver.database_wal_path(ts1, tenant1, db1).unwrap()
+        );
+        println!(
+            "database_raft_logs_path: {}",
+            resolver.database_raft_logs_path(ts1, tenant1, db1).unwrap()
+        );
+        println!(
+            "database_snapshots_path: {}",
+            resolver.database_snapshots_path(ts1, tenant1, db1).unwrap()
+        );
 
         println!("\n=== DATABASE PATHS (Set 2) ===");
-        println!("database_base_path: {}", resolver.database_base_path(ts2, tenant2, db2).unwrap());
-        println!("database_metadata_path: {}", resolver.database_metadata_path(ts2, tenant2, db2).unwrap());
-        println!("database_data_path: {}", resolver.database_data_path(ts2, tenant2, db2).unwrap());
-        println!("database_wal_path: {}", resolver.database_wal_path(ts2, tenant2, db2).unwrap());
-        println!("database_raft_logs_path: {}", resolver.database_raft_logs_path(ts2, tenant2, db2).unwrap());
-        println!("database_snapshots_path: {}", resolver.database_snapshots_path(ts2, tenant2, db2).unwrap());
+        println!(
+            "database_base_path: {}",
+            resolver.database_base_path(ts2, tenant2, db2).unwrap()
+        );
+        println!(
+            "database_metadata_path: {}",
+            resolver.database_metadata_path(ts2, tenant2, db2).unwrap()
+        );
+        println!(
+            "database_data_path: {}",
+            resolver.database_data_path(ts2, tenant2, db2).unwrap()
+        );
+        println!(
+            "database_wal_path: {}",
+            resolver.database_wal_path(ts2, tenant2, db2).unwrap()
+        );
+        println!(
+            "database_raft_logs_path: {}",
+            resolver.database_raft_logs_path(ts2, tenant2, db2).unwrap()
+        );
+        println!(
+            "database_snapshots_path: {}",
+            resolver.database_snapshots_path(ts2, tenant2, db2).unwrap()
+        );
 
         println!("\n=== TABLE PATHS (Set 1) ===");
-        println!("table_base_path: {}", resolver.table_base_path(ts1, tenant1, db1, table1).unwrap());
-        println!("table_metadata_path: {}", resolver.table_metadata_path(ts1, tenant1, db1, table1).unwrap());
-        println!("table_data_path: {}", resolver.table_data_path(ts1, tenant1, db1, table1).unwrap());
-        println!("table_wal_path: {}", resolver.table_wal_path(ts1, tenant1, db1, table1).unwrap());
-        println!("table_raft_logs_path: {}", resolver.table_raft_logs_path(ts1, tenant1, db1, table1).unwrap());
-        println!("table_snapshots_path: {}", resolver.table_snapshots_path(ts1, tenant1, db1, table1).unwrap());
+        println!(
+            "table_base_path: {}",
+            resolver.table_base_path(ts1, tenant1, db1, table1).unwrap()
+        );
+        println!(
+            "table_metadata_path: {}",
+            resolver
+                .table_metadata_path(ts1, tenant1, db1, table1)
+                .unwrap()
+        );
+        println!(
+            "table_data_path: {}",
+            resolver.table_data_path(ts1, tenant1, db1, table1).unwrap()
+        );
+        println!(
+            "table_wal_path: {}",
+            resolver.table_wal_path(ts1, tenant1, db1, table1).unwrap()
+        );
+        println!(
+            "table_raft_logs_path: {}",
+            resolver
+                .table_raft_logs_path(ts1, tenant1, db1, table1)
+                .unwrap()
+        );
+        println!(
+            "table_snapshots_path: {}",
+            resolver
+                .table_snapshots_path(ts1, tenant1, db1, table1)
+                .unwrap()
+        );
 
         println!("\n=== TABLE PATHS (Set 2) ===");
-        println!("table_base_path: {}", resolver.table_base_path(ts2, tenant2, db2, table2).unwrap());
-        println!("table_metadata_path: {}", resolver.table_metadata_path(ts2, tenant2, db2, table2).unwrap());
-        println!("table_data_path: {}", resolver.table_data_path(ts2, tenant2, db2, table2).unwrap());
-        println!("table_wal_path: {}", resolver.table_wal_path(ts2, tenant2, db2, table2).unwrap());
-        println!("table_raft_logs_path: {}", resolver.table_raft_logs_path(ts2, tenant2, db2, table2).unwrap());
-        println!("table_snapshots_path: {}", resolver.table_snapshots_path(ts2, tenant2, db2, table2).unwrap());
+        println!(
+            "table_base_path: {}",
+            resolver.table_base_path(ts2, tenant2, db2, table2).unwrap()
+        );
+        println!(
+            "table_metadata_path: {}",
+            resolver
+                .table_metadata_path(ts2, tenant2, db2, table2)
+                .unwrap()
+        );
+        println!(
+            "table_data_path: {}",
+            resolver.table_data_path(ts2, tenant2, db2, table2).unwrap()
+        );
+        println!(
+            "table_wal_path: {}",
+            resolver.table_wal_path(ts2, tenant2, db2, table2).unwrap()
+        );
+        println!(
+            "table_raft_logs_path: {}",
+            resolver
+                .table_raft_logs_path(ts2, tenant2, db2, table2)
+                .unwrap()
+        );
+        println!(
+            "table_snapshots_path: {}",
+            resolver
+                .table_snapshots_path(ts2, tenant2, db2, table2)
+                .unwrap()
+        );
 
         println!("\n=== TABLE SHARD PATHS (Set 1) ===");
-        println!("table_shard_base_path: {}", resolver.table_shard_base_path(ts1, tenant1, db1, table1, table_shard1).unwrap());
-        println!("table_shard_data_path: {}", resolver.table_shard_data_path(ts1, tenant1, db1, table1, table_shard1).unwrap());
-        println!("table_shard_wal_path: {}", resolver.table_shard_wal_path(ts1, tenant1, db1, table1, table_shard1).unwrap());
-        println!("table_shard_raft_logs_path: {}", resolver.table_shard_raft_logs_path(ts1, tenant1, db1, table1, table_shard1).unwrap());
-        println!("table_shard_snapshots_path: {}", resolver.table_shard_snapshots_path(ts1, tenant1, db1, table1, table_shard1).unwrap());
+        println!(
+            "table_shard_base_path: {}",
+            resolver
+                .table_shard_base_path(ts1, tenant1, db1, table1, table_shard1)
+                .unwrap()
+        );
+        println!(
+            "table_shard_data_path: {}",
+            resolver
+                .table_shard_data_path(ts1, tenant1, db1, table1, table_shard1)
+                .unwrap()
+        );
+        println!(
+            "table_shard_wal_path: {}",
+            resolver
+                .table_shard_wal_path(ts1, tenant1, db1, table1, table_shard1)
+                .unwrap()
+        );
+        println!(
+            "table_shard_raft_logs_path: {}",
+            resolver
+                .table_shard_raft_logs_path(ts1, tenant1, db1, table1, table_shard1)
+                .unwrap()
+        );
+        println!(
+            "table_shard_snapshots_path: {}",
+            resolver
+                .table_shard_snapshots_path(ts1, tenant1, db1, table1, table_shard1)
+                .unwrap()
+        );
 
         println!("\n=== TABLE SHARD PATHS (Set 2) ===");
-        println!("table_shard_base_path: {}", resolver.table_shard_base_path(ts2, tenant2, db2, table2, table_shard2).unwrap());
-        println!("table_shard_data_path: {}", resolver.table_shard_data_path(ts2, tenant2, db2, table2, table_shard2).unwrap());
-        println!("table_shard_wal_path: {}", resolver.table_shard_wal_path(ts2, tenant2, db2, table2, table_shard2).unwrap());
-        println!("table_shard_raft_logs_path: {}", resolver.table_shard_raft_logs_path(ts2, tenant2, db2, table2, table_shard2).unwrap());
-        println!("table_shard_snapshots_path: {}", resolver.table_shard_snapshots_path(ts2, tenant2, db2, table2, table_shard2).unwrap());
+        println!(
+            "table_shard_base_path: {}",
+            resolver
+                .table_shard_base_path(ts2, tenant2, db2, table2, table_shard2)
+                .unwrap()
+        );
+        println!(
+            "table_shard_data_path: {}",
+            resolver
+                .table_shard_data_path(ts2, tenant2, db2, table2, table_shard2)
+                .unwrap()
+        );
+        println!(
+            "table_shard_wal_path: {}",
+            resolver
+                .table_shard_wal_path(ts2, tenant2, db2, table2, table_shard2)
+                .unwrap()
+        );
+        println!(
+            "table_shard_raft_logs_path: {}",
+            resolver
+                .table_shard_raft_logs_path(ts2, tenant2, db2, table2, table_shard2)
+                .unwrap()
+        );
+        println!(
+            "table_shard_snapshots_path: {}",
+            resolver
+                .table_shard_snapshots_path(ts2, tenant2, db2, table2, table_shard2)
+                .unwrap()
+        );
 
         println!("\n=== LSM LEVEL PATHS (Set 1) ===");
-        println!("lsm_level_path (L0): {}", resolver.lsm_level_path(ts1, tenant1, db1, table1, table_shard1, 0).unwrap());
-        println!("lsm_level_path (L1): {}", resolver.lsm_level_path(ts1, tenant1, db1, table1, table_shard1, 1).unwrap());
+        println!(
+            "lsm_level_path (L0): {}",
+            resolver
+                .lsm_level_path(ts1, tenant1, db1, table1, table_shard1, 0)
+                .unwrap()
+        );
+        println!(
+            "lsm_level_path (L1): {}",
+            resolver
+                .lsm_level_path(ts1, tenant1, db1, table1, table_shard1, 1)
+                .unwrap()
+        );
 
         println!("\n=== LSM LEVEL PATHS (Set 2) ===");
-        println!("lsm_level_path (L0): {}", resolver.lsm_level_path(ts2, tenant2, db2, table2, table_shard2, 0).unwrap());
-        println!("lsm_level_path (L1): {}", resolver.lsm_level_path(ts2, tenant2, db2, table2, table_shard2, 1).unwrap());
+        println!(
+            "lsm_level_path (L0): {}",
+            resolver
+                .lsm_level_path(ts2, tenant2, db2, table2, table_shard2, 0)
+                .unwrap()
+        );
+        println!(
+            "lsm_level_path (L1): {}",
+            resolver
+                .lsm_level_path(ts2, tenant2, db2, table2, table_shard2, 1)
+                .unwrap()
+        );
 
         println!("\n=== INDEX PATHS (Set 1) ===");
-        println!("index_base_path: {}", resolver.index_base_path(ts1, tenant1, db1, index1).unwrap());
-        println!("index_metadata_path: {}", resolver.index_metadata_path(ts1, tenant1, db1, index1).unwrap());
-        println!("index_data_path: {}", resolver.index_data_path(ts1, tenant1, db1, index1).unwrap());
-        println!("index_wal_path: {}", resolver.index_wal_path(ts1, tenant1, db1, index1).unwrap());
-        println!("index_raft_logs_path: {}", resolver.index_raft_logs_path(ts1, tenant1, db1, index1).unwrap());
-        println!("index_snapshots_path: {}", resolver.index_snapshots_path(ts1, tenant1, db1, index1).unwrap());
+        println!(
+            "index_base_path: {}",
+            resolver.index_base_path(ts1, tenant1, db1, index1).unwrap()
+        );
+        println!(
+            "index_metadata_path: {}",
+            resolver
+                .index_metadata_path(ts1, tenant1, db1, index1)
+                .unwrap()
+        );
+        println!(
+            "index_data_path: {}",
+            resolver.index_data_path(ts1, tenant1, db1, index1).unwrap()
+        );
+        println!(
+            "index_wal_path: {}",
+            resolver.index_wal_path(ts1, tenant1, db1, index1).unwrap()
+        );
+        println!(
+            "index_raft_logs_path: {}",
+            resolver
+                .index_raft_logs_path(ts1, tenant1, db1, index1)
+                .unwrap()
+        );
+        println!(
+            "index_snapshots_path: {}",
+            resolver
+                .index_snapshots_path(ts1, tenant1, db1, index1)
+                .unwrap()
+        );
 
         println!("\n=== INDEX PATHS (Set 2) ===");
-        println!("index_base_path: {}", resolver.index_base_path(ts2, tenant2, db2, index2).unwrap());
-        println!("index_metadata_path: {}", resolver.index_metadata_path(ts2, tenant2, db2, index2).unwrap());
-        println!("index_data_path: {}", resolver.index_data_path(ts2, tenant2, db2, index2).unwrap());
-        println!("index_wal_path: {}", resolver.index_wal_path(ts2, tenant2, db2, index2).unwrap());
-        println!("index_raft_logs_path: {}", resolver.index_raft_logs_path(ts2, tenant2, db2, index2).unwrap());
-        println!("index_snapshots_path: {}", resolver.index_snapshots_path(ts2, tenant2, db2, index2).unwrap());
+        println!(
+            "index_base_path: {}",
+            resolver.index_base_path(ts2, tenant2, db2, index2).unwrap()
+        );
+        println!(
+            "index_metadata_path: {}",
+            resolver
+                .index_metadata_path(ts2, tenant2, db2, index2)
+                .unwrap()
+        );
+        println!(
+            "index_data_path: {}",
+            resolver.index_data_path(ts2, tenant2, db2, index2).unwrap()
+        );
+        println!(
+            "index_wal_path: {}",
+            resolver.index_wal_path(ts2, tenant2, db2, index2).unwrap()
+        );
+        println!(
+            "index_raft_logs_path: {}",
+            resolver
+                .index_raft_logs_path(ts2, tenant2, db2, index2)
+                .unwrap()
+        );
+        println!(
+            "index_snapshots_path: {}",
+            resolver
+                .index_snapshots_path(ts2, tenant2, db2, index2)
+                .unwrap()
+        );
 
         println!("\n=== INDEX SHARD PATHS (Set 1) ===");
-        println!("index_shard_base_path: {}", resolver.index_shard_base_path(ts1, tenant1, db1, index1, index_shard1).unwrap());
-        println!("index_shard_data_path: {}", resolver.index_shard_data_path(ts1, tenant1, db1, index1, index_shard1).unwrap());
-        println!("index_shard_wal_path: {}", resolver.index_shard_wal_path(ts1, tenant1, db1, index1, index_shard1).unwrap());
-        println!("index_shard_raft_logs_path: {}", resolver.index_shard_raft_logs_path(ts1, tenant1, db1, index1, index_shard1).unwrap());
-        println!("index_shard_snapshots_path: {}", resolver.index_shard_snapshots_path(ts1, tenant1, db1, index1, index_shard1).unwrap());
+        println!(
+            "index_shard_base_path: {}",
+            resolver
+                .index_shard_base_path(ts1, tenant1, db1, index1, index_shard1)
+                .unwrap()
+        );
+        println!(
+            "index_shard_data_path: {}",
+            resolver
+                .index_shard_data_path(ts1, tenant1, db1, index1, index_shard1)
+                .unwrap()
+        );
+        println!(
+            "index_shard_wal_path: {}",
+            resolver
+                .index_shard_wal_path(ts1, tenant1, db1, index1, index_shard1)
+                .unwrap()
+        );
+        println!(
+            "index_shard_raft_logs_path: {}",
+            resolver
+                .index_shard_raft_logs_path(ts1, tenant1, db1, index1, index_shard1)
+                .unwrap()
+        );
+        println!(
+            "index_shard_snapshots_path: {}",
+            resolver
+                .index_shard_snapshots_path(ts1, tenant1, db1, index1, index_shard1)
+                .unwrap()
+        );
 
         println!("\n=== INDEX SHARD PATHS (Set 2) ===");
-        println!("index_shard_base_path: {}", resolver.index_shard_base_path(ts2, tenant2, db2, index2, index_shard2).unwrap());
-        println!("index_shard_data_path: {}", resolver.index_shard_data_path(ts2, tenant2, db2, index2, index_shard2).unwrap());
-        println!("index_shard_wal_path: {}", resolver.index_shard_wal_path(ts2, tenant2, db2, index2, index_shard2).unwrap());
-        println!("index_shard_raft_logs_path: {}", resolver.index_shard_raft_logs_path(ts2, tenant2, db2, index2, index_shard2).unwrap());
-        println!("index_shard_snapshots_path: {}", resolver.index_shard_snapshots_path(ts2, tenant2, db2, index2, index_shard2).unwrap());
+        println!(
+            "index_shard_base_path: {}",
+            resolver
+                .index_shard_base_path(ts2, tenant2, db2, index2, index_shard2)
+                .unwrap()
+        );
+        println!(
+            "index_shard_data_path: {}",
+            resolver
+                .index_shard_data_path(ts2, tenant2, db2, index2, index_shard2)
+                .unwrap()
+        );
+        println!(
+            "index_shard_wal_path: {}",
+            resolver
+                .index_shard_wal_path(ts2, tenant2, db2, index2, index_shard2)
+                .unwrap()
+        );
+        println!(
+            "index_shard_raft_logs_path: {}",
+            resolver
+                .index_shard_raft_logs_path(ts2, tenant2, db2, index2, index_shard2)
+                .unwrap()
+        );
+        println!(
+            "index_shard_snapshots_path: {}",
+            resolver
+                .index_shard_snapshots_path(ts2, tenant2, db2, index2, index_shard2)
+                .unwrap()
+        );
 
         println!("\n=== TEST COMPLETE ===");
         println!("Total path types tested: 42 (all path methods covered)");

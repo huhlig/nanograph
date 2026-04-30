@@ -82,11 +82,7 @@ pub trait OrderedIndex: IndexStore {
     ///
     /// # Returns
     /// * `Ok(count)` - Number of entries in range
-    async fn count_range(
-        &self,
-        start: Bound<Vec<u8>>,
-        end: Bound<Vec<u8>>,
-    ) -> IndexResult<u64>;
+    async fn count_range(&self, start: Bound<Vec<u8>>, end: Bound<Vec<u8>>) -> IndexResult<u64>;
 }
 
 /// Trait for indexes that enforce uniqueness constraints
@@ -102,10 +98,7 @@ pub trait UniqueIndex: IndexStore {
     /// # Returns
     /// * `Ok(Some(primary_key))` - If the value exists
     /// * `Ok(None)` - If the value doesn't exist
-    async fn lookup_unique(
-        &self,
-        indexed_value: &[u8],
-    ) -> IndexResult<Option<Vec<u8>>>;
+    async fn lookup_unique(&self, indexed_value: &[u8]) -> IndexResult<Option<Vec<u8>>>;
 
     /// Validate uniqueness before insert
     ///

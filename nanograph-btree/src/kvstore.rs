@@ -575,7 +575,7 @@ impl KeyValueShardStore for BTreeKeyValueStore {
     ) -> KeyValueResult<()> {
         // B+Tree is an in-memory store, so we ignore the tablespace paths for now
         // In a real implementation, you might use these paths for persistence
-        
+
         // Create a new B+Tree for this shard
         let tree = Arc::new(BPlusTree::new(self.config.clone()));
 
@@ -714,7 +714,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         assert!(store.shard_exists(shard_id).await.unwrap());
 
@@ -735,7 +737,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Put some data
         store.put(shard_id, b"key1", b"value1").await.unwrap();
@@ -770,7 +774,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Put
         store.put(shard_id, b"key1", b"value1").await.unwrap();
@@ -805,7 +811,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Batch put
         let pairs = vec![
@@ -836,7 +844,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Insert data
         for i in 0..100 {
@@ -865,7 +875,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Begin transaction
         let tx = store.begin_transaction().await.unwrap();

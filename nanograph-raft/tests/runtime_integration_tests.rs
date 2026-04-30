@@ -44,7 +44,11 @@ async fn test_server_lifecycle() {
     // Start the server
     let bind_addr = "127.0.0.1:50051".parse().unwrap();
     let start_result = manager.clone().start_server(bind_addr).await;
-    assert!(start_result.is_ok(), "Failed to start server: {:?}", start_result);
+    assert!(
+        start_result.is_ok(),
+        "Failed to start server: {:?}",
+        start_result
+    );
 
     // Give the server a moment to start
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -59,7 +63,11 @@ async fn test_server_lifecycle() {
 
     // Stop the server
     let stop_result = manager.stop_server().await;
-    assert!(stop_result.is_ok(), "Failed to stop server: {:?}", stop_result);
+    assert!(
+        stop_result.is_ok(),
+        "Failed to stop server: {:?}",
+        stop_result
+    );
 
     // Server should no longer be running
     assert!(!manager.is_server_running().await);
@@ -109,7 +117,7 @@ async fn test_peer_management() {
 #[tokio::test]
 async fn test_multiple_managers_different_ports() {
     let config = ReplicationConfig::default();
-    
+
     let manager1 = Arc::new(ConsensusManager::new(NodeId::new(1), config.clone()));
     let manager2 = Arc::new(ConsensusManager::new(NodeId::new(2), config));
 
@@ -133,7 +141,7 @@ async fn test_multiple_managers_different_ports() {
     // Stop both
     let stop1 = manager1.stop_server().await;
     let stop2 = manager2.stop_server().await;
-    
+
     assert!(stop1.is_ok(), "Failed to stop manager1: {:?}", stop1);
     assert!(stop2.is_ok(), "Failed to stop manager2: {:?}", stop2);
 }
@@ -155,7 +163,7 @@ async fn test_config_access() {
 fn test_runtime_integration() {
     // Test that the manager works with a custom tokio runtime
     let runtime = tokio::runtime::Runtime::new().unwrap();
-    
+
     runtime.block_on(async {
         let node_id = NodeId::new(1);
         let config = ReplicationConfig::default();
@@ -198,5 +206,3 @@ async fn test_graceful_shutdown() {
     let second_shutdown = manager.stop_server().await;
     assert!(second_shutdown.is_ok());
 }
-
-

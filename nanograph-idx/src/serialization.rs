@@ -182,7 +182,10 @@ where
 /// * `Ok(Vec<SerializedIndexEntry>)` - Vector of deserialized entries
 /// * `Err(IndexError)` - Deserialization error
 pub fn batch_deserialize_entries(bytes_vec: &[Vec<u8>]) -> IndexResult<Vec<SerializedIndexEntry>> {
-    bytes_vec.iter().map(|bytes| deserialize_entry(bytes)).collect()
+    bytes_vec
+        .iter()
+        .map(|bytes| deserialize_entry(bytes))
+        .collect()
 }
 
 /// Estimate serialized size of an entry
@@ -246,7 +249,11 @@ mod tests {
     fn test_batch_serialize_deserialize() {
         let entries = vec![
             (b"val1".as_slice(), b"pk1".as_slice(), None),
-            (b"val2".as_slice(), b"pk2".as_slice(), Some(b"inc2".as_slice())),
+            (
+                b"val2".as_slice(),
+                b"pk2".as_slice(),
+                Some(b"inc2".as_slice()),
+            ),
             (b"val3".as_slice(), b"pk3".as_slice(), None),
         ];
 
@@ -276,10 +283,12 @@ mod tests {
         let result = deserialize_entry(&serialized);
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Unsupported entry version"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Unsupported entry version")
+        );
     }
 
     #[test]

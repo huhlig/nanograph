@@ -16,16 +16,15 @@
 
 //! Test B-Tree implementation using the common KeyValueShardStore test suite
 
-use nanograph_btree::{BTreeKeyValueStore, BPlusTreeConfig};
+use nanograph_btree::{BTreeKeyValueStore, tree::BPlusTreeConfig};
 use nanograph_kvt::test_suite::run_kvstore_test_suite;
-use std::sync::Arc;
 
 #[tokio::test]
 async fn test_btree_with_common_suite() {
     let config = BPlusTreeConfig::default();
-    let store = Arc::new(BTreeKeyValueStore::new(config));
-    
-    run_kvstore_test_suite(&*store).await;
+    let store = BTreeKeyValueStore::new(config);
+
+    run_kvstore_test_suite(&store).await;
 }
 
 // Made with Bob

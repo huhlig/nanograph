@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 // Placeholder benchmarks - to be implemented with actual index implementations
 
@@ -28,5 +28,3 @@ fn benchmark_placeholder(_c: &mut Criterion) {
 
 criterion_group!(benches, benchmark_placeholder);
 criterion_main!(benches);
-
-

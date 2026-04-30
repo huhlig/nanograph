@@ -156,7 +156,12 @@ impl FullTextIndex {
 
         // Remove stop words
         if self.tokenizer_config.remove_stop_words {
-            let stop_words: HashSet<_> = self.tokenizer_config.stop_words.iter().map(|s| s.as_str()).collect();
+            let stop_words: HashSet<_> = self
+                .tokenizer_config
+                .stop_words
+                .iter()
+                .map(|s| s.as_str())
+                .collect();
             tokens.retain(|t| !stop_words.contains(t.as_str()));
         }
 
@@ -206,7 +211,7 @@ impl FullTextIndex {
     /// Get posting list for a term
     async fn get_postings(&self, term: &str) -> IndexResult<Vec<Posting>> {
         let term_key = self.build_term_key(term);
-        
+
         match self.storage.read_entry(&term_key, &[]).await? {
             Some(data) => {
                 let postings: Vec<Posting> = bincode::deserialize(&data)
@@ -220,16 +225,16 @@ impl FullTextIndex {
     /// Store posting list for a term
     async fn store_postings(&self, term: &str, postings: &[Posting]) -> IndexResult<()> {
         let term_key = self.build_term_key(term);
-        let data = bincode::serialize(postings)
-            .map_err(|e| IndexError::Serialization(e.to_string()))?;
-        
+        let data =
+            bincode::serialize(postings).map_err(|e| IndexError::Serialization(e.to_string()))?;
+
         self.storage.write_entry(&term_key, &[], &data).await
     }
 
     /// Get document statistics
     async fn get_doc_stats(&self, primary_key: &[u8]) -> IndexResult<Option<DocumentStats>> {
         let stats_key = self.build_doc_stats_key(primary_key);
-        
+
         match self.storage.read_entry(&stats_key, &[]).await? {
             Some(data) => {
                 let stats: DocumentStats = bincode::deserialize(&data)
@@ -243,9 +248,9 @@ impl FullTextIndex {
     /// Store document statistics
     async fn store_doc_stats(&self, primary_key: &[u8], stats: &DocumentStats) -> IndexResult<()> {
         let stats_key = self.build_doc_stats_key(primary_key);
-        let data = bincode::serialize(stats)
-            .map_err(|e| IndexError::Serialization(e.to_string()))?;
-        
+        let data =
+            bincode::serialize(stats).map_err(|e| IndexError::Serialization(e.to_string()))?;
+
         self.storage.write_entry(&stats_key, &[], &data).await
     }
 
@@ -280,7 +285,9 @@ impl FullTextIndex {
         }
 
         // Get document stats
-        let doc_stats = self.get_doc_stats(&posting.primary_key).await?
+        let doc_stats = self
+            .get_doc_stats(&posting.primary_key)
+            .await?
             .ok_or_else(|| IndexError::QueryFailed("Document stats not found".to_string()))?;
 
         let avg_doc_len = *self.avg_doc_length.read().await;
@@ -368,7 +375,7 @@ impl IndexStore for FullTextIndex {
             // Store reverse index first (before consuming term_freq)
             let reverse_key = self.build_reverse_key(&primary_key);
             let terms_list: Vec<String> = term_freq.keys().cloned().collect();
-            
+
             // Update inverted index for each term
             for (term, (positions, frequency)) in term_freq {
                 let mut postings = self.get_postings(&term).await?;
@@ -383,7 +390,9 @@ impl IndexStore for FullTextIndex {
             // Store reverse index
             let terms_data = bincode::serialize(&terms_list)
                 .map_err(|e| IndexError::Serialization(e.to_string()))?;
-            self.storage.write_entry(&reverse_key, &[], &terms_data).await?;
+            self.storage
+                .write_entry(&reverse_key, &[], &terms_data)
+                .await?;
 
             total_docs += 1;
             total_terms += tokens.len() as u64;
@@ -429,33 +438,35 @@ impl IndexStore for FullTextIndex {
         // Store reverse index first (before consuming term_freq)
         let reverse_key = self.build_reverse_key(&entry.primary_key);
         let terms_list: Vec<String> = term_freq.keys().cloned().collect();
-        
+
         // Update inverted index for each term
         for (term, (positions, frequency)) in term_freq {
             let mut postings = self.get_postings(&term).await?;
-            
+
             // Remove existing posting for this document if any
             postings.retain(|p| p.primary_key != entry.primary_key);
-            
+
             // Add new posting
             postings.push(Posting {
                 primary_key: entry.primary_key.clone(),
                 positions,
                 frequency,
             });
-            
+
             self.store_postings(&term, &postings).await?;
         }
 
         // Store reverse index
         let terms_data = bincode::serialize(&terms_list)
             .map_err(|e| IndexError::Serialization(e.to_string()))?;
-        self.storage.write_entry(&reverse_key, &[], &terms_data).await?;
+        self.storage
+            .write_entry(&reverse_key, &[], &terms_data)
+            .await?;
 
         // Update corpus stats
         let mut total_docs = self.total_documents.write().await;
         *total_docs += 1;
-        
+
         let mut avg_len = self.avg_doc_length.write().await;
         let total_terms = *avg_len * (*total_docs - 1) as f64 + tokens.len() as f64;
         *avg_len = total_terms / *total_docs as f64;
@@ -472,7 +483,7 @@ impl IndexStore for FullTextIndex {
     async fn delete(&mut self, primary_key: &[u8]) -> IndexResult<()> {
         // Get terms for this document from reverse index
         let reverse_key = self.build_reverse_key(primary_key);
-        
+
         let terms_data = match self.storage.read_entry(&reverse_key, &[]).await? {
             Some(data) => data,
             None => return Ok(()), // Document not in index
@@ -485,7 +496,7 @@ impl IndexStore for FullTextIndex {
         for term in &terms {
             let mut postings = self.get_postings(term).await?;
             postings.retain(|p| p.primary_key != primary_key);
-            
+
             if postings.is_empty() {
                 // Remove term entirely if no more documents
                 let term_key = self.build_term_key(term);
@@ -514,11 +525,11 @@ impl IndexStore for FullTextIndex {
     async fn query(&self, query: IndexQuery) -> IndexResult<Vec<IndexEntry>> {
         // For full-text index, we interpret the query differently
         // This is a basic implementation - use search() for better results
-        
+
         if let Bound::Included(ref value) = query.start {
             let text = String::from_utf8_lossy(value);
             let results = self.search(&text, query.limit).await?;
-            
+
             Ok(results.into_iter().map(|scored| scored.entry).collect())
         } else {
             Ok(Vec::new())
@@ -528,7 +539,7 @@ impl IndexStore for FullTextIndex {
     async fn get(&self, primary_key: &[u8]) -> IndexResult<Option<IndexEntry>> {
         // Check if document exists
         let stats_key = self.build_doc_stats_key(primary_key);
-        
+
         if self.storage.exists(&stats_key, &[]).await? {
             // We don't store the original text, only the index
             // In production, this would fetch from the main table
@@ -545,7 +556,7 @@ impl IndexStore for FullTextIndex {
     async fn exists(&self, indexed_value: &[u8]) -> IndexResult<bool> {
         let text = String::from_utf8_lossy(indexed_value);
         let terms = self.tokenize(&text);
-        
+
         // Check if any term exists
         for term in terms {
             let postings = self.get_postings(&term).await?;
@@ -553,14 +564,14 @@ impl IndexStore for FullTextIndex {
                 return Ok(true);
             }
         }
-        
+
         Ok(false)
     }
 
     async fn stats(&self) -> IndexResult<IndexStats> {
         let total_docs = *self.total_documents.read().await;
         let avg_len = *self.avg_doc_length.read().await;
-        
+
         Ok(IndexStats {
             entry_count: total_docs,
             size_bytes: 0, // TODO: Calculate actual size
@@ -596,11 +607,11 @@ impl TextSearchIndex for FullTextIndex {
 
         for term in &terms {
             let postings = self.get_postings(term).await?;
-            
+
             for posting in postings {
                 let score = self.calculate_score(term, &posting).await?;
                 *doc_scores.entry(posting.primary_key.clone()).or_insert(0.0) += score;
-                
+
                 doc_postings
                     .entry(posting.primary_key.clone())
                     .or_insert_with(Vec::new)
@@ -621,7 +632,7 @@ impl TextSearchIndex for FullTextIndex {
         let mut scored_entries = Vec::new();
         for (primary_key, score) in results {
             let postings = doc_postings.get(&primary_key).unwrap();
-            
+
             // Create highlights
             let highlights = postings
                 .iter()
@@ -681,15 +692,14 @@ impl TextSearchIndex for FullTextIndex {
             for posting in postings {
                 doc_postings
                     .entry(posting.primary_key.clone())
-                    .or_insert_with(|| vec![Vec::new(); terms.len()])
-                    [term_idx]
+                    .or_insert_with(|| vec![Vec::new(); terms.len()])[term_idx]
                     .push(posting.clone());
             }
         }
 
         // Filter documents where terms appear consecutively
         let mut phrase_matches: Vec<(Vec<u8>, Vec<usize>, f64)> = Vec::new();
-        
+
         for (primary_key, term_postings) in doc_postings {
             // Check if all terms are present
             if term_postings.iter().any(|p| p.is_empty()) {
@@ -698,30 +708,30 @@ impl TextSearchIndex for FullTextIndex {
 
             // Find consecutive positions
             let mut match_positions = Vec::new();
-            
+
             // For each position of the first term
             for first_posting in &term_postings[0] {
                 for &start_pos in &first_posting.positions {
                     let mut is_phrase = true;
-                    
+
                     // Check if subsequent terms appear at consecutive positions
                     for (term_idx, term_posting_list) in term_postings.iter().enumerate().skip(1) {
                         let expected_pos = start_pos + term_idx;
                         let mut found = false;
-                        
+
                         for posting in term_posting_list {
                             if posting.positions.contains(&expected_pos) {
                                 found = true;
                                 break;
                             }
                         }
-                        
+
                         if !found {
                             is_phrase = false;
                             break;
                         }
                     }
-                    
+
                     if is_phrase {
                         match_positions.push(start_pos);
                     }
@@ -736,7 +746,7 @@ impl TextSearchIndex for FullTextIndex {
                         total_score += self.calculate_score(term, posting).await?;
                     }
                 }
-                
+
                 phrase_matches.push((primary_key, match_positions, total_score));
             }
         }
@@ -793,7 +803,8 @@ impl TextSearchIndex for FullTextIndex {
 
                 for term_str in &term_strs {
                     let postings = self.get_postings(term_str).await?;
-                    let doc_set: HashSet<_> = postings.iter().map(|p| p.primary_key.clone()).collect();
+                    let doc_set: HashSet<_> =
+                        postings.iter().map(|p| p.primary_key.clone()).collect();
                     doc_sets.push(doc_set);
                 }
 
@@ -825,12 +836,12 @@ impl TextSearchIndex for FullTextIndex {
                 let query_str = term_strs.join(" ");
                 self.search(&query_str, limit).await
             }
-            BooleanQuery::Not(_) => {
-                Err(IndexError::QueryFailed("NOT queries not yet implemented".to_string()))
-            }
-            BooleanQuery::Nested(_) => {
-                Err(IndexError::QueryFailed("Nested queries not yet implemented".to_string()))
-            }
+            BooleanQuery::Not(_) => Err(IndexError::QueryFailed(
+                "NOT queries not yet implemented".to_string(),
+            )),
+            BooleanQuery::Nested(_) => Err(IndexError::QueryFailed(
+                "Nested queries not yet implemented".to_string(),
+            )),
         }
     }
 
@@ -844,7 +855,7 @@ impl TextSearchIndex for FullTextIndex {
 
     async fn term_stats(&self, term: &str) -> IndexResult<Option<TermStats>> {
         let postings = self.get_postings(term).await?;
-        
+
         if postings.is_empty() {
             return Ok(None);
         }
@@ -890,16 +901,22 @@ mod tests {
     fn test_tokenization() {
         let config = TokenizerConfig::default();
         let _metadata = create_test_metadata();
-        
+
         // Note: Would need actual store for full test
         // This tests the tokenization logic
         let text = "The quick brown fox jumps over the lazy dog!";
         let tokens: Vec<String> = text
             .split(|c: char| c.is_whitespace() || c.is_ascii_punctuation())
             .filter(|s| !s.is_empty())
-            .map(|s| if config.lowercase { s.to_lowercase() } else { s.to_string() })
+            .map(|s| {
+                if config.lowercase {
+                    s.to_lowercase()
+                } else {
+                    s.to_string()
+                }
+            })
             .collect();
-        
+
         assert!(tokens.contains(&"quick".to_string()));
         assert!(tokens.contains(&"fox".to_string()));
     }

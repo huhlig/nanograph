@@ -16,15 +16,15 @@
 
 //! Test LMDB implementation using the common KeyValueShardStore test suite
 
-use nanograph_lmdb::LMDBKeyValueStore;
 use nanograph_kvt::test_suite::run_kvstore_test_suite;
+use nanograph_lmdb::LMDBKeyValueStore;
 use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_lmdb_with_common_suite() {
     let temp_dir = TempDir::new().unwrap();
     let store = LMDBKeyValueStore::new().with_base_dir(temp_dir.path().to_path_buf());
-    
+
     run_kvstore_test_suite(&store).await;
 }
 

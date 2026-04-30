@@ -16,15 +16,15 @@
 
 //! Test LSM implementation using the common KeyValueShardStore test suite
 
-use nanograph_lsm::LSMKeyValueStore;
 use nanograph_kvt::test_suite::run_kvstore_test_suite;
+use nanograph_lsm::LSMKeyValueStore;
 use std::sync::Arc;
 
 #[tokio::test]
 async fn test_lsm_with_common_suite() {
     let store = Arc::new(LSMKeyValueStore::new());
     store.init_tx_manager();
-    
+
     run_kvstore_test_suite(&*store).await;
 }
 

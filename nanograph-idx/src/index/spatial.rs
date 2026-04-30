@@ -167,5 +167,3 @@ pub struct SpatialStats {
     /// Number of R-Tree nodes (if applicable)
     pub node_count: Option<u64>,
 }
-
-

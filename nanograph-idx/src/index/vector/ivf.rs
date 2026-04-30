@@ -20,6 +20,4 @@ pub struct IVFVectorIndex {
 }
 
 /// Compressed vectors (very large datasets)
-pub struct IVFPQVectorIndex {
-
-}
+pub struct IVFPQVectorIndex {}

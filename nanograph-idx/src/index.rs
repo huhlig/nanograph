@@ -14,7 +14,6 @@
 // limitations under the License.
 //
 
-
 // Index implementations
 pub mod ordered;
 pub mod spatial;
@@ -225,5 +224,3 @@ pub trait IndexStore: Send + Sync {
     /// Flush any pending changes to durable storage
     async fn flush(&mut self) -> IndexResult<()>;
 }
-
-

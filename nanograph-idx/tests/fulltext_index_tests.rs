@@ -19,11 +19,11 @@
 use nanograph_core::object::{IndexId, IndexRecord, IndexStatus, IndexType, ObjectId, ShardId};
 use nanograph_core::types::Timestamp;
 use nanograph_idx::{
-    fulltext::FullTextIndex, BooleanQuery, IndexEntry, IndexStore, PersistenceConfig,
-    ScoringAlgorithm, Term, TextSearchIndex, TokenizerConfig,
+    BooleanQuery, IndexEntry, IndexStore, PersistenceConfig, ScoringAlgorithm, Term,
+    TextSearchIndex, TokenizerConfig, fulltext::FullTextIndex,
 };
-use nanograph_kvt::{KeyValueError, KeyValueIterator, KeyValueShardStore};
 use nanograph_kvt::metrics::ShardStats;
+use nanograph_kvt::{KeyValueError, KeyValueIterator, KeyValueShardStore};
 use nanograph_vfs::{DynamicFileSystem, Path};
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -67,7 +67,11 @@ impl futures_core::Stream for MockIterator {
 impl KeyValueIterator for MockIterator {
     fn seek(&mut self, key: &[u8]) -> Result<(), KeyValueError> {
         // Find first item >= key
-        self.index = self.items.iter().position(|(k, _)| k.as_slice() >= key).unwrap_or(self.items.len());
+        self.index = self
+            .items
+            .iter()
+            .position(|(k, _)| k.as_slice() >= key)
+            .unwrap_or(self.items.len());
         Ok(())
     }
 
@@ -115,7 +119,11 @@ impl KeyValueShardStore for MockKeyValueStore {
         Ok(results)
     }
 
-    async fn batch_put(&self, shard: ShardId, pairs: &[(&[u8], &[u8])]) -> Result<(), KeyValueError> {
+    async fn batch_put(
+        &self,
+        shard: ShardId,
+        pairs: &[(&[u8], &[u8])],
+    ) -> Result<(), KeyValueError> {
         for (key, value) in pairs {
             self.put(shard, key, value).await?;
         }
@@ -162,7 +170,10 @@ impl KeyValueShardStore for MockKeyValueStore {
             .take(range.limit.unwrap_or(usize::MAX))
             .collect();
 
-        Ok(Box::new(MockIterator { items: filtered, index: 0 }))
+        Ok(Box::new(MockIterator {
+            items: filtered,
+            index: 0,
+        }))
     }
 
     async fn key_count(&self, _shard: ShardId) -> Result<u64, KeyValueError> {
@@ -180,8 +191,12 @@ impl KeyValueShardStore for MockKeyValueStore {
         })
     }
 
-    async fn begin_transaction(&self) -> Result<Arc<dyn nanograph_kvt::Transaction>, KeyValueError> {
-        Err(KeyValueError::InvalidOperation("Transactions not supported in mock".to_string()))
+    async fn begin_transaction(
+        &self,
+    ) -> Result<Arc<dyn nanograph_kvt::Transaction>, KeyValueError> {
+        Err(KeyValueError::InvalidOperation(
+            "Transactions not supported in mock".to_string(),
+        ))
     }
 
     fn create_shard(
@@ -474,7 +489,7 @@ async fn test_fulltext_boolean_and_search() {
     // Search for documents with both "quick" AND "brown"
     let query = BooleanQuery::And(vec![Term::new("quick"), Term::new("brown")]);
     let results = index.boolean_search(query, Some(10)).await.unwrap();
-    
+
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].entry.primary_key, b"doc1");
 }
@@ -523,7 +538,7 @@ async fn test_fulltext_boolean_or_search() {
     // Search for documents with "fox" OR "dog"
     let query = BooleanQuery::Or(vec![Term::new("fox"), Term::new("dog")]);
     let results = index.boolean_search(query, Some(10)).await.unwrap();
-    
+
     assert_eq!(results.len(), 2);
     assert!(results.iter().any(|r| r.entry.primary_key == b"doc1"));
     assert!(results.iter().any(|r| r.entry.primary_key == b"doc2"));
@@ -566,7 +581,7 @@ async fn test_fulltext_term_stats() {
     // Get stats for "fox"
     let stats = index.term_stats("fox").await.unwrap();
     assert!(stats.is_some());
-    
+
     let stats = stats.unwrap();
     assert_eq!(stats.document_frequency, 2); // Appears in 2 documents
     assert_eq!(stats.total_frequency, 4); // Total of 4 occurrences
@@ -624,7 +639,7 @@ async fn test_fulltext_tokenizer_config() {
     let metadata = create_test_metadata();
     let store = Arc::new(MockKeyValueStore::new());
     let config = create_test_config();
-    
+
     // Test with stop words
     let mut tokenizer_config = TokenizerConfig::default();
     tokenizer_config.remove_stop_words = true;

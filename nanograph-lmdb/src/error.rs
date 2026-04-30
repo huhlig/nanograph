@@ -59,11 +59,21 @@ impl From<LMDBError> for nanograph_kvt::KeyValueError {
             LMDBError::InvalidConfig(msg) => nanograph_kvt::KeyValueError::InvalidValue(msg),
             LMDBError::IoError(e) => nanograph_kvt::KeyValueError::StorageCorruption(e.to_string()),
             LMDBError::SerializationError(msg) => nanograph_kvt::KeyValueError::InvalidValue(msg),
-            LMDBError::TransactionError(msg) => nanograph_kvt::KeyValueError::StorageCorruption(format!("Transaction error: {}", msg)),
-            LMDBError::DatabaseFull => nanograph_kvt::KeyValueError::StorageCorruption("Database full".to_string()),
-            LMDBError::KeyTooLarge => nanograph_kvt::KeyValueError::InvalidKey("Key too large".to_string()),
-            LMDBError::ValueTooLarge => nanograph_kvt::KeyValueError::InvalidValue("Value too large".to_string()),
-            LMDBError::LmdbError(e) => nanograph_kvt::KeyValueError::StorageCorruption(e.to_string()),
+            LMDBError::TransactionError(msg) => nanograph_kvt::KeyValueError::StorageCorruption(
+                format!("Transaction error: {}", msg),
+            ),
+            LMDBError::DatabaseFull => {
+                nanograph_kvt::KeyValueError::StorageCorruption("Database full".to_string())
+            }
+            LMDBError::KeyTooLarge => {
+                nanograph_kvt::KeyValueError::InvalidKey("Key too large".to_string())
+            }
+            LMDBError::ValueTooLarge => {
+                nanograph_kvt::KeyValueError::InvalidValue("Value too large".to_string())
+            }
+            LMDBError::LmdbError(e) => {
+                nanograph_kvt::KeyValueError::StorageCorruption(e.to_string())
+            }
         }
     }
 }

@@ -22,9 +22,8 @@ use crate::options::LSMTreeOptions;
 use crate::sstable::{SSTable, SSTableMetadata};
 use crate::wal_record::{
     WalRecordKind, decode_checkpoint, decode_commit, decode_delete, decode_delete_committed,
-    decode_flush_complete, decode_put, decode_put_committed, encode_checkpoint,
-    encode_delete, encode_delete_committed, encode_flush_complete, encode_put,
-    encode_put_committed,
+    decode_flush_complete, decode_put, decode_put_committed, encode_checkpoint, encode_delete,
+    encode_delete_committed, encode_flush_complete, encode_put, encode_put_committed,
 };
 use nanograph_kvt::KeyValueResult;
 use nanograph_vfs::{DynamicFileSystem, File as VfsFile};
@@ -568,15 +567,19 @@ impl LSMTreeEngine {
             ValueLocation::Inline(data) => Ok(data.clone()),
             ValueLocation::Blob(blob_ref) => {
                 let blob_path = format!("{}/blobs/{:016x}.blob", self.base_path, blob_ref.file_id);
-                let mut file = self.fs.open_file(&blob_path)
-                    .map_err(|e| nanograph_kvt::KeyValueError::StorageCorruption(
-                        format!("Failed to open blob file: {}", e)
-                    ))?;
-                
-                self.blob_log.read_blob(&mut file, blob_ref)
-                    .map_err(|e| nanograph_kvt::KeyValueError::StorageCorruption(
-                        format!("Failed to read blob: {}", e)
+                let mut file = self.fs.open_file(&blob_path).map_err(|e| {
+                    nanograph_kvt::KeyValueError::StorageCorruption(format!(
+                        "Failed to open blob file: {}",
+                        e
                     ))
+                })?;
+
+                self.blob_log.read_blob(&mut file, blob_ref).map_err(|e| {
+                    nanograph_kvt::KeyValueError::StorageCorruption(format!(
+                        "Failed to read blob: {}",
+                        e
+                    ))
+                })
             }
         }
     }

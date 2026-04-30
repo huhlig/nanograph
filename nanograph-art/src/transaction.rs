@@ -242,7 +242,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         let tx_manager = TransactionManager::new(store.clone());
         let tx = tx_manager.begin();
@@ -278,7 +280,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         let tx_manager = TransactionManager::new(store.clone());
         let tx = tx_manager.begin();
@@ -300,7 +304,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Insert initial data
         store.put(shard_id, b"key1", b"initial").await.unwrap();
@@ -340,7 +346,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         // Insert initial data
         store.put(shard_id, b"key1", b"value1").await.unwrap();
@@ -374,7 +382,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
 
         let tx_manager = TransactionManager::new(store.clone());
         let tx = tx_manager.begin();

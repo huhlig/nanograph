@@ -109,7 +109,11 @@ impl RaftServiceTrait for RaftService {
             .map_err(Self::error_to_status)?;
 
         // Route to appropriate Raft group
-        let shard_group = self.manager.shard_group(group_id).await.map_err(Self::error_to_status)?;
+        let shard_group = self
+            .manager
+            .shard_group(group_id)
+            .await
+            .map_err(Self::error_to_status)?;
         let vote_response = shard_group
             .raft
             .vote(vote_request)
@@ -145,7 +149,11 @@ impl RaftServiceTrait for RaftService {
             .map_err(Self::error_to_status)?;
 
         // Route to appropriate Raft group
-        let shard_group = self.manager.shard_group(group_id).await.map_err(Self::error_to_status)?;
+        let shard_group = self
+            .manager
+            .shard_group(group_id)
+            .await
+            .map_err(Self::error_to_status)?;
         let append_response = shard_group
             .raft
             .append_entries(append_request)
@@ -187,14 +195,14 @@ impl RaftServiceTrait for RaftService {
 
         // TODO: Handle streaming snapshot data
         // For now, we just handle single-message snapshots
-        
+
         // Route to appropriate Raft group
         // Note: This is a simplified implementation
         // A full implementation would need to:
         // 1. Stream all chunks
         // 2. Assemble the complete snapshot
         // 3. Pass to Raft
-        
+
         let response = InstallSnapshotResponseMessage {
             response: Some(InstallSnapshotResponse {
                 term: install_request.term,
@@ -223,5 +231,3 @@ pub async fn start_server(
 
     Ok(())
 }
-
-

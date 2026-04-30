@@ -18,7 +18,6 @@ mod container;
 mod shard;
 mod system;
 
-
 pub use self::container::ContainerShardRaftGroup;
 pub use self::shard::TableShardRaftGroup;
 pub use self::system::SystemShardRaftGroup;

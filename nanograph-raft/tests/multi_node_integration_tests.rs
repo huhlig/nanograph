@@ -42,7 +42,7 @@ async fn start_cluster_servers(managers: &[Arc<ConsensusManager>], base_port: u1
         let addr = format!("127.0.0.1:{}", port).parse().unwrap();
         manager.clone().start_server(addr).await.ok();
     }
-    
+
     // Give servers time to start
     tokio::time::sleep(Duration::from_millis(100)).await;
 }
@@ -128,10 +128,13 @@ async fn test_cluster_node_addition() {
 
     // Add a new node
     let new_node_id = NodeId::new(4);
-    let new_manager = Arc::new(ConsensusManager::new(new_node_id, ReplicationConfig::default()));
+    let new_manager = Arc::new(ConsensusManager::new(
+        new_node_id,
+        ReplicationConfig::default(),
+    ));
     let new_port = base_port + 3;
     let new_addr = format!("127.0.0.1:{}", new_port).parse().unwrap();
-    
+
     new_manager.clone().start_server(new_addr).await.ok();
     tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -342,5 +345,3 @@ async fn test_large_cluster() {
 
     stop_cluster_servers(&managers).await;
 }
-
-

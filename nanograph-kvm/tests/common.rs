@@ -14,7 +14,10 @@
 // limitations under the License.
 //
 
-use nanograph_core::object::{Permission, PermissionGrant, ResourceScope, SecurityPrincipal, SubjectId, SystemUserRecord, UserId};
+use nanograph_core::object::{
+    Permission, PermissionGrant, ResourceScope, SecurityPrincipal, SubjectId, SystemUserRecord,
+    UserId,
+};
 use nanograph_core::types::Timestamp;
 use std::collections::HashMap;
 

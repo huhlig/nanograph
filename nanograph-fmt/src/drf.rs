@@ -14,11 +14,8 @@
 // limitations under the License.
 //
 
-pub enum DynamicRecordFormat {
-    
-}
+pub enum DynamicRecordFormat {}
 
 pub struct DynamicRecordSchema {
-    // 
+    //
 }
-

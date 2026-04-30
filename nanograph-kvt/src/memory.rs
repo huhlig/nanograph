@@ -460,7 +460,9 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard_id, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
         (store, shard_id)
     }
 
@@ -523,9 +525,15 @@ mod tests {
         let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
         let data_path = nanograph_vfs::Path::from("/data");
         let wal_path = nanograph_vfs::Path::from("/wal");
-        store.create_shard(shard1, vfs.clone(), data_path.clone(), wal_path.clone()).unwrap();
-        store.create_shard(shard2, vfs.clone(), data_path.clone(), wal_path.clone()).unwrap();
-        store.create_shard(shard3, vfs, data_path, wal_path).unwrap();
+        store
+            .create_shard(shard1, vfs.clone(), data_path.clone(), wal_path.clone())
+            .unwrap();
+        store
+            .create_shard(shard2, vfs.clone(), data_path.clone(), wal_path.clone())
+            .unwrap();
+        store
+            .create_shard(shard3, vfs, data_path, wal_path)
+            .unwrap();
 
         let shards = store.list_shards().await.unwrap();
         assert_eq!(shards.len(), 3);

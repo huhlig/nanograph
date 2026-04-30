@@ -135,7 +135,7 @@ impl LSMIterator {
                     ValueLocation::Inline(data) => Some(data.clone()),
                     ValueLocation::Blob(_) => None, // TODO: resolve blobs
                 });
-                
+
                 heap.push((
                     IteratorEntry {
                         key: entry.key.clone(),
@@ -165,7 +165,7 @@ impl LSMIterator {
                             ValueLocation::Inline(data) => Some(data.clone()),
                             ValueLocation::Blob(_) => None,
                         });
-                        
+
                         heap.push((
                             IteratorEntry {
                                 key: entry.key.clone(),
@@ -196,7 +196,7 @@ impl LSMIterator {
                     ValueLocation::Inline(data) => Some(data.clone()),
                     ValueLocation::Blob(_) => None,
                 });
-                
+
                 heap.push((
                     IteratorEntry {
                         key: entry.key.clone(),

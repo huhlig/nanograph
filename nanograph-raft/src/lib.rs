@@ -203,8 +203,8 @@
 
 mod config;
 mod error;
-mod grpc;
 mod group;
+mod grpc;
 mod manager;
 mod network;
 mod storage;
