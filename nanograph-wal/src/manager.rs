@@ -145,18 +145,12 @@ impl WriteAheadLogManager {
     pub fn head_lsn(&self) -> WriteAheadLogResult<LogSequenceNumber> {
         let archived = self.archived_segments.lock().unwrap();
         if let Some(first) = archived.first() {
-            // This is not quite right as we need the start offset from the header
-            // But for now let's assume 0 is fine if we have segments
-            Ok(LogSequenceNumber {
-                segment_id: first.segment_id(),
-                offset: 0,
-            })
+            // Return the start LSN from the segment (which accounts for the header)
+            Ok(first.start_lsn())
         } else {
             let active = self.active_segment.lock().unwrap();
-            Ok(LogSequenceNumber {
-                segment_id: active.segment_id(),
-                offset: 0,
-            })
+            // Return the start LSN from the segment (which accounts for the header)
+            Ok(active.start_lsn())
         }
     }
 

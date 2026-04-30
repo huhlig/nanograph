@@ -22,7 +22,6 @@
 use nanograph_vfs::MemoryFileSystem;
 use nanograph_wal::{
     Durability, LogSequenceNumber, WriteAheadLogConfig, WriteAheadLogManager, WriteAheadLogRecord,
-    HEADER_SIZE,
 };
 
 #[test]
@@ -48,13 +47,8 @@ fn test_wal_recovery_basic() {
     }
     
     // Reopen and verify we can read all records
-    // Start from HEADER_SIZE since offset 0 is the segment header
     let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config).unwrap();
-    let start_lsn = LogSequenceNumber {
-        segment_id: 0,
-        offset: HEADER_SIZE as u64,
-    };
-    let mut reader = wal.reader_from(start_lsn).unwrap();
+    let mut reader = wal.reader_from(LogSequenceNumber::ZERO).unwrap();
     
     let mut count = 0;
     while let Some(entry) = reader.next().unwrap() {
@@ -80,13 +74,8 @@ fn test_wal_recovery_empty() {
     }
     
     // Reopen and verify empty
-    // Start from HEADER_SIZE since offset 0 is the segment header
     let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config).unwrap();
-    let start_lsn = LogSequenceNumber {
-        segment_id: 0,
-        offset: HEADER_SIZE as u64,
-    };
-    let mut reader = wal.reader_from(start_lsn).unwrap();
+    let mut reader = wal.reader_from(LogSequenceNumber::ZERO).unwrap();
     
     assert!(reader.next().unwrap().is_none(), "Empty WAL should return None");
 }
@@ -125,13 +114,8 @@ fn test_wal_recovery_with_different_durability() {
     }
     
     // Reopen and verify
-    // Start from HEADER_SIZE since offset 0 is the segment header
     let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config).unwrap();
-    let start_lsn = LogSequenceNumber {
-        segment_id: 0,
-        offset: HEADER_SIZE as u64,
-    };
-    let mut reader = wal.reader_from(start_lsn).unwrap();
+    let mut reader = wal.reader_from(LogSequenceNumber::ZERO).unwrap();
     
     let entry1 = reader.next().unwrap().unwrap();
     assert_eq!(entry1.kind, 1);
@@ -170,13 +154,8 @@ fn test_wal_recovery_with_checksum_validation() {
     }
     
     // Reopen and verify all records with checksum validation
-    // Start from HEADER_SIZE since offset 0 is the segment header
     let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config).unwrap();
-    let start_lsn = LogSequenceNumber {
-        segment_id: 0,
-        offset: HEADER_SIZE as u64,
-    };
-    let mut reader = wal.reader_from(start_lsn).unwrap();
+    let mut reader = wal.reader_from(LogSequenceNumber::ZERO).unwrap();
     
     let mut count = 0;
     while let Some(entry) = reader.next().unwrap() {
@@ -217,13 +196,8 @@ fn test_wal_recovery_large_records() {
     }
     
     // Reopen and verify
-    // Start from HEADER_SIZE since offset 0 is the segment header
     let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config).unwrap();
-    let start_lsn = LogSequenceNumber {
-        segment_id: 0,
-        offset: HEADER_SIZE as u64,
-    };
-    let mut reader = wal.reader_from(start_lsn).unwrap();
+    let mut reader = wal.reader_from(LogSequenceNumber::ZERO).unwrap();
     
     let entry1 = reader.next().unwrap().unwrap();
     assert_eq!(entry1.kind, 99);
@@ -278,7 +252,7 @@ fn test_wal_recovery_from_specific_lsn() {
         }
     }
     
-    // Reopen and read from target LSN (this one already has the correct LSN from write)
+    // Reopen and read from target LSN
     let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config).unwrap();
     let mut reader = wal.reader_from(target_lsn).unwrap();
     
@@ -319,13 +293,8 @@ fn test_wal_recovery_batch_writes() {
     }
     
     // Reopen and verify
-    // Start from HEADER_SIZE since offset 0 is the segment header
     let wal = WriteAheadLogManager::new(fs.clone(), "/wal", config).unwrap();
-    let start_lsn = LogSequenceNumber {
-        segment_id: 0,
-        offset: HEADER_SIZE as u64,
-    };
-    let mut reader = wal.reader_from(start_lsn).unwrap();
+    let mut reader = wal.reader_from(LogSequenceNumber::ZERO).unwrap();
     
     for i in 0..5 {
         let entry = reader.next().unwrap().unwrap();

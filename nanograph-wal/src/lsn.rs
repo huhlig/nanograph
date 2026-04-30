@@ -14,6 +14,8 @@
 // limitations under the License.
 //
 
+use crate::walfile::HEADER_SIZE;
+
 /// Log Sequence Number (LSN)
 /// Represents a unique position within the Write Ahead Log.
 ///
@@ -35,10 +37,10 @@ pub struct LogSequenceNumber {
 }
 
 impl LogSequenceNumber {
-    /// Initial LSN
+    /// Initial LSN - points to the first record position (after the segment header)
     pub const ZERO: LogSequenceNumber = LogSequenceNumber {
         segment_id: 0,
-        offset: 0,
+        offset: HEADER_SIZE as u64,
     };
 }
 
@@ -68,8 +70,8 @@ mod tests {
 
     #[test]
     fn test_lsn_default_and_zero() {
-        assert_eq!(LogSequenceNumber::default(), LogSequenceNumber::ZERO);
+        // Note: Default is {0, 0} but ZERO is {0, HEADER_SIZE}
         assert_eq!(LogSequenceNumber::ZERO.segment_id, 0);
-        assert_eq!(LogSequenceNumber::ZERO.offset, 0);
+        assert_eq!(LogSequenceNumber::ZERO.offset, HEADER_SIZE as u64);
     }
 }
