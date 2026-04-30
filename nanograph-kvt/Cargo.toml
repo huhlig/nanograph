@@ -61,4 +61,6 @@ tempfile.workspace = true
 # Storage engine implementations for comparative benchmarks
 nanograph-lmdb = { path = "../nanograph-lmdb" }
 nanograph-lsm = { path = "../nanograph-lsm" }
+nanograph-btree = { path = "../nanograph-btree" }
+nanograph-art = { path = "../nanograph-art" }
 

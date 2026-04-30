@@ -17,7 +17,7 @@
 //! Comparative Benchmarks for KeyValueShardStore Implementations
 //!
 //! This benchmark suite compares the performance of different KeyValueShardStore
-//! implementations (Memory, LMDB, LSM) using identical test scenarios.
+//! implementations (Memory, LMDB, LSM, B-Tree, ART) using identical test scenarios.
 //!
 //! Run with: `cargo bench --bench comparative_benchmarks`
 
@@ -27,6 +27,8 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use nanograph_kvt::{KeyValueShardStore, MemoryKeyValueShardStore, ShardId};
 use nanograph_lmdb::LMDBKeyValueStore;
 use nanograph_lsm::LSMKeyValueStore;
+use nanograph_btree::{BTreeKeyValueStore, BPlusTreeConfig};
+use nanograph_art::ArtKeyValueStore;
 use nanograph_vfs::{MemoryFileSystem, Path};
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -70,6 +72,35 @@ fn setup_lsm() -> (Arc<LSMKeyValueStore>, ShardId, TempDir) {
     (store, shard_id, temp_dir)
 }
 
+fn setup_btree() -> (Arc<BTreeKeyValueStore>, ShardId, TempDir) {
+    let temp_dir = TempDir::new().unwrap();
+    let config = BPlusTreeConfig::default();
+    let store = Arc::new(BTreeKeyValueStore::new(config));
+
+    let shard_id = ShardId::new(1);
+    let vfs = Arc::new(MemoryFileSystem::new());
+    let data_path = Path::from(temp_dir.path().join("shard1").to_str().unwrap());
+    let wal_path = Path::from(temp_dir.path().join("wal1").to_str().unwrap());
+
+    KeyValueShardStore::create_shard(store.as_ref(), shard_id, vfs, data_path, wal_path).unwrap();
+
+    (store, shard_id, temp_dir)
+}
+
+fn setup_art() -> (Arc<ArtKeyValueStore>, ShardId, TempDir) {
+    let temp_dir = TempDir::new().unwrap();
+    let store = Arc::new(ArtKeyValueStore::new());
+
+    let shard_id = ShardId::new(1);
+    let vfs = Arc::new(MemoryFileSystem::new());
+    let data_path = Path::from(temp_dir.path().join("shard1").to_str().unwrap());
+    let wal_path = Path::from(temp_dir.path().join("wal1").to_str().unwrap());
+
+    KeyValueShardStore::create_shard(store.as_ref(), shard_id, vfs, data_path, wal_path).unwrap();
+
+    (store, shard_id, temp_dir)
+}
+
 // Comparative benchmark functions
 
 fn compare_single_operations(c: &mut Criterion) {
@@ -84,6 +115,14 @@ fn compare_single_operations(c: &mut Criterion) {
     // LSM
     let (lsm_store, lsm_shard, _lsm_temp) = setup_lsm();
     common::bench_single_operations(c, "LSM", lsm_store.as_ref(), lsm_shard);
+
+    // B-Tree
+    let (btree_store, btree_shard, _btree_temp) = setup_btree();
+    common::bench_single_operations(c, "B-Tree", btree_store.as_ref(), btree_shard);
+
+    // ART
+    let (art_store, art_shard, _art_temp) = setup_art();
+    common::bench_single_operations(c, "ART", art_store.as_ref(), art_shard);
 }
 
 fn compare_batch_operations(c: &mut Criterion) {
@@ -98,6 +137,14 @@ fn compare_batch_operations(c: &mut Criterion) {
     // LSM
     let (lsm_store, lsm_shard, _lsm_temp) = setup_lsm();
     common::bench_batch_operations(c, "LSM", lsm_store.as_ref(), lsm_shard);
+
+    // B-Tree
+    let (btree_store, btree_shard, _btree_temp) = setup_btree();
+    common::bench_batch_operations(c, "B-Tree", btree_store.as_ref(), btree_shard);
+
+    // ART
+    let (art_store, art_shard, _art_temp) = setup_art();
+    common::bench_batch_operations(c, "ART", art_store.as_ref(), art_shard);
 }
 
 fn compare_scan_operations(c: &mut Criterion) {
@@ -112,6 +159,14 @@ fn compare_scan_operations(c: &mut Criterion) {
     // LSM
     let (lsm_store, lsm_shard, _lsm_temp) = setup_lsm();
     common::bench_scan_operations(c, "LSM", lsm_store.as_ref(), lsm_shard);
+
+    // B-Tree
+    let (btree_store, btree_shard, _btree_temp) = setup_btree();
+    common::bench_scan_operations(c, "B-Tree", btree_store.as_ref(), btree_shard);
+
+    // ART
+    let (art_store, art_shard, _art_temp) = setup_art();
+    common::bench_scan_operations(c, "ART", art_store.as_ref(), art_shard);
 }
 
 fn compare_mixed_workloads(c: &mut Criterion) {
@@ -126,6 +181,14 @@ fn compare_mixed_workloads(c: &mut Criterion) {
     // LSM
     let (lsm_store, lsm_shard, _lsm_temp) = setup_lsm();
     common::bench_mixed_workloads(c, "LSM", lsm_store.as_ref(), lsm_shard);
+
+    // B-Tree
+    let (btree_store, btree_shard, _btree_temp) = setup_btree();
+    common::bench_mixed_workloads(c, "B-Tree", btree_store.as_ref(), btree_shard);
+
+    // ART
+    let (art_store, art_shard, _art_temp) = setup_art();
+    common::bench_mixed_workloads(c, "ART", art_store.as_ref(), art_shard);
 }
 
 criterion_group!(

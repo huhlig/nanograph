@@ -123,7 +123,7 @@ To benchmark a new KeyValueShardStore implementation:
    }
    ```
 
-3. **Add to comparison functions**:
+3. **Add to all comparison functions**:
    ```rust
    fn compare_single_operations(c: &mut Criterion) {
        // ... existing implementations ...
@@ -132,9 +132,16 @@ To benchmark a new KeyValueShardStore implementation:
        let (your_store, your_shard, _temp) = setup_your_store();
        common::bench_single_operations(c, "YourStore", &your_store, your_shard);
    }
+   
+   // Repeat for:
+   // - compare_batch_operations
+   // - compare_scan_operations
+   // - compare_mixed_workloads
    ```
 
-4. **Run benchmarks**:
+4. **Update this README** to list the new implementation in the "Current Implementations" section
+
+5. **Run benchmarks**:
    ```bash
    cargo bench --bench comparative_benchmarks
    ```
