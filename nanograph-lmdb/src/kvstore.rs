@@ -19,7 +19,7 @@ use crate::error::{LMDBError, LMDBResult};
 use crate::transaction::LMDBTransaction;
 use async_trait::async_trait;
 use lmdb::{
-    Cursor, Database, DatabaseFlags, Environment, EnvironmentFlags, Transaction, WriteFlags,
+    Database, DatabaseFlags, Environment, EnvironmentFlags, Transaction, WriteFlags,
 };
 use nanograph_kvt::metrics::{ShardStats, StatValue};
 use nanograph_kvt::{
@@ -286,65 +286,10 @@ impl KeyValueShardStore for LMDBKeyValueStore {
         let env = self.get_environment(shard)?;
         let db = self.get_database(shard)?;
 
-        // For now, collect all entries in range
-        // TODO: Implement proper streaming iterator
-        let txn = env.begin_ro_txn().map_err(LMDBError::from)?;
-        let mut cursor = txn.open_ro_cursor(db).map_err(LMDBError::from)?;
+        // Create streaming iterator that fetches data in chunks
+        let iterator = crate::iterator::LMDBIterator::new(env, db, range);
 
-        let mut entries = Vec::new();
-
-        for result in cursor.iter_start() {
-            let (key, value) = result.map_err(LMDBError::from)?;
-            let key: &[u8] = key;
-            let value: &[u8] = value;
-
-            // Check if key is in range
-            let in_range = match (&range.start, &range.end) {
-                (std::ops::Bound::Included(start), std::ops::Bound::Included(end)) => {
-                    key >= start.as_slice() && key <= end.as_slice()
-                }
-                (std::ops::Bound::Included(start), std::ops::Bound::Excluded(end)) => {
-                    key >= start.as_slice() && key < end.as_slice()
-                }
-                (std::ops::Bound::Excluded(start), std::ops::Bound::Included(end)) => {
-                    key > start.as_slice() && key <= end.as_slice()
-                }
-                (std::ops::Bound::Excluded(start), std::ops::Bound::Excluded(end)) => {
-                    key > start.as_slice() && key < end.as_slice()
-                }
-                (std::ops::Bound::Included(start), std::ops::Bound::Unbounded) => {
-                    key >= start.as_slice()
-                }
-                (std::ops::Bound::Excluded(start), std::ops::Bound::Unbounded) => {
-                    key > start.as_slice()
-                }
-                (std::ops::Bound::Unbounded, std::ops::Bound::Included(end)) => {
-                    key <= end.as_slice()
-                }
-                (std::ops::Bound::Unbounded, std::ops::Bound::Excluded(end)) => {
-                    key < end.as_slice()
-                }
-                (std::ops::Bound::Unbounded, std::ops::Bound::Unbounded) => true,
-            };
-
-            if in_range {
-                entries.push((key.to_vec(), value.to_vec()));
-
-                // Apply limit if specified
-                if let Some(limit) = range.limit {
-                    if entries.len() >= limit {
-                        break;
-                    }
-                }
-            }
-        }
-
-        // Reverse if needed
-        if range.reverse {
-            entries.reverse();
-        }
-
-        Ok(Box::new(crate::iterator::LMDBIterator::new(entries)))
+        Ok(Box::new(iterator))
     }
 
     // ===== Statistics & Metadata =====

@@ -244,7 +244,7 @@ impl Transaction for LMDBTransaction {
             entries.truncate(limit);
         }
 
-        Ok(Box::new(crate::iterator::LMDBIterator::new(entries)))
+        Ok(Box::new(crate::iterator::LMDBMemoryIterator::new(entries)))
     }
 
     async fn commit(self: Arc<Self>, _durability: Durability) -> KeyValueResult<()> {
