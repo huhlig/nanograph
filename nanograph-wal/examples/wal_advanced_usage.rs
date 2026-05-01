@@ -235,7 +235,7 @@ fn demonstrate_combined_features() -> Result<(), Box<dyn std::error::Error>> {
         kind: 100,
         payload: b"BEGIN TRANSACTION",
     };
-    let begin_lsn = writer.append(record, Durability::Flush)?;
+    let begin_lsn = writer.append(record, Durability::Buffered)?;
     println!("✓ Transaction begin at LSN {:?}", begin_lsn);
 
     // Data modifications
@@ -245,7 +245,7 @@ fn demonstrate_combined_features() -> Result<(), Box<dyn std::error::Error>> {
             kind: 101,
             payload: payload.as_bytes(),
         };
-        writer.append(record, Durability::Flush)?;
+        writer.append(record, Durability::Buffered)?;
     }
     println!("✓ Wrote 5 UPDATE operations");
 

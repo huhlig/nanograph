@@ -885,7 +885,7 @@ mod tests {
 
         // Commit
         let tx_id = tx.id();
-        tx.commit().await.unwrap();
+        tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // Begin another transaction
         let tx2 = store.begin_transaction().await.unwrap();

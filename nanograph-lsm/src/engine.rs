@@ -467,6 +467,7 @@ impl LSMTreeEngine {
         key: Vec<u8>,
         value: Vec<u8>,
         commit_ts: i64,
+        durability: nanograph_wal::Durability,
     ) -> KeyValueResult<()> {
         // Write to WAL first for durability with commit timestamp
         let payload = encode_put_committed(&key, &value, commit_ts);
@@ -477,7 +478,7 @@ impl LSMTreeEngine {
 
         let mut writer = self.wal_writer.lock().unwrap();
         writer
-            .append(record, self.options.durability)
+            .append(record, durability)
             .map_err(|e| nanograph_kvt::KeyValueError::StorageCorruption(e.to_string()))?;
         drop(writer);
 
@@ -530,7 +531,12 @@ impl LSMTreeEngine {
     }
 
     /// Delete a key with commit timestamp (for MVCC transactions)
-    pub fn delete_committed(&self, key: Vec<u8>, commit_ts: i64) -> KeyValueResult<()> {
+    pub fn delete_committed(
+        &self,
+        key: Vec<u8>,
+        commit_ts: i64,
+        durability: nanograph_wal::Durability,
+    ) -> KeyValueResult<()> {
         // Write to WAL first for durability with commit timestamp
         let payload = encode_delete_committed(&key, commit_ts);
         let record = WriteAheadLogRecord {
@@ -540,7 +546,7 @@ impl LSMTreeEngine {
 
         let mut writer = self.wal_writer.lock().unwrap();
         writer
-            .append(record, self.options.durability)
+            .append(record, durability)
             .map_err(|e| nanograph_kvt::KeyValueError::StorageCorruption(e.to_string()))?;
         drop(writer);
 

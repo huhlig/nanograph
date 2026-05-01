@@ -103,7 +103,7 @@
 //!     assert_eq!(balance, Some(b"1000".to_vec()));
 //!
 //!     // Commit all changes atomically
-//!     txn.commit().await?;
+//!     txn.commit(nanograph_wal::Durability::Sync).await?;
 //!
 //!     Ok(())
 //! }

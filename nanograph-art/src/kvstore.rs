@@ -341,7 +341,7 @@ impl ArtKeyValueStore {
             };
             let mut writer = wal_writer.lock().unwrap();
             writer
-                .append(record, nanograph_wal::Durability::Flush)
+                .append(record, nanograph_wal::Durability::Buffered)
                 .map_err(|e| {
                     KeyValueError::StorageCorruption(format!("WAL write failed: {}", e))
                 })?;
@@ -364,7 +364,7 @@ impl ArtKeyValueStore {
             };
             let mut writer = wal_writer.lock().unwrap();
             writer
-                .append(record, nanograph_wal::Durability::Flush)
+                .append(record, nanograph_wal::Durability::Buffered)
                 .map_err(|e| {
                     KeyValueError::StorageCorruption(format!("WAL write failed: {}", e))
                 })?;
@@ -387,7 +387,7 @@ impl ArtKeyValueStore {
             };
             let mut writer = wal_writer.lock().unwrap();
             writer
-                .append(record, nanograph_wal::Durability::Flush)
+                .append(record, nanograph_wal::Durability::Buffered)
                 .map_err(|e| {
                     KeyValueError::StorageCorruption(format!("WAL write failed: {}", e))
                 })?;

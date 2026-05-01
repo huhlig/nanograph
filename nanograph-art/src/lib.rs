@@ -123,7 +123,7 @@
 //! assert_eq!(value, Some(b"value1".to_vec()));
 //!
 //! // Commit changes
-//! txn.commit().await.unwrap();
+//! txn.commit(nanograph_wal::Durability::Sync).await.unwrap();
 //!
 //! // Verify committed data
 //! let txn2 = txn_manager.begin();

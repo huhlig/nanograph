@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         kind: 1, // Custom record type
         payload: b"First record - memory durability",
     };
-    let lsn1 = writer.append(record1, Durability::Memory)?;
+    let lsn1 = writer.append(record1, Durability::None)?;
     println!("✓ Wrote record 1 (Memory): LSN {:?}", lsn1);
 
     // Record 2: Flush durability (balanced)
@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         kind: 2,
         payload: b"Second record - flush durability",
     };
-    let lsn2 = writer.append(record2, Durability::Flush)?;
+    let lsn2 = writer.append(record2, Durability::Buffered)?;
     println!("✓ Wrote record 2 (Flush): LSN {:?}", lsn2);
 
     // Record 3: Sync durability (slowest, most durable)
@@ -68,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             kind: i,
             payload: payload.as_bytes(),
         };
-        let lsn = writer.append(record, Durability::Flush)?;
+        let lsn = writer.append(record, Durability::Buffered)?;
         println!("✓ Wrote record {} at LSN {:?}", i, lsn);
     }
 

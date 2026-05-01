@@ -18,6 +18,7 @@ use crate::{KeyValueIterator, KeyValueResult};
 use async_trait::async_trait;
 use nanograph_core::object::{KeyRange, ShardId};
 use nanograph_core::types::Timestamp;
+use nanograph_wal::Durability;
 use std::sync::Arc;
 
 /// Transaction identifier for Multiversion Concurrency Control (MVCC)
@@ -51,10 +52,16 @@ pub trait Transaction: Send + Sync {
         range: KeyRange,
     ) -> KeyValueResult<Box<dyn KeyValueIterator + Send>>;
 
-    /// Commit the transaction
+    /// Commit the transaction with specified durability level
+    ///
+    /// # Arguments
+    /// * `durability` - The durability guarantee for this commit:
+    ///   - `Sync`: fsync the WAL before returning (default, strongest guarantee)
+    ///   - `Buffered`: return after WAL append; group-commit fsync on a timer
+    ///   - `None`: no durability; useful for tests and bulk loads
     ///
     /// Returns an error if there are write conflicts.
-    async fn commit(self: Arc<Self>) -> KeyValueResult<()>;
+    async fn commit(self: Arc<Self>, durability: Durability) -> KeyValueResult<()>;
 
     /// Rollback the transaction
     async fn rollback(self: Arc<Self>) -> KeyValueResult<()>;

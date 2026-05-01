@@ -162,7 +162,7 @@
 //! assert_eq!(balance, Some(b"100".to_vec()));
 //!
 //! // Commit transaction
-//! txn.commit().await.unwrap();
+//! txn.commit(nanograph_wal::Durability::Sync).await.unwrap();
 //!
 //! // Verify committed data
 //! let value = store.get(shard, b"account1").await.unwrap();

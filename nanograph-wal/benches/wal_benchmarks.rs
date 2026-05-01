@@ -204,7 +204,7 @@ fn bench_wal_append_with_configs(c: &mut Criterion) {
                         kind: 1,
                         payload: black_box(&payload),
                     };
-                    writer.append(record, Durability::Memory).unwrap();
+                    writer.append(record, Durability::None).unwrap();
                 });
             },
         );
@@ -248,7 +248,7 @@ fn bench_wal_append_varying_sizes(c: &mut Criterion) {
                             kind: 1,
                             payload: black_box(&payload),
                         };
-                        writer.append(record, Durability::Memory).unwrap();
+                        writer.append(record, Durability::None).unwrap();
                     });
                 },
             );
@@ -280,7 +280,7 @@ fn bench_wal_read_with_configs(c: &mut Criterion) {
                         kind: 1,
                         payload: payload.as_bytes(),
                     };
-                    writer.append(record, Durability::Memory).unwrap();
+                    writer.append(record, Durability::None).unwrap();
                 }
 
                 let start_lsn = LogSequenceNumber {
@@ -354,7 +354,7 @@ fn bench_wal_batch_append_with_configs(c: &mut Criterion) {
                         .collect();
 
                     writer
-                        .append_batch(records.into_iter(), Durability::Memory)
+                        .append_batch(records.into_iter(), Durability::None)
                         .unwrap();
                 });
             },
@@ -415,7 +415,7 @@ fn bench_wal_compression_effectiveness(c: &mut Criterion) {
                             kind: 1,
                             payload: black_box(data),
                         };
-                        writer.append(record, Durability::Memory).unwrap();
+                        writer.append(record, Durability::None).unwrap();
                     });
                 },
             );
@@ -436,10 +436,10 @@ fn bench_wal_append_with_durability(c: &mut Criterion) {
         EncryptionAlgorithm::None,
     );
 
-    for durability in [Durability::Memory, Durability::Flush, Durability::Sync].iter() {
+    for durability in [Durability::None, Durability::Buffered, Durability::Sync].iter() {
         let name = match durability {
-            Durability::Memory => "memory",
-            Durability::Flush => "flush",
+            Durability::None => "none",
+            Durability::Buffered => "buffered",
             Durability::Sync => "sync",
         };
 
@@ -496,7 +496,7 @@ fn bench_wal_sequential_read_write(c: &mut Criterion) {
                         kind: 1,
                         payload: black_box(payload),
                     };
-                    let lsn = writer.append(record, Durability::Memory).unwrap();
+                    let lsn = writer.append(record, Durability::None).unwrap();
 
                     // Read
                     let mut reader = manager.reader_from(lsn).unwrap();
@@ -547,7 +547,7 @@ fn bench_wal_concurrent_writes(c: &mut Criterion) {
                                         kind: i as u16,
                                         payload: payload.as_bytes(),
                                     };
-                                    writer.append(record, Durability::Memory).unwrap();
+                                    writer.append(record, Durability::None).unwrap();
                                 }
                             })
                         })

@@ -20,6 +20,7 @@ use nanograph_kvt::{
     KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId,
     Timestamp, Transaction, TransactionId,
 };
+use nanograph_wal::Durability;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -189,7 +190,8 @@ impl Transaction for ArtTransaction {
         self.store.scan(shard, range).await
     }
 
-    async fn commit(self: Arc<Self>) -> KeyValueResult<()> {
+    async fn commit(self: Arc<Self>, _durability: Durability) -> KeyValueResult<()> {
+        // ART handles durability through WAL writes during put/delete operations
         self.check_active()?;
 
         // Apply all buffered writes atomically
@@ -260,7 +262,7 @@ mod tests {
         );
 
         // Commit
-        tx.commit().await.unwrap();
+        tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // Verify data is persisted
         assert_eq!(
@@ -330,7 +332,7 @@ mod tests {
         );
 
         // Commit tx1
-        tx1.commit().await.unwrap();
+        tx1.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // Now store should see tx1's value
         assert_eq!(
@@ -369,7 +371,7 @@ mod tests {
         );
 
         // Commit
-        tx.commit().await.unwrap();
+        tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // Now store should see deletion
         assert_eq!(store.get(shard_id, b"key1").await.unwrap(), None);
@@ -407,7 +409,7 @@ mod tests {
         );
 
         // Commit
-        tx.commit().await.unwrap();
+        tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // Verify final state
         assert_eq!(store.get(shard_id, b"key1").await.unwrap(), None);

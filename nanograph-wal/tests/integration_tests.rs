@@ -94,7 +94,7 @@ fn test_wal_large_batch_write() {
         .collect();
 
     let last_lsn = writer
-        .append_batch(records.into_iter(), Durability::Flush)
+        .append_batch(records.into_iter(), Durability::Buffered)
         .unwrap();
 
     // Verify we can read all records
@@ -140,7 +140,7 @@ fn test_wal_concurrent_readers() {
             kind: i as u16,
             payload: payload.as_bytes(),
         };
-        let lsn = writer.append(record, Durability::Flush).unwrap();
+        let lsn = writer.append(record, Durability::Buffered).unwrap();
         lsns.push(lsn);
     }
 
@@ -207,7 +207,7 @@ fn test_wal_durability_modes() {
         kind: 1,
         payload: b"memory",
     };
-    let lsn1 = writer.append(record, Durability::Memory).unwrap();
+    let lsn1 = writer.append(record, Durability::None).unwrap();
     assert!(lsn1.offset > 0);
 
     // Test Flush durability
@@ -215,7 +215,7 @@ fn test_wal_durability_modes() {
         kind: 2,
         payload: b"flush",
     };
-    let lsn2 = writer.append(record, Durability::Flush).unwrap();
+    let lsn2 = writer.append(record, Durability::Buffered).unwrap();
     assert!(lsn2.offset > lsn1.offset);
 
     // Test Sync durability
@@ -254,7 +254,7 @@ fn test_wal_empty_payload() {
         kind: 1,
         payload: b"",
     };
-    let lsn = writer.append(record, Durability::Flush).unwrap();
+    let lsn = writer.append(record, Durability::Buffered).unwrap();
 
     // Verify we can read it back
     let mut reader = manager.reader_from(lsn).unwrap();
@@ -285,7 +285,7 @@ fn test_wal_large_payload() {
         kind: 1,
         payload: &payload,
     };
-    let lsn = writer.append(record, Durability::Flush).unwrap();
+    let lsn = writer.append(record, Durability::Buffered).unwrap();
 
     // Verify we can read it back
     let mut reader = manager.reader_from(lsn).unwrap();
@@ -318,7 +318,7 @@ fn test_wal_sequential_reads() {
             kind: i as u16,
             payload: payload.as_bytes(),
         };
-        writer.append(record, Durability::Flush).unwrap();
+        writer.append(record, Durability::Buffered).unwrap();
     }
 
     // Read sequentially from start
@@ -363,7 +363,7 @@ fn test_wal_tail_lsn_tracking() {
         kind: 1,
         payload: b"test",
     };
-    writer.append(record, Durability::Flush).unwrap();
+    writer.append(record, Durability::Buffered).unwrap();
 
     let new_tail = writer.tail_lsn();
     assert!(new_tail.offset > initial_tail.offset);
@@ -399,7 +399,7 @@ fn test_wal_multiple_record_types() {
             kind,
             payload: payload.as_bytes(),
         };
-        let lsn = writer.append(record, Durability::Flush).unwrap();
+        let lsn = writer.append(record, Durability::Buffered).unwrap();
         lsns.push(lsn);
     }
 
@@ -433,7 +433,7 @@ fn test_wal_explicit_flush_and_sync() {
         kind: 1,
         payload: b"test",
     };
-    writer.append(record, Durability::Memory).unwrap();
+    writer.append(record, Durability::None).unwrap();
 
     // Explicit flush
     writer.flush().unwrap();
@@ -443,7 +443,7 @@ fn test_wal_explicit_flush_and_sync() {
         kind: 2,
         payload: b"test2",
     };
-    writer.append(record, Durability::Memory).unwrap();
+    writer.append(record, Durability::None).unwrap();
 
     // Explicit sync
     writer.sync().unwrap();
@@ -470,7 +470,7 @@ fn test_wal_reader_at_end() {
         kind: 1,
         payload: b"test",
     };
-    writer.append(record, Durability::Flush).unwrap();
+    writer.append(record, Durability::Buffered).unwrap();
 
     // Create reader at tail
     let tail = writer.tail_lsn();

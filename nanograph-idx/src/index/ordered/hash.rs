@@ -356,7 +356,7 @@ mod tests {
             ),
             index_id: IndexId::new(ObjectId::new(1)),
             cache_size: 100,
-            durability: nanograph_wal::Durability::Flush,
+            durability: nanograph_wal::Durability::Buffered,
             enable_wal: false,
         }
     }

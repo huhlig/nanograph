@@ -159,9 +159,10 @@ impl LSMKeyValueStore {
         key: &[u8],
         value: &[u8],
         commit_ts: i64,
+        durability: nanograph_wal::Durability,
     ) -> KeyValueResult<()> {
         let engine = self.get_engine(shard)?;
-        engine.put_committed(key.to_vec(), value.to_vec(), commit_ts)
+        engine.put_committed(key.to_vec(), value.to_vec(), commit_ts, durability)
     }
 
     /// Delete with commit timestamp (for MVCC transactions)
@@ -170,9 +171,10 @@ impl LSMKeyValueStore {
         shard: ShardId,
         key: &[u8],
         commit_ts: i64,
+        durability: nanograph_wal::Durability,
     ) -> KeyValueResult<()> {
         let engine = self.get_engine(shard)?;
-        engine.delete_committed(key.to_vec(), commit_ts)
+        engine.delete_committed(key.to_vec(), commit_ts, durability)
     }
 
     /// Create a checkpoint for a shard

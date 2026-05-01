@@ -138,7 +138,7 @@
 //! assert_eq!(balance, Some(b"1000".to_vec()));
 //!
 //! // Commit transaction
-//! txn.commit().await.unwrap();
+//! txn.commit(nanograph_wal::Durability::Sync).await.unwrap();
 //! # }
 //! ```
 //!

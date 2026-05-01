@@ -41,7 +41,7 @@
 //!
 //! // Write a record
 //! let record = WriteAheadLogRecord { kind: 1, payload: b"hello" };
-//! let lsn = writer.append(record, Durability::Flush)?;
+//! let lsn = writer.append(record, Durability::Buffered)?;
 //! println!("Written at LSN: {:?}", lsn);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -59,7 +59,7 @@
 //! // Write some records
 //! # let mut writer = wal.writer()?;
 //! # let record = WriteAheadLogRecord { kind: 1, payload: b"hello" };
-//! # let snapshot_lsn = writer.append(record, Durability::Flush)?;
+//! # let snapshot_lsn = writer.append(record, Durability::Buffered)?;
 //!
 //! // Replay WAL from a specific LSN
 //! let mut reader = wal.reader_from(snapshot_lsn)?;
@@ -81,11 +81,11 @@
 //! # let mut writer = wal.writer()?;
 //! // Memory only - fastest, least durable
 //! let record1 = WriteAheadLogRecord { kind: 1, payload: b"data" };
-//! writer.append(record1, Durability::Memory)?;
+//! writer.append(record1, Durability::None)?;
 //!
 //! // Flush to OS buffer - balanced
 //! let record2 = WriteAheadLogRecord { kind: 1, payload: b"data" };
-//! writer.append(record2, Durability::Flush)?;
+//! writer.append(record2, Durability::Buffered)?;
 //!
 //! // Sync to disk - slowest, most durable
 //! let record3 = WriteAheadLogRecord { kind: 1, payload: b"data" };
@@ -165,7 +165,7 @@
 //!         kind: 1,
 //!         payload: payload.as_bytes(),
 //!     };
-//!     writer.append(record, Durability::Memory)?;
+//!     writer.append(record, Durability::None)?;
 //! }
 //!
 //! // Flush all at once

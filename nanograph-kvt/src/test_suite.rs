@@ -228,7 +228,7 @@ pub async fn run_kvstore_test_suite<S: KeyValueShardStore>(store: &S) {
         assert_eq!(store.get(shard, b"txn_key2").await.unwrap(), None);
 
         // Commit transaction
-        Arc::clone(&txn).commit().await.unwrap();
+        Arc::clone(&txn).commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // Now store sees committed changes
         assert_eq!(
@@ -251,7 +251,7 @@ pub async fn run_kvstore_test_suite<S: KeyValueShardStore>(store: &S) {
         // Transaction delete
         let txn3 = store.begin_transaction().await.unwrap();
         txn3.delete(shard, b"txn_key1").await.unwrap();
-        Arc::clone(&txn3).commit().await.unwrap();
+        Arc::clone(&txn3).commit(nanograph_wal::Durability::Sync).await.unwrap();
         assert_eq!(store.get(shard, b"txn_key1").await.unwrap(), None);
     }
 

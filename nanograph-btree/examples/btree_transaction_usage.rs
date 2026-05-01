@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  Transferred 50 from account:1 to account:2");
 
         // Commit transaction
-        tx.commit().await?;
+        tx.commit(nanograph_wal::Durability::Sync).await?;
         println!("✓ Transaction committed");
     }
 
@@ -120,7 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Another transaction commits a change
         let tx2 = store.begin_transaction().await?;
         tx2.put(shard_id, b"account:1", b"999").await?;
-        tx2.commit().await?;
+        tx2.commit(nanograph_wal::Durability::Sync).await?;
         println!("  tx2 committed: account:1 = 999");
 
         // tx1 still sees the old value (snapshot isolation)
@@ -162,7 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  Updated user:1");
 
         // Commit all changes atomically
-        tx.commit().await?;
+        tx.commit(nanograph_wal::Durability::Sync).await?;
         println!("✓ All operations committed atomically");
     }
 

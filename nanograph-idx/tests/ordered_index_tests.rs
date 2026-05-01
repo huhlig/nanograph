@@ -77,7 +77,7 @@ fn create_persistence_config(index_id: u32) -> PersistenceConfig {
         ),
         index_id: IndexId::new(ObjectId::new(index_id)),
         cache_size: 1000,
-        durability: nanograph_wal::Durability::Flush,
+        durability: nanograph_wal::Durability::Buffered,
         enable_wal: false, // Disable WAL for tests
     }
 }

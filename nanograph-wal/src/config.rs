@@ -136,12 +136,15 @@ impl WriteAheadLogConfig {
 /// Durability level for writes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Durability {
-    /// Buffered in memory only, lost on crash or power failure.
-    Memory,
+    /// No durability guarantee - buffered in memory only, lost on crash or power failure.
+    /// Useful for tests and bulk loads.
+    None,
 
-    /// Written to OS buffers, persisted on power failure if OS survives, lost on crash.
-    Flush,
+    /// Buffered durability - written to OS buffers and WAL, group-commit fsync on a timer.
+    /// Persisted on power failure if OS survives, may be lost on crash before group commit.
+    Buffered,
 
+    /// Full durability - fsync the WAL before returning.
     /// Fully persisted to stable storage via fsync, survives crash and power failure.
     Sync,
 }
@@ -205,6 +208,6 @@ mod tests {
     fn test_durability_derives() {
         assert_eq!(Durability::Sync, Durability::Sync.clone());
         assert_eq!(Durability::Sync, Durability::Sync);
-        assert_ne!(Durability::Sync, Durability::Memory);
+        assert_ne!(Durability::Sync, Durability::None);
     }
 }

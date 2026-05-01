@@ -22,6 +22,7 @@ use nanograph_kvt::{
     KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId,
     Timestamp, Transaction, TransactionId,
 };
+use nanograph_wal::Durability;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -246,7 +247,8 @@ impl Transaction for LMDBTransaction {
         Ok(Box::new(crate::iterator::LMDBIterator::new(entries)))
     }
 
-    async fn commit(self: Arc<Self>) -> KeyValueResult<()> {
+    async fn commit(self: Arc<Self>, _durability: Durability) -> KeyValueResult<()> {
+        // LMDB handles durability internally through its transaction commit
         self.check_active()?;
 
         // Mark as committed first to prevent concurrent operations

@@ -51,7 +51,7 @@ impl Default for PersistenceConfig {
             shard_id: ShardId::default(),
             index_id: IndexId::default(),
             cache_size: 10000,
-            durability: Durability::Flush,
+            durability: Durability::Buffered,
             enable_wal: true,
         }
     }

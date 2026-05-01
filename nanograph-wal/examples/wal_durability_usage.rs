@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             kind: 1,
             payload: payload.as_bytes(),
         };
-        writer.append(record, Durability::Memory)?;
+        writer.append(record, Durability::None)?;
     }
     let memory_duration = start.elapsed();
     println!("✓ Wrote {} records with Memory durability", record_count);
@@ -62,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             kind: 2,
             payload: payload.as_bytes(),
         };
-        writer.append(record, Durability::Flush)?;
+        writer.append(record, Durability::Buffered)?;
     }
     let flush_duration = start.elapsed();
     println!("✓ Wrote {} records with Flush durability", record_count);
@@ -115,7 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         kind: 10,
         payload: payload.as_bytes(),
     };
-    let lsn1 = writer.append(record, Durability::Flush)?;
+    let lsn1 = writer.append(record, Durability::Buffered)?;
     println!("✓ Regular transaction at LSN {:?} (Flush)", lsn1);
 
     // Critical operation with Sync
@@ -133,7 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         kind: 30,
         payload: payload.as_bytes(),
     };
-    let lsn3 = writer.append(record, Durability::Memory)?;
+    let lsn3 = writer.append(record, Durability::None)?;
     println!("✓ Temporary data at LSN {:?} (Memory)", lsn3);
 
     // Group commit pattern
@@ -149,7 +149,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             kind: 40,
             payload: payload.as_bytes(),
         };
-        writer.append(record, Durability::Memory)?;
+        writer.append(record, Durability::None)?;
     }
 
     // Final sync to persist all

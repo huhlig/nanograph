@@ -61,7 +61,7 @@ fn test_wal_full_read_write_cycle() {
                         kind: record.kind,
                         payload: record.payload,
                     },
-                    Durability::Flush,
+                    Durability::Buffered,
                 )
                 .unwrap();
             assert_eq!(lsn.segment_id, 0);
@@ -134,7 +134,7 @@ fn test_wal_interleaved_read_write() {
                 kind: 1,
                 payload: b"one",
             },
-            Durability::Flush,
+            Durability::Buffered,
         )
         .unwrap();
 
@@ -150,7 +150,7 @@ fn test_wal_interleaved_read_write() {
                 kind: 2,
                 payload: b"two",
             },
-            Durability::Flush,
+            Durability::Buffered,
         )
         .unwrap();
 

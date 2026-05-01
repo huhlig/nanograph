@@ -214,7 +214,7 @@ impl RaftLogStorage<ConsensusTypeConfig> for ConsensusLogStore {
                             kind: 0, // Entry
                             payload,
                         },
-                        Durability::Flush,
+                        Durability::Buffered,
                     )
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
                 lsns.push(lsn);

@@ -406,7 +406,8 @@ impl Transaction for MemoryTransaction {
         Ok(Box::new(MemoryKeyValueIterator::new(items)))
     }
 
-    async fn commit(self: Arc<Self>) -> KeyValueResult<()> {
+    async fn commit(self: Arc<Self>, _durability: nanograph_wal::Durability) -> KeyValueResult<()> {
+        // Memory store doesn't use durability - it's always in-memory only
         let pending = self
             .pending_writes
             .write()
@@ -618,7 +619,7 @@ mod tests {
         );
         assert_eq!(store.get(shard, b"key2").await.unwrap(), None);
 
-        Arc::clone(&txn).commit().await.unwrap();
+        Arc::clone(&txn).commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // Now store sees them
         assert_eq!(

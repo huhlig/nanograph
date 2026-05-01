@@ -258,7 +258,7 @@ fn create_test_config() -> PersistenceConfig {
         shard_id: ShardId::default(),
         index_id: IndexId(ObjectId::new(1)),
         cache_size: 100,
-        durability: nanograph_wal::Durability::Memory,
+        durability: nanograph_wal::Durability::None,
         enable_wal: false,
     }
 }

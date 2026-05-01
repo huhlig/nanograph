@@ -20,6 +20,7 @@ use nanograph_kvt::{
     KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, ShardId, Timestamp, Transaction,
     TransactionId,
 };
+use nanograph_wal::Durability;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Weak};
 
@@ -167,7 +168,8 @@ impl Transaction for BTreeTransaction {
         ))
     }
 
-    async fn commit(self: Arc<Self>) -> KeyValueResult<()> {
+    async fn commit(self: Arc<Self>, _durability: Durability) -> KeyValueResult<()> {
+        // BTree handles durability through WAL writes during put/delete operations
         if !self.is_active() {
             return Err(KeyValueError::WriteConflict);
         }
@@ -294,7 +296,7 @@ mod tests {
 
         // Commit
         let tx_id = tx.id();
-        tx.commit().await.unwrap();
+        tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // Cleanup
         manager.remove_transaction(tx_id);
@@ -333,7 +335,7 @@ mod tests {
 
         assert_eq!(manager.active_count(), 3);
 
-        tx1.commit().await.unwrap();
+        tx1.commit(nanograph_wal::Durability::Sync).await.unwrap();
         tx2.rollback().await.unwrap();
 
         manager.cleanup_inactive();
@@ -350,7 +352,7 @@ mod tests {
 
         // Clone tx before commit since commit consumes it
         let tx_clone = tx.clone();
-        tx.commit().await.unwrap();
+        tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // Should fail after commit - transaction is no longer active
         let result = tx_clone.buffer_put(b"key2".to_vec(), b"value2".to_vec());

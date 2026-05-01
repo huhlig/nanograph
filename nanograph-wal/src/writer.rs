@@ -80,8 +80,8 @@ impl WriteAheadLogWriter {
         };
 
         let flush_result = match durability {
-            Durability::Memory => Ok(()),
-            Durability::Flush => {
+            Durability::None => Ok(()),
+            Durability::Buffered => {
                 let result = segment.flush();
                 if result.is_ok() {
                     metrics::record_flush(shard_id, true);
@@ -146,8 +146,8 @@ impl WriteAheadLogWriter {
         metrics::record_records_appended(shard_id, record_count);
 
         let flush_result = match durability {
-            Durability::Memory => Ok(()),
-            Durability::Flush => {
+            Durability::None => Ok(()),
+            Durability::Buffered => {
                 let result = segment.flush();
                 if result.is_ok() {
                     metrics::record_flush(shard_id, true);
@@ -261,7 +261,7 @@ mod tests {
             kind: 1,
             payload: b"test",
         };
-        let lsn = writer.append(record, Durability::Memory).unwrap();
+        let lsn = writer.append(record, Durability::None).unwrap();
         assert_eq!(lsn.segment_id, 0);
         assert!(lsn.offset > 0);
     }
@@ -293,7 +293,7 @@ mod tests {
                 payload: b"two",
             },
         ];
-        let lsn = writer.append_batch(records, Durability::Flush).unwrap();
+        let lsn = writer.append_batch(records, Durability::Buffered).unwrap();
         assert_eq!(lsn.segment_id, 0);
         assert!(lsn.offset > 0);
     }

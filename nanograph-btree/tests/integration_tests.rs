@@ -711,7 +711,7 @@ async fn test_transaction_basic_operations() {
     );
 
     // Commit transaction
-    tx.commit().await.unwrap();
+    tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
     // Data now visible
     assert_eq!(
@@ -776,7 +776,7 @@ async fn test_transaction_delete() {
     );
 
     // Commit
-    tx.commit().await.unwrap();
+    tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
     // Now deleted
     assert_eq!(store.get(shard_id, b"key1").await.unwrap(), None);
@@ -819,7 +819,7 @@ async fn test_transaction_isolation() {
     );
 
     // tx1 commits - applies changes to tree
-    tx1.commit().await.unwrap();
+    tx1.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
     // Note: Current implementation provides READ COMMITTED isolation
     // tx2 will see tx1's committed changes when reading from the tree
@@ -837,7 +837,7 @@ async fn test_transaction_isolation() {
 
     // tx2 can still make its own changes
     tx2.put(shard_id, b"key2", b"tx2_value").await.unwrap();
-    tx2.commit().await.unwrap();
+    tx2.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
     // Verify both transactions' changes are persisted
     assert_eq!(
@@ -875,7 +875,7 @@ async fn test_transaction_multiple_operations() {
     }
 
     // Commit
-    tx.commit().await.unwrap();
+    tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
     // Verify after commit
     let count = store.key_count(shard_id).await.unwrap();
@@ -897,7 +897,7 @@ async fn test_transaction_commit_applies_changes() {
     tx.delete(shard_id, b"existing").await.unwrap();
 
     // Commit
-    tx.commit().await.unwrap();
+    tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
     // Verify all changes applied
     assert_eq!(

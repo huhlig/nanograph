@@ -99,14 +99,14 @@ fn test_wal_recovery_with_different_durability() {
             kind: 1,
             payload: b"memory",
         };
-        writer.append(record1, Durability::Memory).unwrap();
+        writer.append(record1, Durability::None).unwrap();
 
         // Write with Flush durability
         let record2 = WriteAheadLogRecord {
             kind: 2,
             payload: b"flush",
         };
-        writer.append(record2, Durability::Flush).unwrap();
+        writer.append(record2, Durability::Buffered).unwrap();
 
         // Write with Sync durability
         let record3 = WriteAheadLogRecord {

@@ -234,7 +234,7 @@ impl Transaction for LSMTransaction {
         Ok(store_iter)
     }
 
-    async fn commit(self: Arc<Self>) -> KeyValueResult<()> {
+    async fn commit(self: Arc<Self>, durability: nanograph_wal::Durability) -> KeyValueResult<()> {
         self.check_active()?;
 
         // Get commit timestamp using real wall-clock time
@@ -261,12 +261,12 @@ impl Transaction for LSMTransaction {
                     WriteOp::Put { key, value } => {
                         // Write with commit timestamp for MVCC
                         self.store
-                            .put_committed(*table, key, value, commit_ts)
+                            .put_committed(*table, key, value, commit_ts, durability)
                             .await?;
                     }
                     WriteOp::Delete { key } => {
                         // Delete with commit timestamp for MVCC
-                        self.store.delete_committed(*table, key, commit_ts).await?;
+                        self.store.delete_committed(*table, key, commit_ts, durability).await?;
                     }
                 }
             }
@@ -426,9 +426,9 @@ impl Transaction for TransactionWithCleanup {
         self.inner.scan(table, range).await
     }
 
-    async fn commit(self: Arc<Self>) -> KeyValueResult<()> {
+    async fn commit(self: Arc<Self>, durability: nanograph_wal::Durability) -> KeyValueResult<()> {
         let tx_id = self.id();
-        let result = Arc::clone(&self.inner).commit().await;
+        let result = Arc::clone(&self.inner).commit(durability).await;
 
         // Clean up transaction tracking regardless of commit result
         self.tx_mgr.remove_transaction(tx_id);
@@ -476,7 +476,7 @@ mod tests {
         assert_eq!(value, Some(b"value1".to_vec()));
 
         // Commit
-        tx.commit().await.unwrap();
+        tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // Verify committed data
         let value = store.get(shard_id, b"key1").await.unwrap();
@@ -543,7 +543,7 @@ mod tests {
         // For now, it will see the uncommitted value
 
         // Commit TX1
-        tx1.commit().await.unwrap();
+        tx1.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // TX2 should still see old value (snapshot isolation)
         let _value = tx2.get(shard_id, b"key1").await.unwrap();
@@ -581,7 +581,7 @@ mod tests {
         assert_eq!(value, None);
 
         // Commit
-        tx.commit().await.unwrap();
+        tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // Verify deletion
         let value = store.get(shard_id, b"key1").await.unwrap();
@@ -620,7 +620,7 @@ mod tests {
         assert_eq!(value, Some(b"value2".to_vec()));
 
         // Commit
-        tx.commit().await.unwrap();
+        tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // Verify final value
         let value = store.get(shard_id, b"key1").await.unwrap();
@@ -665,7 +665,7 @@ mod tests {
                     .is_ok()
                 {
                     // Commit - this should not deadlock
-                    if tx.commit().await.is_ok() {
+                    if tx.commit(nanograph_wal::Durability::Sync).await.is_ok() {
                         success_count_clone.fetch_add(1, Ordering::SeqCst);
                     }
                 }
@@ -731,7 +731,7 @@ mod tests {
         }
 
         // Commit
-        tx.commit().await.unwrap();
+        tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // Verify after commit
         for i in 0..100 {
@@ -763,7 +763,7 @@ mod tests {
         tx.put(shard_id, b"key1", b"value1").await.unwrap();
 
         // Commit (consumes tx)
-        tx.commit().await.unwrap();
+        tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // Try to use transaction after commit - should fail
         let result = tx_clone.put(shard_id, b"key2", b"value2").await;
@@ -839,7 +839,7 @@ mod tests {
         assert_eq!(tx_mgr.active_transaction_count(), 1);
 
         // Commit transaction
-        tx.commit().await.unwrap();
+        tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // After commit, watermark should be None again
         assert_eq!(tx_mgr.min_active_snapshot_seq(), None);
@@ -883,21 +883,21 @@ mod tests {
         assert_eq!(tx_mgr.active_transaction_count(), 3);
 
         // Commit first transaction
-        tx1.commit().await.unwrap();
+        tx1.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // Watermark should now be the second transaction's timestamp
         assert_eq!(tx_mgr.min_active_snapshot_seq(), Some(ts2));
         assert_eq!(tx_mgr.active_transaction_count(), 2);
 
         // Commit third transaction (out of order)
-        tx3.commit().await.unwrap();
+        tx3.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // Watermark should still be the second transaction's timestamp
         assert_eq!(tx_mgr.min_active_snapshot_seq(), Some(ts2));
         assert_eq!(tx_mgr.active_transaction_count(), 1);
 
         // Commit second transaction
-        tx2.commit().await.unwrap();
+        tx2.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // All transactions committed, watermark should be None
         assert_eq!(tx_mgr.min_active_snapshot_seq(), None);
@@ -938,7 +938,7 @@ mod tests {
         assert_eq!(tx_mgr.active_transaction_count(), 1);
 
         // Commit second transaction
-        tx2.commit().await.unwrap();
+        tx2.commit(nanograph_wal::Durability::Sync).await.unwrap();
 
         // All transactions done, watermark should be None
         assert_eq!(tx_mgr.min_active_snapshot_seq(), None);
@@ -976,7 +976,7 @@ mod tests {
                 tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
                 // Commit
-                if tx.commit().await.is_ok() {
+                if tx.commit(nanograph_wal::Durability::Sync).await.is_ok() {
                     commit_count_clone.fetch_add(1, Ordering::SeqCst);
                 }
             });

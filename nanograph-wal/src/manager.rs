@@ -263,7 +263,7 @@ mod tests {
             kind: 1,
             payload: b"test_data",
         };
-        let lsn = writer.append(record, Durability::Flush).unwrap();
+        let lsn = writer.append(record, Durability::Buffered).unwrap();
 
         let mut reader = manager.reader_from(lsn).unwrap();
         let entry = reader.next().unwrap().unwrap();
