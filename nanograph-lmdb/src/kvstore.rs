@@ -16,6 +16,7 @@
 
 use crate::config::{LMDBConfig, LMDBStorageConfig};
 use crate::error::{LMDBError, LMDBResult};
+use crate::transaction::LMDBTransaction;
 use async_trait::async_trait;
 use lmdb::{
     Cursor, Database, DatabaseFlags, Environment, EnvironmentFlags, Transaction, WriteFlags,
@@ -23,11 +24,12 @@ use lmdb::{
 use nanograph_kvt::metrics::{ShardStats, StatValue};
 use nanograph_kvt::{
     KeyRange, KeyValueError, KeyValueIterator, KeyValueResult, KeyValueShardStore, ShardId,
-    Transaction as KvTransaction,
+    Timestamp, Transaction as KvTransaction, TransactionId,
 };
 use nanograph_vfs::DynamicFileSystem;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 /// LMDB implementation of KeyValueShardStore
@@ -45,6 +47,7 @@ use std::sync::{Arc, RwLock};
 /// - Small to medium datasets that fit in memory
 /// - Applications requiring fast point lookups
 /// - Embedded use cases
+#[derive(Clone)]
 pub struct LMDBKeyValueStore {
     /// LMDB environments for each shard (one environment per shard)
     environments: Arc<RwLock<HashMap<ShardId, Arc<Environment>>>>,
@@ -57,6 +60,9 @@ pub struct LMDBKeyValueStore {
 
     /// Base directory for all LMDB databases
     base_dir: PathBuf,
+
+    /// Transaction ID counter
+    next_txn_id: Arc<AtomicU64>,
 }
 
 impl LMDBKeyValueStore {
@@ -72,6 +78,7 @@ impl LMDBKeyValueStore {
             databases: Arc::new(RwLock::new(HashMap::new())),
             config,
             base_dir: PathBuf::from("./data/lmdb"),
+            next_txn_id: Arc::new(AtomicU64::new(1)),
         }
     }
 
@@ -81,8 +88,8 @@ impl LMDBKeyValueStore {
         self
     }
 
-    /// Get the LMDB environment for a shard
-    fn get_environment(&self, shard: ShardId) -> LMDBResult<Arc<Environment>> {
+    /// Get the LMDB environment for a shard (public for transaction access)
+    pub(crate) fn get_environment(&self, shard: ShardId) -> LMDBResult<Arc<Environment>> {
         let environments = self.environments.read().unwrap();
         environments
             .get(&shard)
@@ -90,8 +97,8 @@ impl LMDBKeyValueStore {
             .ok_or(LMDBError::ShardNotFound(shard.0))
     }
 
-    /// Get the LMDB database for a shard
-    fn get_database(&self, shard: ShardId) -> LMDBResult<Database> {
+    /// Get the LMDB database for a shard (public for transaction access)
+    pub(crate) fn get_database(&self, shard: ShardId) -> LMDBResult<Database> {
         let databases = self.databases.read().unwrap();
         databases
             .get(&shard)
@@ -405,11 +412,16 @@ impl KeyValueShardStore for LMDBKeyValueStore {
     // ===== Transaction Support =====
 
     async fn begin_transaction(&self) -> KeyValueResult<Arc<dyn KvTransaction>> {
-        // LMDB transactions are per-environment, not global
-        // For now, return an error indicating transactions need to be shard-specific
-        Err(KeyValueError::StorageCorruption(
-            "LMDB transactions are shard-specific, use environment-level transactions".to_string(),
-        ))
+        // Generate a unique transaction ID
+        let txn_id = TransactionId(self.next_txn_id.fetch_add(1, Ordering::SeqCst));
+        
+        // Get current timestamp for snapshot isolation
+        let snapshot_ts = Timestamp::now();
+        
+        // Create a new LMDB transaction wrapper
+        let txn = LMDBTransaction::new(txn_id, snapshot_ts, Arc::new(self.clone()));
+        
+        Ok(Arc::new(txn))
     }
 
     // ===== Shard Management =====

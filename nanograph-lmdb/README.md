@@ -139,6 +139,42 @@ let range = KeyRange::all().with_limit(100);
 let mut iter = store.scan(shard_id, range).await.unwrap();
 ```
 
+### Transactions
+
+LMDB supports ACID transactions with snapshot isolation. The transaction wrapper manages multiple LMDB environments to provide cross-shard transaction support:
+
+```rust
+// Begin a transaction
+let txn = store.begin_transaction().await.unwrap();
+
+// Perform operations within the transaction
+txn.put(shard_id, b"key1", b"updated_value").await.unwrap();
+txn.put(shard_id, b"key2", b"new_value").await.unwrap();
+
+// Transaction sees its own writes
+let value = txn.get(shard_id, b"key1").await.unwrap();
+assert_eq!(value, Some(b"updated_value".to_vec()));
+
+// Store doesn't see uncommitted changes
+let value = store.get(shard_id, b"key1").await.unwrap();
+assert_eq!(value, Some(b"old_value".to_vec()));
+
+// Commit the transaction
+txn.commit().await.unwrap();
+
+// Now store sees the committed changes
+let value = store.get(shard_id, b"key1").await.unwrap();
+assert_eq!(value, Some(b"updated_value".to_vec()));
+```
+
+**Transaction Implementation Notes:**
+
+- Transactions buffer writes in memory until commit
+- Cross-shard transactions are supported through the wrapper
+- On commit, writes are applied atomically to each shard's LMDB environment
+- Rollback simply discards the buffered writes
+- Snapshot isolation: transactions see a consistent view of data at transaction start time
+
 ### Statistics
 
 ```rust

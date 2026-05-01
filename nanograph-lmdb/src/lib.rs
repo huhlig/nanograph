@@ -120,11 +120,13 @@ mod config;
 mod error;
 mod iterator;
 mod kvstore;
+mod transaction;
 
 pub use self::config::{LMDBConfig, LMDBStorageConfig};
 pub use self::error::{LMDBError, LMDBResult};
 pub use self::iterator::LMDBIterator;
 pub use self::kvstore::LMDBKeyValueStore;
+pub use self::transaction::LMDBTransaction;
 pub use nanograph_kvt::{KeyValueError, KeyValueResult};
 
 // Made with Bob
