@@ -11,6 +11,10 @@ The LSM Tree is a write-optimized data structure that provides:
 - **Range Scans**: Sorted data structure enables efficient range queries
 - **Compaction**: Background compaction reduces space amplification
 - **MVCC Support**: Sequence numbers for multi-version concurrency control
+- **Transaction Deadlines**: Configurable read transaction timeouts (default: 5 minutes)
+  - Prevents long-running transactions from blocking garbage collection
+  - Automatic expiration with `SnapshotExpired` error
+  - Customizable per-transaction or global default
 - **Write-Ahead Logging (WAL)**: Active WAL writes for durability and crash recovery
   - Automatic WAL recovery on engine startup
   - Checkpointing for optimized recovery performance
@@ -86,6 +90,8 @@ Multi-level compaction strategy:
 
 ## Usage
 
+### Basic Operations
+
 ```rust
 use nanograph_lsm::{LSMTreeEngine, LSMTreeOptions};
 use nanograph_wal::{WriteAheadLogManager, WriteAheadLogConfig};
@@ -130,6 +136,42 @@ let stats = engine.stats();
 println!("Total writes: {}", stats.total_writes);
 println!("Total reads: {}", stats.total_reads);
 println!("Memtable size: {} bytes", stats.memtable_size);
+```
+
+### Transactions with Deadlines
+
+```rust
+use nanograph_lsm::TransactionManager;
+use std::time::Duration;
+
+// Create transaction manager
+let tx_mgr = TransactionManager::new(store);
+
+// Begin transaction with default deadline (5 minutes)
+let tx = tx_mgr.begin();
+tx.put(shard_id, b"key", b"value").await?;
+tx.commit(Durability::Sync).await?;
+
+// Begin transaction with custom deadline (30 seconds)
+let tx = tx_mgr.begin_with_deadline(Some(Duration::from_secs(30)));
+tx.get(shard_id, b"key").await?;
+tx.commit(Durability::Sync).await?;
+
+// Begin transaction with no deadline
+let tx = tx_mgr.begin_with_deadline(None);
+// Transaction will never expire
+tx.put(shard_id, b"key", b"value").await?;
+tx.commit(Durability::Sync).await?;
+
+// Handle expired transactions
+let tx = tx_mgr.begin_with_deadline(Some(Duration::from_millis(100)));
+tokio::time::sleep(Duration::from_millis(200)).await;
+match tx.get(shard_id, b"key").await {
+    Err(KeyValueError::SnapshotExpired) => {
+        println!("Transaction expired!");
+    }
+    _ => {}
+}
 ```
 
 ## Configuration

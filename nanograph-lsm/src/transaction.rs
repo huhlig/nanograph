@@ -22,6 +22,7 @@ use nanograph_kvt::{
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// Write operation in a transaction
 #[derive(Debug, Clone)]
@@ -38,11 +39,23 @@ pub struct LSMTransaction {
     write_buffer: Arc<Mutex<HashMap<ShardId, Vec<WriteOp>>>>,
     committed: Arc<Mutex<bool>>,
     rolled_back: Arc<Mutex<bool>>,
+    /// Transaction creation time for deadline tracking
+    created_at: Instant,
+    /// Transaction deadline (None means no deadline)
+    deadline: Option<Instant>,
 }
 
 impl LSMTransaction {
-    /// Create a new transaction
-    pub fn new(id: TransactionId, snapshot_ts: Timestamp, store: Arc<LSMKeyValueStore>) -> Self {
+    /// Create a new transaction with optional deadline
+    pub fn new(
+        id: TransactionId,
+        snapshot_ts: Timestamp,
+        store: Arc<LSMKeyValueStore>,
+        deadline: Option<Duration>,
+    ) -> Self {
+        let created_at = Instant::now();
+        let deadline_instant = deadline.map(|d| created_at + d);
+        
         Self {
             id,
             snapshot_ts,
@@ -50,10 +63,12 @@ impl LSMTransaction {
             write_buffer: Arc::new(Mutex::new(HashMap::new())),
             committed: Arc::new(Mutex::new(false)),
             rolled_back: Arc::new(Mutex::new(false)),
+            created_at,
+            deadline: deadline_instant,
         }
     }
 
-    /// Check if transaction is still active
+    /// Check if transaction is still active and not expired
     fn check_active(&self) -> KeyValueResult<()> {
         if *self.committed.lock().unwrap() {
             return Err(nanograph_kvt::KeyValueError::WriteConflict);
@@ -61,6 +76,14 @@ impl LSMTransaction {
         if *self.rolled_back.lock().unwrap() {
             return Err(nanograph_kvt::KeyValueError::WriteConflict);
         }
+        
+        // Check if transaction has exceeded its deadline
+        if let Some(deadline) = self.deadline {
+            if Instant::now() > deadline {
+                return Err(nanograph_kvt::KeyValueError::SnapshotExpired);
+            }
+        }
+        
         Ok(())
     }
 
@@ -300,6 +323,8 @@ pub struct TransactionManager {
     store: Arc<LSMKeyValueStore>,
     /// Track active transactions and their snapshot timestamps for GC watermark
     active_snapshots: Arc<Mutex<HashMap<TransactionId, i64>>>,
+    /// Default deadline for read transactions (default: 5 minutes)
+    default_deadline: Option<Duration>,
 }
 
 impl TransactionManager {
@@ -308,6 +333,7 @@ impl TransactionManager {
             next_tx_id: Arc::new(Mutex::new(1)),
             store,
             active_snapshots: Arc::new(Mutex::new(HashMap::new())),
+            default_deadline: Some(Duration::from_secs(5 * 60)), // 5 minutes default
         }
     }
 
@@ -318,8 +344,18 @@ impl TransactionManager {
         Self::new(dummy_store)
     }
 
-    /// Begin a new transaction
+    /// Set the default deadline for new transactions
+    pub fn set_default_deadline(&mut self, deadline: Option<Duration>) {
+        self.default_deadline = deadline;
+    }
+
+    /// Begin a new transaction with the default deadline
     pub fn begin(&self) -> Arc<dyn Transaction> {
+        self.begin_with_deadline(self.default_deadline)
+    }
+
+    /// Begin a new transaction with a custom deadline
+    pub fn begin_with_deadline(&self, deadline: Option<Duration>) -> Arc<dyn Transaction> {
         let tx_id = {
             let mut next_id = self.next_tx_id.lock().unwrap();
             let id = *next_id;
@@ -341,6 +377,7 @@ impl TransactionManager {
             tx_id,
             snapshot_ts,
             Arc::clone(&self.store),
+            deadline,
         ));
 
         // Store reference to transaction manager for cleanup on commit/rollback
@@ -386,6 +423,7 @@ impl Clone for TransactionManager {
             next_tx_id: Arc::clone(&self.next_tx_id),
             store: Arc::clone(&self.store),
             active_snapshots: Arc::clone(&self.active_snapshots),
+            default_deadline: self.default_deadline,
         }
     }
 }
@@ -1004,3 +1042,251 @@ mod tests {
         assert_eq!(tx_mgr.active_transaction_count(), 0);
     }
 }
+
+
+    #[tokio::test]
+    async fn test_transaction_deadline_not_expired() {
+        let store = Arc::new(LSMKeyValueStore::new());
+        store.init_tx_manager();
+        let tx_mgr = store.get_tx_manager();
+
+        let shard_id = ShardId::new(0);
+        let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
+        let data_path = nanograph_vfs::Path::from("/data");
+        let wal_path = nanograph_vfs::Path::from("/wal");
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
+
+        // Create transaction with 1 second deadline
+        let tx = tx_mgr.begin_with_deadline(Some(Duration::from_secs(1)));
+
+        // Perform operations within deadline
+        tx.put(shard_id, b"key1", b"value1").await.unwrap();
+        let value = tx.get(shard_id, b"key1").await.unwrap();
+        assert_eq!(value, Some(b"value1".to_vec()));
+
+        // Should commit successfully
+        tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_transaction_deadline_expired() {
+        let store = Arc::new(LSMKeyValueStore::new());
+        store.init_tx_manager();
+        let tx_mgr = store.get_tx_manager();
+
+        let shard_id = ShardId::new(0);
+        let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
+        let data_path = nanograph_vfs::Path::from("/data");
+        let wal_path = nanograph_vfs::Path::from("/wal");
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
+
+        // Create transaction with very short deadline (100ms)
+        let tx = tx_mgr.begin_with_deadline(Some(Duration::from_millis(100)));
+
+        // Wait for deadline to expire
+        tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+
+        // Operations should fail with SnapshotExpired
+        let result = tx.get(shard_id, b"key1").await;
+        assert!(matches!(
+            result,
+            Err(nanograph_kvt::KeyValueError::SnapshotExpired)
+        ));
+
+        let result = tx.put(shard_id, b"key1", b"value1").await;
+        assert!(matches!(
+            result,
+            Err(nanograph_kvt::KeyValueError::SnapshotExpired)
+        ));
+
+        let result = tx.delete(shard_id, b"key1").await;
+        assert!(matches!(
+            result,
+            Err(nanograph_kvt::KeyValueError::SnapshotExpired)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_transaction_no_deadline() {
+        let store = Arc::new(LSMKeyValueStore::new());
+        store.init_tx_manager();
+        let tx_mgr = store.get_tx_manager();
+
+        let shard_id = ShardId::new(0);
+        let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
+        let data_path = nanograph_vfs::Path::from("/data");
+        let wal_path = nanograph_vfs::Path::from("/wal");
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
+
+        // Create transaction with no deadline
+        let tx = tx_mgr.begin_with_deadline(None);
+
+        // Wait a bit
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Operations should still work
+        tx.put(shard_id, b"key1", b"value1").await.unwrap();
+        let value = tx.get(shard_id, b"key1").await.unwrap();
+        assert_eq!(value, Some(b"value1".to_vec()));
+
+        tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_transaction_default_deadline() {
+        let store = Arc::new(LSMKeyValueStore::new());
+        store.init_tx_manager();
+        let tx_mgr = store.get_tx_manager();
+
+        let shard_id = ShardId::new(0);
+        let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
+        let data_path = nanograph_vfs::Path::from("/data");
+        let wal_path = nanograph_vfs::Path::from("/wal");
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
+
+        // Use default deadline (5 minutes)
+        let tx = tx_mgr.begin();
+
+        // Operations should work fine within default deadline
+        tx.put(shard_id, b"key1", b"value1").await.unwrap();
+        let value = tx.get(shard_id, b"key1").await.unwrap();
+        assert_eq!(value, Some(b"value1".to_vec()));
+
+        tx.commit(nanograph_wal::Durability::Sync).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_transaction_deadline_on_commit() {
+        let store = Arc::new(LSMKeyValueStore::new());
+        store.init_tx_manager();
+        let tx_mgr = store.get_tx_manager();
+
+        let shard_id = ShardId::new(0);
+        let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
+        let data_path = nanograph_vfs::Path::from("/data");
+        let wal_path = nanograph_vfs::Path::from("/wal");
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
+
+        // Create transaction with short deadline
+        let tx = tx_mgr.begin_with_deadline(Some(Duration::from_millis(100)));
+
+        // Perform operation before deadline
+        tx.put(shard_id, b"key1", b"value1").await.unwrap();
+
+        // Wait for deadline to expire
+        tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+
+        // Commit should fail with SnapshotExpired
+        let result = tx.commit(nanograph_wal::Durability::Sync).await;
+        assert!(matches!(
+            result,
+            Err(nanograph_kvt::KeyValueError::SnapshotExpired)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_transaction_deadline_on_rollback() {
+        let store = Arc::new(LSMKeyValueStore::new());
+        store.init_tx_manager();
+        let tx_mgr = store.get_tx_manager();
+
+        let shard_id = ShardId::new(0);
+        let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
+        let data_path = nanograph_vfs::Path::from("/data");
+        let wal_path = nanograph_vfs::Path::from("/wal");
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
+
+        // Create transaction with short deadline
+        let tx = tx_mgr.begin_with_deadline(Some(Duration::from_millis(100)));
+
+        // Perform operation before deadline
+        tx.put(shard_id, b"key1", b"value1").await.unwrap();
+
+        // Wait for deadline to expire
+        tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+
+        // Rollback should fail with SnapshotExpired
+        let result = tx.rollback().await;
+        assert!(matches!(
+            result,
+            Err(nanograph_kvt::KeyValueError::SnapshotExpired)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_transaction_deadline_on_scan() {
+        let store = Arc::new(LSMKeyValueStore::new());
+        store.init_tx_manager();
+        let tx_mgr = store.get_tx_manager();
+
+        let shard_id = ShardId::new(0);
+        let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
+        let data_path = nanograph_vfs::Path::from("/data");
+        let wal_path = nanograph_vfs::Path::from("/wal");
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
+
+        // Create transaction with short deadline
+        let tx = tx_mgr.begin_with_deadline(Some(Duration::from_millis(100)));
+
+        // Wait for deadline to expire
+        tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+
+        // Scan should fail with SnapshotExpired
+        let range = KeyRange::all();
+        let result = tx.scan(shard_id, range).await;
+        assert!(matches!(
+            result,
+            Err(nanograph_kvt::KeyValueError::SnapshotExpired)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_transaction_deadline_multiple_operations() {
+        let store = Arc::new(LSMKeyValueStore::new());
+        store.init_tx_manager();
+        let tx_mgr = store.get_tx_manager();
+
+        let shard_id = ShardId::new(0);
+        let vfs = Arc::new(nanograph_vfs::MemoryFileSystem::new());
+        let data_path = nanograph_vfs::Path::from("/data");
+        let wal_path = nanograph_vfs::Path::from("/wal");
+        store
+            .create_shard(shard_id, vfs, data_path, wal_path)
+            .unwrap();
+
+        // Create transaction with 200ms deadline
+        let tx = tx_mgr.begin_with_deadline(Some(Duration::from_millis(200)));
+
+        // First operation should succeed
+        tx.put(shard_id, b"key1", b"value1").await.unwrap();
+
+        // Wait 100ms (still within deadline)
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Second operation should succeed
+        tx.put(shard_id, b"key2", b"value2").await.unwrap();
+
+        // Wait another 150ms (now past deadline)
+        tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+
+        // Third operation should fail
+        let result = tx.put(shard_id, b"key3", b"value3").await;
+        assert!(matches!(
+            result,
+            Err(nanograph_kvt::KeyValueError::SnapshotExpired)
+        ));
+    }

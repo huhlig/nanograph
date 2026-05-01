@@ -61,6 +61,8 @@ pub enum KeyValueError {
     WriteConflict,
     #[error("Lock poisoned")]
     LockPoisoned,
+    #[error("Snapshot expired: transaction exceeded deadline")]
+    SnapshotExpired,
 
     // Operational
     /// attempted to write on a read-only instance
