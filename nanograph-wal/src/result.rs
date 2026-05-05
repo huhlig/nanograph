@@ -38,6 +38,8 @@ pub enum WriteAheadLogError {
     WrappedError(Box<dyn std::error::Error + Send + Sync>),
     /// Checksum verification failed
     ChecksumMismatch,
+    /// A mutex lock was poisoned due to a panic in another thread
+    LockPoisoned,
 }
 
 impl WriteAheadLogError {

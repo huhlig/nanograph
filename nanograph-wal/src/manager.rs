@@ -119,12 +119,12 @@ impl WriteAheadLogManager {
     /// Will search through active and archived segments for the record.
     pub fn reader_from(&self, lsn: LogSequenceNumber) -> WriteAheadLogResult<WriteAheadLogReader> {
         let result = (|| {
-            let active = self.active_segment.lock().unwrap();
+            let active = self.active_segment.lock().map_err(|_| WriteAheadLogError::LockPoisoned)?;
             if active.segment_id() == lsn.segment_id {
                 return active.reader_from_offset(lsn.offset);
             }
 
-            let archived = self.archived_segments.lock().unwrap();
+            let archived = self.archived_segments.lock().map_err(|_| WriteAheadLogError::LockPoisoned)?;
             for segment in archived.iter() {
                 if segment.segment_id() == lsn.segment_id {
                     return segment.reader_from_offset(lsn.offset);
@@ -143,12 +143,12 @@ impl WriteAheadLogManager {
     /// The head LSN represents the point from which records are available.
     /// It changes when the WAL is truncated.
     pub fn head_lsn(&self) -> WriteAheadLogResult<LogSequenceNumber> {
-        let archived = self.archived_segments.lock().unwrap();
+        let archived = self.archived_segments.lock().map_err(|_| WriteAheadLogError::LockPoisoned)?;
         if let Some(first) = archived.first() {
             // Return the start LSN from the segment (which accounts for the header)
             Ok(first.start_lsn())
         } else {
-            let active = self.active_segment.lock().unwrap();
+            let active = self.active_segment.lock().map_err(|_| WriteAheadLogError::LockPoisoned)?;
             // Return the start LSN from the segment (which accounts for the header)
             Ok(active.start_lsn())
         }
@@ -158,13 +158,13 @@ impl WriteAheadLogManager {
     ///
     /// The tail LSN represents the point where the next record will be written.
     pub fn tail_lsn(&self) -> WriteAheadLogResult<LogSequenceNumber> {
-        let active = self.active_segment.lock().unwrap();
+        let active = self.active_segment.lock().map_err(|_| WriteAheadLogError::LockPoisoned)?;
         Ok(active.tail_lsn())
     }
 
     /// Remove segments strictly before the specified LSN.
     pub fn truncate_before(&self, lsn: LogSequenceNumber) -> WriteAheadLogResult<()> {
-        let mut archived = self.archived_segments.lock().unwrap();
+        let mut archived = self.archived_segments.lock().map_err(|_| WriteAheadLogError::LockPoisoned)?;
         let before_count = archived.len();
 
         // Collect segment IDs to delete before modifying the vector

@@ -67,7 +67,7 @@ impl WriteAheadLogReader {
         let start = Instant::now();
         let shard_id = self.segment_id as u128; // Using segment_id as shard_id for metrics
 
-        let mut file = self.file.lock().unwrap();
+        let mut file = self.file.lock().map_err(|_| WriteAheadLogError::LockPoisoned)?;
         let size = file.get_size().map_err(WriteAheadLogError::FileSystem)?;
         if self.offset >= size {
             return Ok(None);

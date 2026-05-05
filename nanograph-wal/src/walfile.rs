@@ -265,7 +265,7 @@ impl WriteAheadLogFile {
         let checksum = self.integrity.hash(&buffer).as_u32().unwrap_or(0);
         buffer.write_u32::<BigEndian>(checksum).unwrap();
 
-        let mut file = self.file.lock().unwrap();
+        let mut file = self.file.lock().map_err(|_| WriteAheadLogError::LockPoisoned)?;
 
         file.write_to_offset(self.write_offset, &buffer)
             .map_err(WriteAheadLogError::FileSystem)?;
@@ -276,14 +276,14 @@ impl WriteAheadLogFile {
 
     /// Flush the WAL segment to the operating system's buffers
     pub fn flush(&mut self) -> WriteAheadLogResult<()> {
-        let mut file = self.file.lock().unwrap();
+        let mut file = self.file.lock().map_err(|_| WriteAheadLogError::LockPoisoned)?;
         file.sync_data().map_err(WriteAheadLogError::FileSystem)?;
         Ok(())
     }
 
     /// Synchronize the WAL segment with stable storage
     pub fn sync(&mut self) -> WriteAheadLogResult<()> {
-        let mut file = self.file.lock().unwrap();
+        let mut file = self.file.lock().map_err(|_| WriteAheadLogError::LockPoisoned)?;
         file.sync_all().map_err(WriteAheadLogError::FileSystem)?;
         Ok(())
     }

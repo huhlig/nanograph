@@ -356,7 +356,7 @@ fn test_wal_tail_lsn_tracking() {
     let manager = WriteAheadLogManager::new(fs, "/wal", config).unwrap();
     let mut writer = manager.writer().unwrap();
 
-    let initial_tail = writer.tail_lsn();
+    let initial_tail = writer.tail_lsn().unwrap();
 
     // Write a record
     let record = WriteAheadLogRecord {
@@ -365,7 +365,7 @@ fn test_wal_tail_lsn_tracking() {
     };
     writer.append(record, Durability::Buffered).unwrap();
 
-    let new_tail = writer.tail_lsn();
+    let new_tail = writer.tail_lsn().unwrap();
     assert!(new_tail.offset > initial_tail.offset);
 
     // Verify manager's tail matches
@@ -473,7 +473,7 @@ fn test_wal_reader_at_end() {
     writer.append(record, Durability::Buffered).unwrap();
 
     // Create reader at tail
-    let tail = writer.tail_lsn();
+    let tail = writer.tail_lsn().unwrap();
     let mut reader = manager.reader_from(tail).unwrap();
 
     // Should be at end

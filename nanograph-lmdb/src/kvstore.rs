@@ -378,8 +378,11 @@ impl KeyValueShardStore for LMDBKeyValueStore {
         data_path: nanograph_vfs::Path,
         _wal_path: nanograph_vfs::Path,
     ) -> KeyValueResult<()> {
-        // Convert VFS path to system path
-        let path = PathBuf::from(data_path.to_string());
+        // Convert VFS path to system path and join with base_dir
+        let data_path_str = data_path.to_string();
+        // Remove leading slash if present to make it relative
+        let relative_path = data_path_str.trim_start_matches('/');
+        let path = self.base_dir.join(relative_path);
 
         // Create environment and database
         let (env, db) = self.create_environment_for_shard(shard_id, path)?;

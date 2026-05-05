@@ -17,7 +17,7 @@
 use crate::config::Durability;
 use crate::lsn::LogSequenceNumber;
 use crate::metrics;
-use crate::result::WriteAheadLogResult;
+use crate::result::{WriteAheadLogError, WriteAheadLogResult};
 use crate::walfile::WriteAheadLogFile;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -62,7 +62,7 @@ impl WriteAheadLogWriter {
         durability: Durability,
     ) -> WriteAheadLogResult<LogSequenceNumber> {
         let start = Instant::now();
-        let mut segment = self.active_segment.lock().unwrap();
+        let mut segment = self.active_segment.lock().map_err(|_| WriteAheadLogError::LockPoisoned)?;
         let shard_id = segment.shard_id();
 
         let result = segment.append(&record);
@@ -121,7 +121,7 @@ impl WriteAheadLogWriter {
         durability: Durability,
     ) -> WriteAheadLogResult<LogSequenceNumber> {
         let start = Instant::now();
-        let mut segment = self.active_segment.lock().unwrap();
+        let mut segment = self.active_segment.lock().map_err(|_| WriteAheadLogError::LockPoisoned)?;
         let shard_id = segment.shard_id();
         let mut last_lsn = LogSequenceNumber::ZERO;
         let mut record_count = 0u64;
@@ -183,7 +183,7 @@ impl WriteAheadLogWriter {
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn flush(&mut self) -> WriteAheadLogResult<()> {
         let start = Instant::now();
-        let mut segment = self.active_segment.lock().unwrap();
+        let mut segment = self.active_segment.lock().map_err(|_| WriteAheadLogError::LockPoisoned)?;
         let shard_id = segment.shard_id();
         let result = segment.flush();
 
@@ -198,7 +198,7 @@ impl WriteAheadLogWriter {
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn sync(&mut self) -> WriteAheadLogResult<()> {
         let start = Instant::now();
-        let mut segment = self.active_segment.lock().unwrap();
+        let mut segment = self.active_segment.lock().map_err(|_| WriteAheadLogError::LockPoisoned)?;
         let shard_id = segment.shard_id();
         let result = segment.sync();
 
@@ -210,9 +210,9 @@ impl WriteAheadLogWriter {
     }
 
     /// Get the current end-of-log position (Tail LSN)
-    pub fn tail_lsn(&self) -> LogSequenceNumber {
-        let segment = self.active_segment.lock().unwrap();
-        segment.tail_lsn()
+    pub fn tail_lsn(&self) -> WriteAheadLogResult<LogSequenceNumber> {
+        let segment = self.active_segment.lock().map_err(|_| WriteAheadLogError::LockPoisoned)?;
+        Ok(segment.tail_lsn())
     }
 }
 

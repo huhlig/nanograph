@@ -72,7 +72,7 @@ fn test_wal_full_read_write_cycle() {
         }
 
         // Verify tail LSN
-        let tail_lsn = writer.tail_lsn();
+        let tail_lsn = writer.tail_lsn().unwrap();
         assert!(tail_lsn.offset > HEADER_SIZE as u64);
     }
 
